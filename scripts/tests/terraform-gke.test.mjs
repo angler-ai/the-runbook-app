@@ -51,3 +51,18 @@ test('Google sign-in: the ID goes to the ConfigMap, the secret only to the Secre
   assert.match(read('secrets.tf'), /RUNBOOK_GOOGLE_CLIENT_SECRET\s*=\s*var\.google_client_secret/);
   assert.match(read('ingress.tf'), /sslPolicy\s*=\s*var\.ssl_policy/);
 });
+
+test('migration Job: its proxy reaches a private-IP instance and the kubelet can probe it', async () => {
+  const { readFileSync } = await import('node:fs');
+  const migration = readFileSync(`${tfDir}/migration.tf`, 'utf8');
+  // Like the Deployment's proxy: private IP, health server on the pod IP.
+  assert.match(migration, /"--private-ip"/);
+  assert.match(migration, /"--http-address=0\.0\.0\.0"/);
+  // Postgres listens on 127.0.0.1 only, so a tcpSocket probe on 5432 never passes.
+  assert.doesNotMatch(migration, /tcpSocket/);
+  assert.match(migration, /httpGet\s*=\s*\{\s*path\s*=\s*"\/startup"\s*port\s*=\s*9801/);
+  // The Service and PDB select app.kubernetes.io/name = runbook; the Job's pod must not match.
+  const podLabels = migration.match(/template = \{\s*#[^\n]*\n[^\n]*\n\s*metadata = \{\s*labels = \{([^}]*)\}/s);
+  assert.ok(podLabels, 'pod template labels found');
+  assert.doesNotMatch(podLabels[1], /"app\.kubernetes\.io\/name"\s*=\s*"runbook"\s*$/m);
+});

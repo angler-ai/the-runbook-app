@@ -47,9 +47,12 @@ resource "kubernetes_manifest" "migration_job" {
       activeDeadlineSeconds   = 900
       ttlSecondsAfterFinished = 86400
       template = {
+        # Not app.kubernetes.io/name = runbook: the Service and the PDB
+        # select on that, and the load balancer would route to this pod.
         metadata = {
           labels = {
-            "app.kubernetes.io/name"      = "runbook"
+            "app.kubernetes.io/name"      = "runbook-migrate"
+            "app.kubernetes.io/part-of"   = "runbook"
             "app.kubernetes.io/component" = "migration"
           }
         }
@@ -70,9 +73,15 @@ resource "kubernetes_manifest" "migration_job" {
               name          = "cloud-sql-proxy"
               image         = "gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.14.2"
               restartPolicy = "Always"
+              # Same connection as the Deployment's proxy: the instance has
+              # only a private IP. The health server listens on the pod IP
+              # (the kubelet probes there); Postgres stays on 127.0.0.1.
               args = [
+                "--private-ip",
+                "--structured-logs",
                 "--port=5432",
                 "--health-check",
+                "--http-address=0.0.0.0",
                 "--http-port=9801",
                 "--exit-zero-on-sigterm",
                 google_sql_database_instance.postgres.connection_name,
@@ -85,8 +94,9 @@ resource "kubernetes_manifest" "migration_job" {
                 },
               ]
               startupProbe = {
-                tcpSocket = {
-                  port = 5432
+                httpGet = {
+                  path = "/startup"
+                  port = 9801
                 }
                 periodSeconds    = 1
                 timeoutSeconds   = 1
