@@ -73,11 +73,10 @@ read -rs RUNBOOK_TOKEN && export RUNBOOK_TOKEN   # paste a personal access token
 dc exec -e RUNBOOK_TOKEN -e RUNBOOK_HOST=http://127.0.0.1:8080 server runbook whoami
 ```
 
-To run it on your machine instead, build it from the checkout:
+To run it on your machine instead, [install the CLI](/getting-started/cli/)
+and sign in:
 
 ```sh
-cargo build --release --locked -p runbook-cli
-export PATH="$PWD/target/release:$PATH"
 runbook login http://127.0.0.1:8080
 ```
 

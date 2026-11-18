@@ -302,4 +302,10 @@ resource "kubernetes_service_v1" "runbook_service" {
       protocol    = "TCP"
     }
   }
+
+  # GKE's NEG controller writes cloud.google.com/neg-status onto the Service;
+  # without this every plan would try to strip it again.
+  lifecycle {
+    ignore_changes = [metadata[0].annotations["cloud.google.com/neg-status"]]
+  }
 }

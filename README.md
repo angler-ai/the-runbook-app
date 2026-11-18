@@ -140,7 +140,7 @@ Over MCP, an agent can draft a runbook (`save_runbook_draft`), validate it and s
 - **MCP server:** local over stdio, or remote at `/mcp` with OAuth sign-in for Claude, Cursor and other clients.
 - **Webhooks:** signed, with delivery logs, redelivery and secret rotation.
 - **Reports:** JSON, Markdown, JUnit and PDF.
-- **CLI:** for scripts, CI and agents. `runbook login https://your-server` asks nothing else; contexts hold several servers, each with a default project. `runbook push`, `diff` and `publish` keep runbooks in git.
+- **CLI:** for scripts, CI and agents. `runbook login https://your-server` asks nothing else; contexts hold several servers, each with a default project. `runbook push`, `diff` and `publish` keep runbooks in git. Install it on macOS or Linux with `curl -fsSL https://github.com/angler-ai/the-runbook-app/releases/latest/download/install.sh | sh`.
 - **REST API:** full, with an OpenAPI contract (`api/openapi.draft.json`).
 
 **Security and control**

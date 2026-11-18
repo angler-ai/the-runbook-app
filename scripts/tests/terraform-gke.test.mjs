@@ -95,3 +95,9 @@ test('the app container runs as the image user by number, and the image names it
   assert.match(dockerfile, /^USER 10001:10001$/m);
   assert.match(dockerfile, /useradd --system --uid 10001/);
 });
+
+test('the Service ignores the NEG status annotation GKE writes onto it', async () => {
+  const { readFileSync } = await import('node:fs');
+  const workload = readFileSync(`${tfDir}/workload.tf`, 'utf8');
+  assert.match(workload, /ignore_changes\s*=\s*\[metadata\[0\]\.annotations\["cloud\.google\.com\/neg-status"\]\]/);
+});

@@ -2,12 +2,12 @@
 title: Your first runbook, agent run and approval
 description: Write a runbook, publish it, work its steps as an agent and decide an approval.
 sidebar:
-  order: 4
+  order: 5
 ---
 
 This walkthrough uses the CLI against a server you started in a
-[quick start](/getting-started/docker/). Sign in first with
-`runbook login https://your-server`.
+[quick start](/getting-started/docker/). [Install the CLI](/getting-started/cli/)
+and sign in first with `runbook login https://your-server`.
 
 ## Write it
 

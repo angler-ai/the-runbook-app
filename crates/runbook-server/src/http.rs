@@ -670,6 +670,38 @@ pub(crate) fn to_axum(response: runbook_api::http::HttpResponse) -> Response<Bod
 fn encode(response: ApiResponse) -> Response<Body> {
     to_axum(runbook_api::http::encode(response))
 }
+/// How long startup keeps retrying a database it cannot reach yet: a Cloud
+/// SQL proxy sidecar, say, that starts alongside the server.
+const START_CONNECT_WINDOW: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Connect for startup, retrying only `postgres.connection_failed` (the
+/// database not reachable yet) with backoff until `window` has passed. Any
+/// other error, such as a refused login, fails at once.
+pub(crate) async fn connect_on_start(
+    database: &runbook_store_postgres::DatabaseConfig,
+    window: std::time::Duration,
+) -> Result<runbook_store_postgres::PostgresStore, Error> {
+    let deadline = tokio::time::Instant::now() + window;
+    let mut delay = std::time::Duration::from_millis(250);
+    loop {
+        match runbook_store_postgres::PostgresStore::connect(database).await {
+            Ok(store) => return Ok(store),
+            Err(e) if e.0 == "postgres.connection_failed" => {
+                let now = tokio::time::Instant::now();
+                if now >= deadline {
+                    return Err(Error(e.0));
+                }
+                crate::log::warning(
+                    "server",
+                    "postgres.connection_failed: the database is not reachable yet; retrying",
+                );
+                tokio::time::sleep(delay.min(deadline - now)).await;
+                delay = (delay * 2).min(std::time::Duration::from_secs(4));
+            }
+            Err(e) => return Err(Error(e.0)),
+        }
+    }
+}
 /// HOST1: the listeners `serve` binds, after migrating the database (under
 /// its advisory lock, so replicas starting together apply each migration
 /// once and the rest wait).
@@ -682,9 +714,7 @@ impl Listeners {
     /// Also records the database's schema in `config` (UPD1: `/v1/meta`
     /// reports it).
     pub async fn bind(config: &mut ServerConfig) -> Result<Self, Error> {
-        let mut store = runbook_store_postgres::PostgresStore::connect(&config.database)
-            .await
-            .map_err(|e| Error(e.0))?;
+        let mut store = connect_on_start(&config.database, START_CONNECT_WINDOW).await?;
         config.schema_version = if config.migrate_on_start {
             store.migrate().await.map_err(|e| Error(e.0))?
         } else {
@@ -1290,5 +1320,65 @@ async fn stream_response(
         }
         Ok(Ok(Err(error))) => encode(error),
         _ => encode(ApiResponse::error(503, "stream.unavailable", id)),
+    }
+}
+
+#[cfg(test)]
+mod start_connect_tests {
+    use super::connect_on_start;
+    use runbook_store_postgres::DatabaseConfig;
+    use std::time::{Duration, Instant};
+
+    fn free_port() -> u16 {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.local_addr().unwrap().port()
+    }
+
+    #[tokio::test]
+    async fn startup_gives_up_once_the_window_passes() {
+        let url = format!("postgres://runbook:x@127.0.0.1:{}/runbook", free_port());
+        let config = DatabaseConfig::from_values(Some(url), None).unwrap();
+        let started = Instant::now();
+        let error = connect_on_start(&config, Duration::from_millis(800))
+            .await
+            .err()
+            .expect("nothing listens there");
+        assert_eq!(error.0, "postgres.connection_failed");
+        let waited = started.elapsed();
+        assert!(waited >= Duration::from_millis(800), "{waited:?}");
+        assert!(waited < Duration::from_secs(5), "{waited:?}");
+    }
+
+    /// A Cloud SQL proxy sidecar that starts after the server: the database
+    /// is reachable only after a delay, and startup waits for it.
+    #[tokio::test]
+    #[ignore = "requires DATABASE_URL; owned databases only"]
+    async fn startup_waits_for_a_database_that_comes_up_late() {
+        let mut url = url::Url::parse(&std::env::var("DATABASE_URL").unwrap()).unwrap();
+        let upstream = format!("{}:{}", url.host_str().unwrap(), url.port().unwrap_or(5432));
+        let port = free_port();
+        url.set_host(Some("127.0.0.1")).unwrap();
+        url.set_port(Some(port)).unwrap();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(1200)).await;
+            let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
+                .await
+                .unwrap();
+            loop {
+                let (mut inbound, _) = listener.accept().await.unwrap();
+                let upstream = upstream.clone();
+                tokio::spawn(async move {
+                    let mut outbound = tokio::net::TcpStream::connect(upstream).await.unwrap();
+                    let _ = tokio::io::copy_bidirectional(&mut inbound, &mut outbound).await;
+                });
+            }
+        });
+        let config = DatabaseConfig::from_values(Some(url.to_string()), None).unwrap();
+        let started = Instant::now();
+        let store = connect_on_start(&config, Duration::from_secs(30))
+            .await
+            .unwrap_or_else(|e| panic!("{}", e.0));
+        assert!(started.elapsed() >= Duration::from_millis(1200));
+        store.client().query_one("SELECT 1", &[]).await.unwrap();
     }
 }
