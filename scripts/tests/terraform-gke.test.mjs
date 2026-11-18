@@ -86,3 +86,12 @@ test('the load balancer is a trusted proxy, and config or secret changes roll th
   assert.match(workload, /"runbook\.dev\/config-sha256"\s*=\s*sha256\(jsonencode\(kubernetes_config_map\.runbook_config\.data\)\)/);
   assert.match(workload, /"runbook\.dev\/secret-sha256"\s*=\s*nonsensitive\(sha256\(jsonencode\(kubernetes_secret\.runbook_secrets\.data\)\)\)/);
 });
+
+test('the app container runs as the image user by number, and the image names it by number', async () => {
+  const { readFileSync } = await import('node:fs');
+  const workload = readFileSync(`${tfDir}/workload.tf`, 'utf8');
+  assert.match(workload, /run_as_non_root\s*=\s*true\s*run_as_user\s*=\s*10001\s*run_as_group\s*=\s*10001/);
+  const dockerfile = readFileSync(new URL('../../Dockerfile', import.meta.url), 'utf8');
+  assert.match(dockerfile, /^USER 10001:10001$/m);
+  assert.match(dockerfile, /useradd --system --uid 10001/);
+});

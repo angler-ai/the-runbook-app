@@ -117,7 +117,9 @@ ENV RUNBOOK_LISTEN_PORT_FROM_ENV=1 \
     RUNBOOK_AUTH_COMMAND="/usr/local/bin/bun /usr/share/runbook/auth/dist/server.mjs" \
     BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 \
     HOME=/home/runbook
-USER runbook:runbook
+# Numeric (the runbook user and group above), so Kubernetes' runAsNonRoot
+# can verify it without a runAsUser.
+USER 10001:10001
 WORKDIR /home/runbook
 EXPOSE 8080 8081
 # /health/live (HOST1) answers without the database and names nothing; curl

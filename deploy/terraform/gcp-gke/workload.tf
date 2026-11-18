@@ -209,9 +209,13 @@ resource "kubernetes_deployment" "runbook" {
             }
           }
 
+          # The image's runbook user, by number: with only run_as_non_root the
+          # kubelet cannot verify a named USER and refuses to start the pod.
           security_context {
             read_only_root_filesystem  = true
             run_as_non_root            = true
+            run_as_user                = 10001
+            run_as_group               = 10001
             allow_privilege_escalation = false
           }
 
