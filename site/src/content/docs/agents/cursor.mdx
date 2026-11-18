@@ -1,0 +1,108 @@
+---
+title: Cursor
+description: Give Cursor's agent the therunbook skill and the Runbook MCP server.
+sidebar:
+  order: 5
+---
+
+import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Cursor's agent can run terminal commands and call MCP tools. Either works;
+the CLI keeps tokens out of the model's context.
+
+## With the CLI and the skill
+
+<Steps>
+
+1. **Install the CLI** and sign in:
+
+   ```sh
+   cargo build --release --locked -p runbook-cli
+   export PATH="$PWD/target/release:$PATH"
+   runbook login https://runbooks.example.com
+   ```
+
+2. **Install the skill:**
+
+   ```sh
+   runbook skill install --agent cursor --therunbook --scope project
+   ```
+
+   That writes `.cursor/skills/therunbook/` in this repository. Without
+   `--scope project` it goes to `~/.cursor/skills/`.
+
+3. **Give the agent its own credential:**
+
+   ```sh
+   runbook token create --agent --name cursor --expires-in 30d \
+     --scope runbooks:read --scope executions:read --scope executions:act --json
+   ```
+
+   Export the secret as `RUNBOOK_TOKEN` in the terminal Cursor's agent uses.
+
+4. **Ask the agent**, in agent mode:
+
+   ```text
+   Work the next agent step of run exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7.
+   ```
+
+</Steps>
+
+## Over MCP
+
+<Tabs>
+<TabItem label="Local (stdio)">
+
+```json title=".cursor/mcp.json"
+{
+  "mcpServers": {
+    "runbook": {
+      "command": "runbook",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
+```
+
+</TabItem>
+<TabItem label="Remote, with OAuth">
+
+```json title=".cursor/mcp.json"
+{
+  "mcpServers": {
+    "runbook": {
+      "url": "https://runbooks.example.com/mcp"
+    }
+  }
+}
+```
+
+Cursor shows the server as needing sign-in; connect it from Cursor's MCP
+settings, sign in with an email code and tick the scopes it may use.
+
+</TabItem>
+<TabItem label="Remote, with a token">
+
+```json title=".cursor/mcp.json"
+{
+  "mcpServers": {
+    "runbook": {
+      "url": "https://runbooks.example.com/mcp",
+      "headers": { "Authorization": "Bearer ${env:RUNBOOK_TOKEN}" }
+    }
+  }
+}
+```
+
+</TabItem>
+</Tabs>
+
+Put the file in `~/.cursor/mcp.json` instead to make the server available in
+every project.
+
+## Writing runbooks in Cursor
+
+With the MCP server connected, Cursor's agent can draft a runbook, validate
+it and save it as a draft (`validate_runbook`, `save_runbook_draft`). A
+person with `runbooks:publish` publishes it. See [draft a runbook from an
+incident doc](/agents/prompts/#draft-a-runbook-from-an-incident-doc).

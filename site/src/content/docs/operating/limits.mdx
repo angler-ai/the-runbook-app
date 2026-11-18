@@ -1,0 +1,88 @@
+---
+title: Limits
+description: Every size, count and time limit, and the ones an operator can set.
+sidebar:
+  order: 9
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+## Limits you can set
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `RUNBOOK_LIMIT_STEP_RUNS` | `off` | Most step runs one run may open. A run that would open one more fails with `limit.step_runs_exceeded`, keeping what it did. The editor warns when a runbook's worst case is over it |
+| `RUNBOOK_LIMIT_RUN_BYTES` | 8 MiB | Most a run's event log may hold. A write over 4 KiB that would pass it is refused (`422 execution.too_large`); small writes (claims, a cancel, a short report) always pass, so a full run can still be finished. At one and a half times this, the run is closed failed with `limit.run_size_exceeded` |
+| `RUNBOOK_LIMIT_EXECUTIONS_MONTHLY` | `off` | Most run starts per organization per calendar month (UTC); past it, starts fail with `429 limit.executions_monthly` |
+| `RUNBOOK_MAX_REQUEST_BYTES` | about 2 MiB | Request bodies; skill uploads allow 64 MiB |
+| `RUNBOOK_MAX_SOURCE_BYTES` | 1 MiB | A runbook's source |
+| `RUNBOOK_MAX_SKILL_BYTES` | 64 MiB | A skill upload |
+| `RUNBOOK_DATABASE_POOL_SIZE` | 16 | Pooled PostgreSQL connections |
+
+On Cloudflare, set the `RUNBOOK_LIMIT_*` names under `vars` in
+`wrangler.prod.jsonc`. `/v1/meta` reports the limits in force.
+
+## The language
+
+These are fixed, so a runbook runs the same on every server:
+
+| | Limit |
+| --- | --- |
+| Steps with IDs | 256 |
+| Container nesting | 32; `foreach` and `loop` 4 deep |
+| `parallel` branches | 20 |
+| `foreach.max_items` | 100 |
+| `loop.max_iterations` | 50 |
+| A single `wait.for` | 7 days |
+| `call` depth | 3 |
+| Indexed fields | 10 |
+| Skills on a step | 8 |
+| Labels on a step | 16 |
+| Triggers | 16 schedules and 16 webhook triggers |
+| `spec.agents.params` | 4,096 bytes |
+| An expression | 4,096 bytes, 256 nodes, 32 deep |
+
+## Runs
+
+| | Limit |
+| --- | --- |
+| A step's outputs | 64 KiB (`422 step.outputs_too_large`) |
+| A step's log | 5 MiB (`422 step.logs_too_large`) |
+| A run's outputs together | 900 KiB (`execution.outputs_too_large`) |
+| An agent's lease | 10 minutes after the last heartbeat |
+| Idempotency keys | Replayed for 24 hours |
+
+## Tokens
+
+| | Lifetime |
+| --- | --- |
+| Personal access token | 90 days by default, at most 1 year, never past the token that issued it |
+| Service token | Until revoked, or an expiry you set |
+| Execution access token | 1 hour, refreshed by the client |
+| Execution refresh family | At most 30 days, and only while the run is open |
+| OAuth (MCP clients) | Access 1 hour; refresh 30 days, within 90 days of the person's consent |
+
+## Webhooks
+
+| | Limit |
+| --- | --- |
+| Subscriptions per project | 20 |
+| Subscription URL | 2,048 bytes |
+| A delivery | `2xx` within 10 seconds |
+| Retries | Backoff from 30 s to 2 h, for 24 hours |
+| Disabled after | 3 days of continuous failure |
+| Delivery log | 90 days |
+
+## Sign-in
+
+| | Limit |
+| --- | --- |
+| Code resend | Once a minute |
+| Codes | 5 per email and 10 per client address an hour |
+| A code | 10 minutes, 5 attempts |
+
+<Aside type="note" title="Evidence uploads">
+Uploads accept PNG, JPEG, WebP, GIF, PDF, text and JSON (HEIC and SVG are
+refused). Images over 8,000 pixels on a side, or 4,096 × 4,096 in total, are
+refused; the CLI's `--resize` shrinks them first.
+</Aside>

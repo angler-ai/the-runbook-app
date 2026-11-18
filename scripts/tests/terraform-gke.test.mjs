@@ -75,3 +75,14 @@ test('every container sets ephemeral-storage, so Autopilot does not change the a
   assert.equal((migration.match(/"ephemeral-storage"\s*=\s*"1Gi"/g) || []).length, 4);
   assert.equal((workload.match(/"ephemeral-storage"\s*=\s*"1Gi"/g) || []).length, 4);
 });
+
+test('the load balancer is a trusted proxy, and config or secret changes roll the pods', async () => {
+  const { readFileSync } = await import('node:fs');
+  const workload = readFileSync(`${tfDir}/workload.tf`, 'utf8');
+  assert.match(
+    workload,
+    /RUNBOOK_TRUSTED_PROXIES\s*=\s*"35\.191\.0\.0\/16,130\.211\.0\.0\/16,\$\{google_compute_global_address\.ingress_ip\.address\}"/,
+  );
+  assert.match(workload, /"runbook\.dev\/config-sha256"\s*=\s*sha256\(jsonencode\(kubernetes_config_map\.runbook_config\.data\)\)/);
+  assert.match(workload, /"runbook\.dev\/secret-sha256"\s*=\s*nonsensitive\(sha256\(jsonencode\(kubernetes_secret\.runbook_secrets\.data\)\)\)/);
+});

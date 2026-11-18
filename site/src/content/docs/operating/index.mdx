@@ -1,0 +1,39 @@
+---
+title: Operating it
+description: Running a self-hosted server, on containers with PostgreSQL or on your own Cloudflare account.
+sidebar:
+  order: 1
+  label: Overview
+---
+
+import { CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+The Runbook is self-hosted, in one of two editions. They run the same
+engine, language, API, CLI, MCP server and web app; they differ in where
+state lives and how you deploy and update.
+
+| | Docker/Kubernetes | Cloudflare |
+| --- | --- | --- |
+| Runs as | One container image: the server, the sign-in service, the web app and the CLI | Two Workers (api and sign-in) with Durable Objects, D1, R2 and Queues, in your account |
+| State | PostgreSQL 14+ | D1 (directory and indexes), Durable Objects (runs), R2 (blobs) |
+| Blobs | In PostgreSQL, or a GCS or S3 bucket | R2 |
+| Configured with | Environment variables | `wrangler.prod.jsonc`, `wrangler.auth.prod.jsonc` and `wrangler secret put` |
+| Updated with | `deploy/update.sh` (compose) or a new image | `npm run update` in `cloudflare/` |
+| Backups | `pg_dump` or your provider's | D1 Time Travel, plus project exports |
+| Plan needed | Any host that runs a container | Workers Paid |
+
+Pages that differ by edition say so with **Docker/Kubernetes** and
+**Cloudflare** tabs or notes.
+
+<CardGrid>
+  <LinkCard title="Install and configure" description="The settings every install needs, on each platform." href="/operating/install/" />
+  <LinkCard title="Sign-in and roles" description="Email codes and Google, invitations, organization and project roles." href="/operating/sign-in/" />
+  <LinkCard title="Storage" description="PostgreSQL, and blobs in Postgres, GCS or S3." href="/operating/storage/" />
+  <LinkCard title="Upgrades and rollback" description="Verified releases, automatic backups and rollback." href="/operating/upgrades/" />
+  <LinkCard title="Backups" description="What to back up, and the secrets that go with it." href="/operating/backups/" />
+  <LinkCard title="Archives and retention" description="Daily archives, and how long run detail is kept." href="/operating/retention/" />
+  <LinkCard title="Monitoring" description="Health checks, logs and the doctor command." href="/operating/monitoring/" />
+  <LinkCard title="Limits" description="Every size and rate limit, and the ones you can set." href="/operating/limits/" />
+  <LinkCard title="Keep runbooks in Git" description="Publish a repository folder from CI." href="/operating/git-sync/" />
+  <LinkCard title="Slack and email" description="Notifications, and approving from Slack." href="/operating/slack/" />
+</CardGrid>

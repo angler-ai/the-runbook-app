@@ -1,0 +1,189 @@
+---
+title: Inputs, outputs, fields and variables
+description: The data a run carries, how each kind is declared and changed, and the types a declaration can have.
+sidebar:
+  order: 3
+  label: Data
+---
+
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+import Flow from '../../../components/Flow.astro';
+
+A run carries five kinds of data. Each is typed, and a value that doesn't
+match its declaration is refused before anything is recorded.
+
+<Flow
+  steps={[
+    { title: 'inputs', text: 'Given when the run starts; fixed after', tone: 'system' },
+    { title: 'step outputs', text: 'Reported by each step', tone: 'agent' },
+    { title: 'vars', text: 'Working values, changed by set', tone: 'system' },
+    { title: 'fields', text: 'Shown and searchable on the run', tone: 'human' },
+    { title: 'spec.outputs', text: 'The run\'s results, at the end', tone: 'current' },
+  ]}
+/>
+
+| Kind | Declared in | Changed by | Read as |
+| --- | --- | --- | --- |
+| Inputs | `spec.inputs` | Nothing: fixed at start | `inputs.<name>` |
+| Step outputs | A step's `outputs` | That step's report | `steps.<id>.outputs.<name>` |
+| Variables | `spec.vars` (with starting values) | `set.vars` | `vars.<name>` |
+| Fields | `spec.fields` | `set.fields`, or a person on the run page | `fields.<name>` |
+| Run outputs | `spec.outputs` (expressions) | Computed when the run ends | By a parent's `call`, the run page, `execution.completed` |
+
+## Declarations
+
+Inputs, fields, step outputs, signal payloads, a `call`'s outputs and a
+webhook trigger's payload all use the same declarations:
+
+```yaml
+service: { type: string, required: true, title: Service, description: The deployment name. }
+replicas: { type: integer, min: 1, max: 20, default: 3 }
+environment: { type: enum, options: [staging, production], default: staging }
+ticket: { type: string, pattern: "OPS-[0-9]+" }
+regions: { type: list, items: { type: string }, min: 1 }
+owner:
+  type: object
+  properties:
+    name: { type: string, required: true }
+    email: { type: email }
+```
+
+| Type | Values | Constraints |
+| --- | --- | --- |
+| `string`, `text` | Text (`text` may span lines) | `min`/`max` length, `pattern` |
+| `number`, `integer` | Numbers; `integer` fits in 64 bits | `min`, `max` |
+| `boolean` | `true` or `false` | |
+| `enum`, `multi_enum` | One, or a list of distinct, `options` | `options` |
+| `list` | A list of `items` | `items`, `min`/`max` count |
+| `object` | Named `properties`; closed | `properties` |
+| `date`, `datetime`, `duration` | `2026-12-01`, RFC 3339, `1h30m` | |
+| `url`, `email`, `user` | An `http(s)` URL, an address, a person | |
+
+Declarations are **closed**: an object value with a property the
+declaration doesn't name is refused (`data.unknown_field`), and no type
+accepts `null`. Every key is in the [key
+reference](/reference/keys/#declarations).
+
+## Inputs
+
+Inputs are given when a run starts, from the CLI, the web app's start form
+(built from the declarations), the API, a schedule or a webhook trigger:
+
+<Tabs>
+<TabItem label="CLI">
+
+```sh
+runbook run start post-deploy --project prod \
+  --input service=api --input replicas=6 --input 'regions=["us-west","eu-west"]'
+```
+
+</TabItem>
+<TabItem label="API">
+
+```sh
+curl -X POST "$RUNBOOK_HOST/v1/projects/prod/executions" \
+  -H "Authorization: Bearer $RUNBOOK_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"runbook": "post-deploy", "inputs": {"service": "api", "replicas": 6}}'
+```
+
+</TabItem>
+</Tabs>
+
+A start with a missing required input, or a value of the wrong type, is
+refused and no run is created.
+
+## Step outputs
+
+A task declares what its report must contain; the report is checked against
+it before anything is recorded:
+
+```yaml title="measure-latency.yaml"
+metadata: { id: measure-latency }
+spec:
+  steps:
+    - id: measure
+      actor: agent
+      check: true
+      instructions: Measure p95 latency over the last 15 minutes.
+      outputs:
+        p95_ms: { type: number, required: true }
+        dashboard: { type: url }
+    - id: escalate
+      if: "${{ steps.measure.outputs.p95_ms > 500 }}"
+      actor: human
+      instructions: Latency is ${{ steps.measure.outputs.p95_ms }} ms. Investigate.
+```
+
+```sh
+runbook step report "$SR" --status succeeded --verdict pass \
+  --output p95_ms=212 --output dashboard=https://grafana.example.com/d/latency
+```
+
+A step's outputs are at most 64 KiB, and all of a run's outputs together
+at most 900 KiB.
+
+## Variables and fields
+
+Both change with `set`. Use **variables** for working values that steps
+pass along; use **fields** for what people want to see and search on the
+run, such as a severity or a ticket.
+
+```yaml title="triage.yaml"
+metadata: { id: triage }
+spec:
+  fields:
+    severity: { type: enum, options: [sev1, sev2, sev3], default: sev3, indexed: true }
+    ticket: { type: url }
+  vars:
+    paged: false
+  steps:
+    - id: assess
+      actor: human
+      outputs:
+        customer_impact: { type: boolean, required: true }
+    - id: raise
+      if: "${{ steps.assess.outputs.customer_impact }}"
+      set:
+        fields: { severity: sev1 }
+        vars: { paged: true }
+```
+
+`indexed: true` (at most 10 fields) makes a field searchable:
+
+```sh
+runbook run list --project prod --field severity=sev1
+```
+
+People with access to the run can edit fields on the run page, unless a
+field is `locked`. Variables change only through `set`.
+
+<Aside type="note">
+A variable's starting value may be an expression over inputs and other
+variables, so it's computed once when the run starts:
+`tag: "release-${{ inputs.version }}"`.
+</Aside>
+
+## Run outputs and the report
+
+`spec.outputs` computes the run's results when it ends. They show at the top
+of the run page, in `execution.completed` webhooks, and in a parent's `call`
+step. `spec.report` renders a Markdown summary the same way:
+
+```yaml title="canary-result.yaml"
+metadata: { id: canary-result }
+spec:
+  inputs:
+    service: { type: string, required: true }
+  steps:
+    - id: canary
+      actor: agent
+      check: true
+      outputs:
+        error_rate: { type: number, required: true }
+  outputs:
+    verdict: "${{ steps.canary.verdict }}"
+    error_rate: "${{ steps.canary.outputs.error_rate }}"
+  report: |
+    ## Canary for ${{ inputs.service }}
+    Verdict **${{ steps.canary.verdict }}** at ${{ steps.canary.outputs.error_rate }} errors.
+```

@@ -3,8 +3,9 @@
 //!
 //! 1. The request must carry a valid Slack signature over its exact body,
 //!    made with this server's signing secret, at most five minutes old.
-//! 2. The clicking Slack user is matched to a Runbook user by email
-//!    (`users.info`, scope `users:read.email`), who must be an active
+//! 2. The clicker must belong to the bot token's own workspace (`auth.test`'s
+//!    `team_id`, and not `is_stranger`), and is matched to a Runbook user by
+//!    email (`users.info`, scope `users:read.email`), who must be an active
 //!    member of the organization the message came from.
 //! 3. The vote is cast through the ordinary decision route, with a
 //!    one-minute token of that person's own (revoked right after), so
@@ -103,10 +104,28 @@ async fn decide<B: Backends>(
     let slack_user = payload["user"]["id"]
         .as_str()
         .ok_or("Slack did not say who clicked.")?;
+    // Only clicks from the workspace the bot token belongs to: a shared
+    // channel (Slack Connect) carries the message into other workspaces.
+    const OTHER_WORKSPACE: &str =
+        "This Slack workspace is not the one The Runbook is connected to.";
+    let own_team = backends
+        .slack_api(token, "auth.test", &[], None)
+        .await
+        .map_err(|_| "Could not reach Slack. Try again, or decide in The Runbook.")?;
+    let own_team = own_team["team_id"]
+        .as_str()
+        .filter(|t| !t.is_empty())
+        .ok_or("Could not reach Slack. Try again, or decide in The Runbook.")?;
+    if payload["user"]["team_id"].as_str() != Some(own_team) {
+        return Err(OTHER_WORKSPACE.into());
+    }
     let info = backends
         .slack_api(token, "users.info", &[("user", slack_user)], None)
         .await
         .map_err(|_| "Could not look you up in Slack. Try again, or decide in The Runbook.")?;
+    if info["user"]["is_stranger"].as_bool().unwrap_or(false) {
+        return Err(OTHER_WORKSPACE.into());
+    }
     let email = info["user"]["profile"]["email"]
         .as_str()
         .filter(|e| !e.is_empty())

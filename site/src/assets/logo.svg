@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- The Runbook: three steps on an indigo tile, the current one in mint (web/public/icons/icon.svg). -->
+  <rect width="512" height="512" rx="112" fill="#4338CA"/>
+  <rect x="112" y="116" width="288" height="72" rx="36" fill="#FFFFFF"/>
+  <rect x="112" y="220" width="288" height="72" rx="36" fill="#FFFFFF"/>
+  <rect x="112" y="324" width="170" height="72" rx="36" fill="#00CC99"/>
+</svg>

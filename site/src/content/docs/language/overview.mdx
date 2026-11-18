@@ -1,0 +1,152 @@
+---
+title: The runbook language
+description: The shape of a runbook, the kinds of steps, and how a runbook is checked before it runs.
+sidebar:
+  order: 1
+  label: Overview
+---
+
+import { Aside, CardGrid, LinkCard } from '@astrojs/starlight/components';
+import Flow from '../../../components/Flow.astro';
+
+A runbook is one YAML document: `metadata` says what it is, `spec` says what
+it does. Only IDs are required, so the smallest runbook is four lines:
+
+```yaml title="hello.yaml"
+metadata: { id: hello }
+spec:
+  steps:
+    - id: say_hello
+```
+
+That's a runbook with one task, titled "Say hello", that a person or an
+agent may do.
+
+## A fuller runbook
+
+```yaml title="post-deploy.yaml"
+apiVersion: therunbook.app/v1   # optional
+kind: Runbook                   # optional
+metadata:
+  id: post-deploy
+  title: Post-deploy verification
+  owners: [team:oncall]
+spec:
+  execution:
+    title: "Verify ${{ inputs.service }}"
+    timeout: 2h
+  inputs:
+    service: { type: enum, options: [api, web], required: true }
+  fields:
+    severity: { type: enum, options: [none, minor, major], default: none, indexed: true }
+  vars: { result: undetermined }
+  defaults: { actor: agent, timeout: 15m }
+  steps:
+    - id: check
+      check: true
+      instructions: Check ${{ inputs.service }}'s error rate.
+      outputs:
+        status_code: { type: integer, required: true }
+    - id: record
+      if: "${{ steps.check.verdict == 'fail' }}"
+      set: { fields: { severity: major }, vars: { result: failed } }
+  outputs:
+    result: "${{ vars.result }}"
+```
+
+| Part | What it holds | Read more |
+| --- | --- | --- |
+| `metadata` | The ID, a title, tags and owners | [Keys](/reference/keys/#document) |
+| `spec.execution` | Each run's title, tags, timeout and concurrency limit | [Keys](/reference/keys/#runs-specexecution) |
+| `spec.inputs`, `fields`, `vars`, `outputs` | The run's data | [Data](/language/data/) |
+| `spec.defaults` | What every task inherits | [Keys](/reference/keys/#defaults-specdefaults) |
+| `spec.skills`, `spec.agents` | Skills steps use, parameters for agent launchers | [Skills](/concepts/skills/) |
+| `spec.triggers` | Schedules and webhook triggers that start runs | [Keys](/reference/keys/#triggers-spectriggers) |
+| `spec.steps`, `spec.finally` | The procedure | [Control flow](/language/control-flow/) |
+| `spec.report` | A Markdown summary rendered when the run ends | [Keys](/reference/keys/#specreport) |
+
+Keys starting with `x-` are allowed anywhere: they're kept verbatim and
+never executed, so you can carry your own metadata. Any other key the
+language doesn't have is refused (`spec.unknown_key`): a typo never silently
+does nothing.
+
+## Kinds of steps
+
+A step's kind comes from the key it carries. A step without one of these
+keys is a **task**.
+
+| Kind | Key | What it does |
+| --- | --- | --- |
+| Task | `instructions` (or nothing) | Work for a person or an agent |
+| Check | `check: true` | A task that also records a verdict: `pass`, `warn` or `fail` |
+| Approval | `approval` | A decision between options, by named approvers |
+| Wait | `wait` | Waits for a duration, a time or a signal |
+| Set | `set` | Changes variables and fields |
+| End | `end` | Ends the run early |
+| Call | `call` | Runs another runbook as a child run |
+| Group | `steps` | Steps in order, with `catch` and `finally` |
+| Parallel | `parallel` | Branches at the same time |
+| For each | `foreach` | The same steps once per item |
+| Loop | `loop` | Steps repeated until a condition holds |
+| Switch | `switch` | The first matching case's steps |
+
+## From file to run
+
+<Flow
+  steps={[
+    { title: 'Write', text: 'YAML in your editor, the web app or git', tag: 'spec validate' },
+    { title: 'Draft', text: 'Saved to a project, checked on every save', tag: 'push --draft' },
+    { title: 'Publish', text: 'Names resolve, policy checked, version pinned', tag: 'publish', tone: 'current' },
+    { title: 'Run', text: 'Each run uses one published version', tag: 'run start', tone: 'agent' },
+  ]}
+/>
+
+1. **Validate offline.** `runbook spec validate my-runbook.yaml` parses and
+   compiles the whole runbook: keys, types, expressions, limits. It prints
+   `ok` and the worst-case number of step runs, or each diagnostic with its
+   path and code.
+2. **Save a draft** (`runbook push`), from the CLI, the web app's editor,
+   MCP or a [Git repository](/operating/git-sync/).
+3. **Publish.** Publishing compiles again against your server: teams,
+   people, skills and called runbooks resolve, and the publication rules
+   for approvals and destructive steps are checked. Each publish is a new
+   numbered version, and a run keeps the version it started with.
+
+```text title="runbook spec validate"
+$ runbook spec validate hello.yaml
+ok (worst case 1 step runs)
+
+$ runbook spec validate broken.yaml
+/spec/steps/0/actr: spec.unknown_key: spec.unknown_key
+```
+
+Each line is the path into the document (a JSON pointer), the code, and a
+message (the code again when there's nothing more specific to say). The exit
+status is `0` when valid and `2` when not; `--json` prints the report as
+JSON.
+
+<Aside type="note" title="What offline validation can't see">
+Offline, there's no directory: a runbook that names a team, a person, a
+skill or another runbook stops at `spec.unresolved_team` (or `_user`,
+`_skill`, `spec.call_unresolved`), and the approval rules
+(`spec.approvers_required` and the destructive-path checks) are checked when
+you publish. Every code is in [Diagnostics](/reference/diagnostics/).
+</Aside>
+
+## Durations and recipients
+
+Two value formats appear throughout:
+
+- **Durations** are digits and a unit, combinable: `500ms`, `90s`, `15m`,
+  `2h`, `1d`, `1h30m`.
+- **Recipients** (owners, assignees, escalation) are `team:<slug>`,
+  `user:<name>`, or a bare user name.
+
+## Next
+
+<CardGrid>
+  <LinkCard title="Expressions" description="${{ … }}: what you can read and compare." href="/language/expressions/" />
+  <LinkCard title="Data" description="Inputs, outputs, fields, variables and their types." href="/language/data/" />
+  <LinkCard title="Control flow" description="parallel, switch, foreach, loop, call, wait, catch and finally." href="/language/control-flow/" />
+  <LinkCard title="Key reference" description="Every key with a minimal example." href="/reference/keys/" />
+</CardGrid>

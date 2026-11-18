@@ -1,0 +1,347 @@
+---
+title: Control flow
+description: Groups, parallel, if and switch, foreach, loop, call, wait, catch and finally, and retries, each with a worked example.
+sidebar:
+  order: 4
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import Flow from '../../../components/Flow.astro';
+
+Steps run in order. These keys change that: each makes a step a container
+for other steps, and containers nest. Every example on this page is a
+complete runbook, checked with `runbook spec validate`.
+
+## Groups: `steps`, `catch` and `finally`
+
+A group runs its steps in order. When one fails, the group's `catch` steps
+run; when they succeed, the group succeeds. Its `finally` steps run
+afterwards either way. `spec.finally` does the same for the whole run, even
+when it times out or is cancelled.
+
+<Flow
+  steps={[
+    { title: 'back_up', tone: 'agent' },
+    { title: 'apply', text: 'fails', tone: 'agent' },
+    { title: 'catch: restore', text: 'runs on failure', tone: 'current' },
+    { title: 'finally: unlock', text: 'always runs', tone: 'system' },
+  ]}
+/>
+
+```yaml title="db-migration.yaml"
+metadata: { id: db-migration }
+spec:
+  inputs:
+    migration: { type: string, required: true }
+  steps:
+    - id: lock_writes
+      actor: agent
+      instructions: Put the app in read-only mode.
+    - id: migrate
+      steps:
+        - id: back_up
+          actor: agent
+          instructions: Take a snapshot of the database.
+        - id: apply
+          actor: agent
+          timeout: 30m
+          instructions: Apply migration ${{ inputs.migration }}.
+      catch_on: [failed, timeout]
+      catch:
+        - id: restore
+          actor: agent
+          instructions: Restore the snapshot taken by back_up.
+      finally:
+        - id: unlock_writes
+          actor: agent
+          instructions: Take the app out of read-only mode.
+  finally:
+    - id: post_outcome
+      actor: agent
+      instructions: Post the run's outcome to #deploys.
+```
+
+- `catch_on` limits `catch` to failure types: `failed` (a person or agent
+  reported failure), `timeout`, or `call_failed` (a child run failed).
+  Other failures propagate as if there were no `catch`, so an outer group
+  can handle them. A container that fails takes the type of its earliest
+  failed step.
+- A step's `on_failure` decides what its own failure does first: `fail`
+  (the default), `continue`, or `handoff` to a person.
+- `end` can't appear inside any `finally`.
+
+## `parallel`
+
+Branches run at the same time, at most 20. `join` says when the parallel
+succeeds: `all` branches (the default), `any` one, or `{ at_least: n }`.
+Once it has succeeded under `any` or `at_least`, or can no longer succeed,
+its open branches are cancelled. With `join: all`, `fail_fast: true`
+cancels the rest as soon as one fails.
+
+```yaml title="canaries.yaml"
+metadata: { id: canaries }
+spec:
+  inputs:
+    version: { type: string, required: true }
+  steps:
+    - id: canary
+      join: { at_least: 2 }
+      parallel:
+        - id: canary_us
+          actor: agent
+          check: true
+          instructions: Watch us-east at 5% traffic on ${{ inputs.version }} for 15 minutes.
+        - id: canary_eu
+          actor: agent
+          check: true
+          instructions: Watch eu-west at 5% traffic for 15 minutes.
+        - id: canary_ap
+          actor: agent
+          check: true
+          instructions: Watch ap-south at 5% traffic for 15 minutes.
+    - id: promote
+      actor: agent
+      instructions: Promote ${{ inputs.version }} to 100%.
+```
+
+## `if` and `switch`
+
+`if` on any step runs it only when its expression is true; otherwise it's
+`skipped`. `switch` runs the steps of the first case whose `when` is true,
+or its `default`.
+
+```yaml title="route-alert.yaml"
+metadata: { id: route-alert }
+spec:
+  inputs:
+    error_rate: { type: number, required: true }
+    customer_facing: { type: boolean, default: true }
+  steps:
+    - id: route
+      switch:
+        cases:
+          - when: "${{ inputs.error_rate > 0.05 && inputs.customer_facing }}"
+            steps:
+              - id: page_oncall
+                actor: human
+                instructions: Errors are at ${{ inputs.error_rate }}. Take the incident.
+          - when: "${{ inputs.error_rate > 0.01 }}"
+            steps:
+              - id: open_ticket
+                actor: agent
+                instructions: Open a ticket with the last hour's errors attached.
+        default:
+          steps:
+            - id: note
+              actor: agent
+              instructions: Note the blip in the channel.
+    - id: status_page
+      if: "${{ inputs.customer_facing }}"
+      actor: human
+      skippable: true
+      instructions: Update the status page if customers noticed.
+```
+
+## `foreach`
+
+Runs its steps once per item of a list. `max_items` is required (at most
+100) and bounds the run's size; `concurrency` (default 1) runs that many
+items at once. Inside, the item is `item` (or the name in `as`) and `index`
+its position; `key` gives each item a stable name instead of its index.
+
+```yaml title="regional-rollout.yaml"
+metadata: { id: regional-rollout }
+spec:
+  inputs:
+    version: { type: string, required: true }
+    regions: { type: list, items: { type: string }, default: [us-west, us-east, eu-west] }
+  steps:
+    - id: regions
+      foreach:
+        items: "${{ inputs.regions }}"
+        as: region
+        concurrency: 1
+        max_items: 10
+        steps:
+          - id: deploy
+            actor: agent
+            instructions: Roll ${{ inputs.version }} out to ${{ region }}.
+          - id: verify
+            actor: agent
+            check: true
+            instructions: Check ${{ region }}'s error rate after the rollout.
+    - id: summary
+      actor: agent
+      if: "${{ steps.regions.items.exists(r, r.verify.verdict == 'fail') }}"
+      instructions: At least one region failed verification. Summarize which.
+```
+
+After the step, `steps.regions.items` is the list of iterations, each with
+its own steps' records.
+
+## `loop`
+
+Repeats its steps until `until` is true, or while `while` is true, tested
+after each iteration. `max_iterations` is required (at most 50); `delay`
+waits between iterations. Inside, `iteration` counts from 0. Afterwards,
+`steps.<id>.satisfied` says whether the condition was met and `.exhausted`
+whether it ran out of iterations.
+
+```yaml title="wait-for-recovery.yaml"
+metadata: { id: wait-for-recovery }
+spec:
+  steps:
+    - id: stabilize
+      loop:
+        until: "${{ steps.recheck.outputs.error_rate <= 0.01 }}"
+        max_iterations: 6
+        delay: 5m
+        steps:
+          - id: recheck
+            actor: agent
+            check: true
+            instructions: Measure the 5xx rate (attempt ${{ iteration }}).
+            outputs:
+              error_rate: { type: number, required: true }
+    - id: escalate
+      if: "${{ steps.stabilize.exhausted }}"
+      actor: human
+      instructions: The error rate didn't recover in 30 minutes. Decide what to do.
+```
+
+## `call`
+
+Runs another published runbook of the same project as a **child run** and
+waits for it. The step takes the child's outcome: it fails when the child
+fails (`call_failed`). `with` passes the child's inputs; `outputs` names the
+child's outputs this step exposes. The child's version is pinned when you
+publish (or with `version`). Calls nest at most 3 deep, and a runbook can't
+reach itself.
+
+```yaml title="release.yaml"
+metadata: { id: release }
+spec:
+  inputs:
+    service: { type: string, required: true }
+    version: { type: string, required: true }
+  steps:
+    - id: deploy
+      actor: agent
+      instructions: Deploy ${{ inputs.service }} ${{ inputs.version }}.
+    - id: verify
+      call:
+        runbook: post-deploy-checks
+        with: { service: "${{ inputs.service }}" }
+        outputs:
+          error_rate: { type: number }
+    - id: announce
+      actor: agent
+      instructions: Announce ${{ inputs.version }} (error rate ${{ steps.verify.outputs.error_rate }}).
+```
+
+Cancelling the parent cancels the child. Child runs count like any other
+run, and their pages link to the parent.
+
+## `wait`
+
+Pauses its branch: for a duration (`for`, at most 7 days), until a time
+(`until`), or until a **signal** your own system sends. A signal wait can
+declare its payload as `outputs`; a matching payload becomes the step's
+outputs.
+
+```yaml title="customer-onboarding.yaml"
+metadata: { id: customer-onboarding }
+spec:
+  inputs:
+    customer: { type: string, required: true }
+  steps:
+    - id: send_invite
+      actor: agent
+      instructions: Send the onboarding invite to ${{ inputs.customer }}.
+    - id: store_connected
+      wait:
+        signal: store_connected
+        timeout: 14d
+        outputs:
+          store_id: { type: string, required: true }
+    - id: soak
+      wait: { for: 1d }
+    - id: check_sync
+      actor: agent
+      check: true
+      instructions: Check that store ${{ steps.store_connected.outputs.store_id }} synced its catalog.
+```
+
+```sh
+runbook run signal "$EXE" store_connected --payload store_id=st_123
+```
+
+See [Signals and waits](/concepts/signals/) for how signals arrive.
+
+## Retries
+
+`retry` on a task retries failed attempts: `max_attempts` counts the first,
+`backoff` waits between attempts, and `on` limits retries to failure types.
+`spec.defaults.retry` sets it for every task.
+
+```yaml title="flaky-integration.yaml"
+metadata: { id: flaky-integration }
+spec:
+  defaults:
+    retry: { max_attempts: 2, on: [timeout] }
+  steps:
+    - id: call_vendor
+      actor: agent
+      timeout: 2m
+      retry: { max_attempts: 4, backoff: 30s, on: [timeout, failed] }
+      instructions: Call the vendor's health API.
+    - id: reconcile
+      actor: agent
+      timeout: 10m
+      instructions: Reconcile today's orders with the vendor.
+```
+
+<Aside type="caution" title="Retrying destructive steps">
+A retried step runs again from the start. Don't retry a destructive step
+unless repeating it is safe; prefer `on_failure: handoff` so a person looks
+first.
+</Aside>
+
+## `end`
+
+Ends the run early with a status (`succeeded`, `failed` or `cancelled`) and
+a message. The run's `finally` steps still run.
+
+```yaml title="cert-sweep.yaml"
+metadata: { id: cert-sweep }
+spec:
+  steps:
+    - id: scan
+      actor: agent
+      outputs:
+        expiring: { type: integer, required: true }
+    - id: nothing_to_do
+      if: "${{ steps.scan.outputs.expiring == 0 }}"
+      end: { status: succeeded, message: No certificates expire in the next 30 days. }
+    - id: renew
+      actor: agent
+      instructions: Renew the ${{ steps.scan.outputs.expiring }} expiring certificates.
+```
+
+## Limits
+
+Every bound is fixed, so a runbook runs the same on every server:
+
+| | Limit |
+| --- | --- |
+| `parallel` branches | 20 |
+| `foreach.max_items` | 100 |
+| `loop.max_iterations` | 50 |
+| A single `wait.for` | 7 days |
+| `call` depth | 3 |
+| Container nesting | 32, with at most 4 levels of `foreach` and `loop` |
+| Steps with IDs | 256 |
+
+`runbook spec validate` reports the **worst case**: how many step runs the
+runbook could open with every loop and list at its maximum and every retry
+used. An operator can cap step runs per run (`RUNBOOK_LIMIT_STEP_RUNS`).

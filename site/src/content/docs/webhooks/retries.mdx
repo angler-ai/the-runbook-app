@@ -1,0 +1,79 @@
+---
+title: Delivery and retries
+description: What counts as delivered, how failed deliveries are retried, and when a subscription is disabled.
+sidebar:
+  order: 3
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import Flow from '../../../components/Flow.astro';
+
+Each matching subscription gets its own **delivery** of an event
+(`whd_…`). Deliveries are claimed under a lease, `POST`ed with no database
+transaction open, and then recorded, so a crash between the receiver's
+answer and the record means the same body, event ID and delivery ID are sent
+again. That's why receivers deduplicate on the event ID.
+
+## What happens to an attempt
+
+| The receiver | Result |
+| --- | --- |
+| Answers `2xx` within 10 seconds | **Delivered** |
+| Times out, refuses the connection, or answers `5xx`, `408` or `429` | **Retried** with backoff |
+| Answers anything else (`3xx`, other `4xx`) | **Failed** at once, not retried |
+| Resolves to an address it may not reach (private, loopback, link-local) | **Failed** at once |
+
+Redirects are never followed: a `3xx` is a failure.
+
+## Backoff
+
+The wait before the next attempt starts at 30 seconds and doubles, up to
+two hours:
+
+<Flow
+  steps={[
+    { title: '30 s', text: 'after the 1st failure' },
+    { title: '1 min', text: 'after the 2nd' },
+    { title: '2 min', text: 'after the 3rd' },
+    { title: '4 min … 64 min', text: 'doubling' },
+    { title: '2 h', text: 'from then on', tone: 'muted' },
+  ]}
+/>
+
+Retries stop **24 hours** after the delivery was created; a delivery still
+failing then ends as `retries_exhausted`. The exact schedule is in the
+[event reference](/reference/webhook-events/#delivery-rules), generated from
+the server's code.
+
+## Redelivery
+
+`runbook webhook redeliver <whd> --webhook <whk> --project <p>` sends a
+delivery's event again under a **new delivery ID**, with a fresh 24-hour
+retry window. The event ID stays the same, so a receiver that already
+handled it skips it.
+
+## Failing subscriptions
+
+A subscription whose deliveries fail continuously for **three days** is
+disabled. The subscription shows a notice for project admins, and
+deliveries stop until someone fixes the receiver and re-enables it:
+
+```sh
+runbook webhook update whk_… --project prod --enable
+```
+
+Enabling resets its delivery health. Quiet gaps don't end a failing streak
+unless they're longer than two retry windows (48 hours).
+
+## Events for people
+
+`approval.requested`, `approval.escalated`, `approval.expired`,
+`step.blocked`, `step.reminder` and `step.escalated` are notices for people.
+When one reaches no subscriber at all (none subscribed, or every delivery
+failed), the run page says so, so nobody waits on a message that was never
+sent. Email and the in-app inbox carry the same notices.
+
+<Aside type="note">
+Delivery logs are kept for 90 days and then purged. The run's own record
+is unaffected.
+</Aside>

@@ -54,12 +54,16 @@ pub struct Fake {
     pub apps: Rc<std::cell::RefCell<FakeApps>>,
     /// SLACK1 stage 2: the app, `users.info`'s answer, and replies sent.
     pub slack: Rc<std::cell::RefCell<FakeSlack>>,
+    /// What `published_versions` answers (schedule passes).
+    pub published: Rc<std::cell::RefCell<Vec<runbook_core::triggers::PublishedVersion>>>,
 }
 
 #[derive(Default)]
 pub struct FakeSlack {
     pub app: Option<runbook_core::slack::SlackApp>,
     pub users_info: Option<Value>,
+    /// `auth.test`'s `team_id`: the bot token's workspace (`T1` when unset).
+    pub team_id: Option<String>,
     pub replies: Vec<(String, Value)>,
 }
 
@@ -95,6 +99,7 @@ impl Fake {
             random: Rc::default(),
             apps: Rc::default(),
             slack: Rc::default(),
+            published: Rc::default(),
         }
     }
 }
@@ -420,7 +425,7 @@ impl Backends for Fake {
     async fn published_versions(
         &self,
     ) -> Result<Vec<runbook_core::triggers::PublishedVersion>, runbook_core::StoreError> {
-        Ok(vec![])
+        Ok(self.published.borrow().clone())
     }
     fn auth_methods(&self) -> Vec<String> {
         vec!["email".into()]
@@ -454,7 +459,11 @@ impl Backends for Fake {
         _: &[(&str, &str)],
         _: Option<&Value>,
     ) -> Result<Value, String> {
-        match (method, self.slack.borrow().users_info.clone()) {
+        let slack = self.slack.borrow();
+        match (method, slack.users_info.clone()) {
+            ("auth.test", _) => Ok(
+                serde_json::json!({"ok": true, "team_id": slack.team_id.as_deref().unwrap_or("T1")}),
+            ),
             ("users.info", Some(info)) => Ok(info),
             _ => Err("slack_fake".into()),
         }

@@ -1,54 +1,96 @@
 ---
 title: The Runbook
-description: Runbooks that people and AI agents run together.
+description: Runbooks that people and AI agents run together. Open-source server, CLI, MCP server and API.
 template: splash
+editUrl: false
 hero:
+  title: Runbooks people and agents run together
   tagline: Write a procedure once as a short YAML file. Agents claim and do their steps, people approve and take over where judgment matters, and every run leaves a readable record of who did what.
   actions:
     - text: Quick start with Docker
       link: /getting-started/docker/
       icon: right-arrow
-    - text: Read the concepts
+    - text: How it works
       link: /concepts/runs-and-steps/
+      variant: secondary
+    - text: GitHub
+      link: https://github.com/angler-ai/the-runbook-app
+      icon: github
       variant: minimal
 ---
 
-import { Card, CardGrid } from '@astrojs/starlight/components';
+import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
 
-The Runbook is open source and self-hosted: one container with PostgreSQL, or
-your own Cloudflare account. These docs cover the open-source server, the
-`runbook` CLI, the MCP server, the REST API and the runbook language.
+<div class="rb-landing">
 
-```yaml
-metadata: { id: post-deploy-checks }
+## What it is
+
+The Runbook runs operational procedures, such as post-deploy checks,
+incident triage, migrations and releases, as **runs** that people and AI
+agents work through together.
+
+<CardGrid>
+  <Card title="One file per procedure" icon="document">
+    Steps, inputs, approvals, loops and parallel branches in a short YAML
+    file you keep in git. The server checks it before anything runs.
+  </Card>
+  <Card title="Agents do the toil" icon="rocket">
+    Claude Code, Codex, Cursor or your own agent claim steps under a lease,
+    report outputs and attach evidence, through the CLI or MCP.
+  </Card>
+  <Card title="People keep the judgment" icon="approve-check">
+    Approvals by named people, destructive steps that need a human,
+    take-overs, reminders and escalation. Agents never cast human approvals.
+  </Card>
+  <Card title="A record you can read" icon="open-book">
+    Every run reads like a document: who did each step, their outputs, logs
+    and evidence. Export it as Markdown, JSON, JUnit or PDF.
+  </Card>
+</CardGrid>
+
+## A runbook
+
+```yaml title="post-deploy.yaml"
+metadata: { id: post-deploy }
 spec:
-  defaults: { actor: agent }
   inputs:
     service: { type: string, required: true }
   steps:
     - id: check_health
+      actor: agent
+      check: true
       instructions: Call /healthz on ${{ inputs.service }} three times; pass on 200 within 500 ms.
     - id: compare_error_rate
+      actor: agent
+      check: true
       instructions: Compare the 5xx rate with the hour before the deploy.
-    - id: summarize
+      outputs:
+        error_rate: { type: number, required: true }
+    - id: keep_or_roll_back
+      approval:
+        prompt: Keep ${{ inputs.service }} at this version?
+        options: [keep, rollback]
+        approvers: { teams: [oncall] }
+    - id: roll_back
+      if: "${{ steps.keep_or_roll_back.outputs.decision == 'rollback' }}"
+      actor: agent
+      destructive: true
+      instructions: Roll ${{ inputs.service }} back to the previous release.
 ```
 
+An agent claims the two checks and reports what it found; the on-call team
+decides; only then may an agent roll back. The run page shows each step,
+who did it, and why.
+
+## Where to go next
+
 <CardGrid>
-  <Card title="Get started" icon="rocket">
-    Run the server with [Docker](/getting-started/docker/), on
-    [your Cloudflare account](/getting-started/cloudflare/) or on
-    [GKE with Terraform](/getting-started/gke/).
-  </Card>
-  <Card title="Learn the language" icon="document">
-    [Steps, actors and approvals](/concepts/runs-and-steps/), then
-    [control flow](/language/control-flow/) and the [samples](/samples/).
-  </Card>
-  <Card title="Connect your agent" icon="puzzle">
-    Agents work through the [CLI](/reference/cli/) or the
-    [MCP server](/reference/mcp/), under leases with heartbeats.
-  </Card>
-  <Card title="Call the API" icon="seti:json">
-    Every route and schema in the [API explorer](/api/), rendered from the
-    OpenAPI contract.
-  </Card>
+  <LinkCard title="Get started" description="Run the server with Docker, on your Cloudflare account or on GKE, then your first runbook." href="/getting-started/docker/" />
+  <LinkCard title="Write runbooks" description="The language: steps, data, expressions and control flow, with every key." href="/language/overview/" />
+  <LinkCard title="Connect your agent" description="Claude Code, Codex, Cursor or your own, and a library of ready-to-paste prompts." href="/agents/" />
+  <LinkCard title="React to events" description="Signed webhooks for approvals, steps, runs and agent work." href="/webhooks/" />
+  <LinkCard title="Operate it" description="Install, sign-in, storage, upgrades, backups and monitoring." href="/operating/" />
+  <LinkCard title="Call the API" description="Every route and schema, with requests you can try against your server." href="/api/" />
 </CardGrid>
+
+</div>

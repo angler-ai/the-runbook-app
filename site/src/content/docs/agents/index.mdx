@@ -1,0 +1,84 @@
+---
+title: Agents
+description: How AI agents connect to The Runbook, what they may do, and which page sets up yours.
+sidebar:
+  order: 1
+  label: Overview
+---
+
+import { CardGrid, LinkCard, Aside } from '@astrojs/starlight/components';
+import Flow from '../../../components/Flow.astro';
+
+An agent works a run's steps the way a person does: it picks up a step that
+is ready for it, does the work the step describes, and reports what it
+found. The server decides what is ready, who may do it, and what a report
+must contain. The agent never decides that for itself.
+
+<Flow
+  steps={[
+    { title: 'Ready work', text: 'The server says which agent steps are ready', tone: 'system', tag: 'step next' },
+    { title: 'Claim', text: 'A lease on one step, kept alive by heartbeats', tone: 'agent', tag: 'step claim' },
+    { title: 'Read and do', text: 'Instructions, inputs, skill files', tone: 'agent', tag: 'step get' },
+    { title: 'Report', text: 'Status, verdict, outputs, evidence', tone: 'current', tag: 'step report' },
+  ]}
+  loop="Repeat until the brief says wait or exit."
+/>
+
+The loop is the same however the agent connects. [The agent
+loop](/agents/agent-loop/) explains it step by step.
+
+## Two ways to connect
+
+| | The CLI | MCP |
+| --- | --- | --- |
+| For | Agents with a shell: Claude Code, Codex, Cursor's agent, CI jobs, scripts | Clients that speak MCP, including ones with no shell |
+| How | `runbook … --json` commands | `runbook mcp serve` over stdio, or `/mcp` on your server |
+| Credentials | Kept by the CLI, out of the agent's context, refreshed for it | stdio: the CLI's; remote: OAuth sign-in or a bearer token |
+| Long commands | `runbook step exec` runs a command under the step's lease | The agent heartbeats itself |
+
+Both expose the same operations ([CLI](/reference/cli/#runbook-step),
+[MCP tools](/reference/mcp/)). Prefer the CLI when the agent has a shell: it
+keeps tokens out of the model's context. The `therunbook` skill tells an
+agent exactly this, and how to work the loop.
+
+## Credentials: the agent is never a person
+
+The server tells people and agents apart by the **kind of credential**, not
+by anything the caller says. Give an agent one of these, never a person's
+token:
+
+- an **execution pair** (`runbook run token <exe>`), minted by a launcher
+  with a service token: it reaches one run only, lasts an hour and
+  refreshes, and is revoked when the run ends;
+- an **agent-kind token** (`runbook token create --agent`): an agent
+  sponsored by you, with scopes you choose;
+- over remote MCP, an **OAuth grant**: the client signs in as you, and the
+  server records it as an agent you sponsor, with the scopes you ticked.
+
+<Aside type="caution" title="A person's token makes the agent that person">
+With a personal token in `RUNBOOK_TOKEN`, an agent's claims, reports and
+memory writes are recorded as yours, and it can do what you can, including
+deciding approvals. Agents never cast human approvals when they use an agent
+credential.
+</Aside>
+
+## Set up your agent
+
+<CardGrid>
+  <LinkCard title="Claude Code" description="The skill, the stdio MCP server, or remote /mcp with OAuth." href="/agents/claude-code/" />
+  <LinkCard title="Codex" description="The skill in ~/.agents/skills and MCP in config.toml." href="/agents/codex/" />
+  <LinkCard title="Cursor" description="The skill in .cursor/skills and MCP in mcp.json." href="/agents/cursor/" />
+  <LinkCard title="Your own agent" description="A script, a CI job or any MCP client, with a launcher." href="/agents/custom/" />
+</CardGrid>
+
+## Telling agents there's work
+
+An agent doesn't need to poll. Subscribe a [webhook](/webhooks/) to
+`agent.work_available`: it fires when agent steps become ready (a run
+started, an approval was decided, a wait ended, a lease lapsed), with the
+ready steps and the runbook's `spec.agents.params`. A small launcher then
+mints an execution pair and starts the agent, as in the [GitHub Actions
+recipe](/agents/custom/#start-agents-from-a-webhook).
+
+Then give your agent something to do: the [prompt library](/agents/prompts/)
+has ready-to-paste prompts.

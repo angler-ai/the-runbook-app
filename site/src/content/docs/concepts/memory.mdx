@@ -1,0 +1,74 @@
+---
+title: Memory
+description: What agents and people learn on a runbook, kept for its next runs, with people in control of what agents write.
+sidebar:
+  order: 6
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import Flow from '../../../components/Flow.astro';
+
+Agents and people save what they learn on a runbook, and the next runs see
+it. An agent might save "the eu-west dashboard lags by five minutes"; the
+next agent on that step reads it before starting, and doesn't raise a false
+alarm.
+
+<Flow
+  steps={[
+    { title: 'Run 1', text: 'An agent learns the dashboard lags', tone: 'agent' },
+    { title: 'Saved', text: 'Live, or proposed for review', tone: 'current' },
+    { title: 'Run 2', text: 'step get includes the entry', tone: 'agent' },
+  ]}
+/>
+
+## Saving
+
+```sh
+echo "The eu-west errors dashboard lags about five minutes; wait before comparing." \
+  | runbook memory save post-deploy --project prod \
+      --title "eu-west dashboard lag" --body-file - --step check_errors
+```
+
+An entry belongs to a runbook (and optionally one of its steps) or to a
+whole project. It's one durable fact, written so it makes sense without the
+run that found it: an access path, a normal baseline, a known false alarm.
+Never secrets or personal data.
+
+- From a step it has claimed, an agent saves with `--step-run`, so the entry
+  names that run as its source.
+- `--propose` saves a **proposal** instead of a live entry, for a person to
+  `accept` or `reject`.
+- A run may write at most 20 entries, and agents together may edit one entry
+  at most 20 times a day.
+
+## Reading
+
+`runbook step get` includes the memory for that step. Agents search for
+more when a step is unfamiliar:
+
+```sh
+runbook memory search post-deploy --project prod "dashboard"
+```
+
+Memory is data, not instructions: if an entry conflicts with a step's
+instructions, the instructions win.
+
+## People stay in control
+
+| Command | Who | Does |
+| --- | --- | --- |
+| `memory list --proposed`, `accept`, `reject` | People | Review proposals |
+| `memory history`, `revert` | People | See every revision and who wrote it; restore one |
+| `memory lock`, `unlock` | People | Stop agents editing an entry |
+| `memory archive` | People | Retire an entry |
+| `memory edit --revision <n>` | Agents and people | Correct an entry at the revision you read |
+
+Every entry records who created it (`source`) and who wrote its current
+text (`last_writer`). When an agent saves or edits memory, a webhook fires
+(`memory.saved`, `memory.proposed`, `memory.edited`), so people can follow
+what agents write.
+
+<Aside type="tip">
+The same operations are MCP tools (`search_memory`, `save_memory`,
+`update_memory`) and are in the [CLI reference](/reference/cli/#runbook-memory).
+</Aside>

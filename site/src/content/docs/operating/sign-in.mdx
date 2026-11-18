@@ -1,0 +1,144 @@
+---
+title: Sign-in and roles
+description: Email codes and Google sign-in, invitations, the CLI's browser login, and organization and project roles.
+sidebar:
+  order: 3
+---
+
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+People sign in with a one-time code sent to their email address, or with
+Google. There are no passwords. Sign-in runs in a small service of its own
+(`auth/`), which the server starts as a child process and proxies under
+`/api/auth/*`, so there is still one origin.
+
+## Turn it on
+
+<Tabs syncKey="edition">
+<TabItem label="Docker/Kubernetes">
+
+| Variable | |
+| --- | --- |
+| `RUNBOOK_AUTH_SECRET` | 32+ random characters (`openssl rand -hex 32`). Required; keep it stable, it signs session cookies |
+| `RUNBOOK_SMTP_URL`, `RUNBOOK_SMTP_FROM` | An `smtp://` or `smtps://` relay with credentials, and the From address, for email codes |
+| `RUNBOOK_GOOGLE_CLIENT_ID`, `RUNBOOK_GOOGLE_CLIENT_SECRET` | A Google OAuth web client. Its redirect URI is `{RUNBOOK_ORIGIN}/api/auth/callback/google` |
+| `RUNBOOK_AUTH_METHODS` | `email`, `google` or both. Unset: every configured method. Set: each listed one must be fully configured |
+| `RUNBOOK_AUTH_ALLOWED_DOMAINS` | Comma list of email domains that may sign in (exact match); empty means any |
+
+`serve` logs `auth service ready` once sign-in is up, and
+`/.well-known/runbook` lists the enabled methods.
+
+</TabItem>
+<TabItem label="Cloudflare">
+
+The sign-in Worker holds `RUNBOOK_AUTH_SECRET` and the shared
+`RUNBOOK_AUTH_INTERNAL_SECRET` as secrets; email codes go out through
+Cloudflare Email, which needs the Workers Paid plan. See [Quick start on
+Cloudflare](/getting-started/cloudflare/).
+
+</TabItem>
+</Tabs>
+
+Without sign-in, the server still works with tokens: `bootstrap` prints the
+owner's token, and people use tokens they're given.
+
+## Adding people
+
+Sign-in is by **invitation**. An owner or admin names an email address, an
+organization role and project roles; that person's first sign-in with a code
+sent to that address creates their account with those roles. An address
+with no invitation and no account is refused after the code
+(`auth.registration_refused`). Invite from the web app's organization
+settings, or with the API:
+
+```sh
+curl -X POST "$RUNBOOK_HOST/v1/orgs/$ORG/invitations" \
+  -H "Authorization: Bearer $RUNBOOK_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"email": "dana@example.com", "role": "member",
+       "projects": [{"project": "prod", "role": "operator"}]}'
+```
+
+Invitations mail a sign-in link when they're created.
+
+## The CLI
+
+```sh
+runbook login https://runbooks.example.com
+```
+
+`login` runs the OAuth device flow: it prints a code, opens the browser for
+you to approve it, and stores a personal access token for that host, in the
+macOS Keychain or Windows Credential Manager, otherwise a `0600` file. It
+asks for the scopes an operator or agent needs (`runbooks:read`,
+`runbooks:write`, `runbooks:publish`, `executions:read`, `executions:start`,
+`executions:act`, `skills:read`, `skills:write`); `--admin` adds
+`tokens:manage`, `webhooks:manage`, `project:admin` and `executions:admin`,
+and `--scope` asks for exactly the ones you name. The approver can only
+narrow what was asked. `runbook login --token-stdin` stores a token you
+already have.
+
+A **context** names a host and a login, so one machine can hold several:
+`runbook context add prod --host https://runbooks.example.com`, then
+`runbook --context prod login`.
+
+## Roles
+
+Every person has an **organization role**, and a **project role** in each
+project they're a member of.
+
+| Organization role | Can |
+| --- | --- |
+| Owner | Administer the organization and every project. The first owner comes from `bootstrap` |
+| Admin | Administer the organization and every project |
+| Member | What their project roles allow |
+
+Owners and admins are project admins everywhere. A member's project role
+decides what they may do in that project:
+
+| Project role | Read | Start and work runs | Write runbooks and skills | Publish | Manage (members, tokens, webhooks, settings) |
+| --- | :-: | :-: | :-: | :-: | :-: |
+| `viewer` | ✓ | | | | |
+| `operator` | ✓ | ✓ | | | |
+| `editor` | ✓ | ✓ | ✓ | ✓ | |
+| `admin` | ✓ | ✓ | ✓ | ✓ | ✓ |
+
+```sh
+runbook project member add prod usr_… --role operator
+```
+
+Deciding an approval needs more than a role: the person must be one of the
+approval's approvers (or its escalation, once it has escalated). A token's
+scopes can only narrow a role, never widen it; see [Permissions and
+tokens](/security/permissions/).
+
+## Sessions and limits
+
+- Browser sessions use the cookie `__Host-runbook.session_token` on
+  `https` (Secure, `Path=/`, no `Domain`). Requests that change something
+  with the cookie also need `X-Runbook-CSRF: 1` and your origin; bearer
+  tokens need neither.
+- Codes expire after 10 minutes, and five wrong attempts void a code.
+- Sending codes is limited: a 60-second resend cooldown, 5 codes per email
+  and 10 per client address an hour.
+
+## Error codes
+
+| Code | Status | Meaning |
+| --- | --- | --- |
+| `auth.required` | 401 | No credential on a protected route |
+| `auth.invalid_credential` | 401 | The token is malformed, unknown, expired or revoked |
+| `auth.forbidden` | 403 | Authenticated, but not allowed here |
+| `auth.scope_missing` | 403 | The token lacks the scope this route needs |
+| `auth.csrf` | 403 | A cookie request without `X-Runbook-CSRF: 1` or with a foreign origin |
+| `auth.domain_not_allowed` | 403 | The email's domain isn't in `RUNBOOK_AUTH_ALLOWED_DOMAINS` |
+| `auth.registration_refused` | 403 | No account and no invitation for that address |
+| `auth.email_unverified` | 403 | Google hasn't verified the account's email |
+| `auth.rate_limited` | 429 | Too many codes; wait and retry |
+| `auth.email_unavailable` | 503 | The code email couldn't be sent |
+| `auth.not_configured` | 503 | No sign-in method is configured |
+| `auth.unavailable` | 502, 503 | The sign-in service is down or unreachable |
+
+<Aside type="note">
+`bootstrap --owner-email` refuses an owner outside
+`RUNBOOK_AUTH_ALLOWED_DOMAINS`, since that owner could never sign in.
+</Aside>

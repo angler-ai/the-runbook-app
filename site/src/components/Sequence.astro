@@ -1,0 +1,152 @@
+---
+// A small sequence diagram in HTML: one column per actor, one row per
+// message. `from`/`to` are actor indexes; a message to itself is a note in
+// that actor's column.
+interface Message {
+  from: number;
+  to: number;
+  label: string;
+  note?: string;
+}
+interface Props {
+  actors: string[];
+  messages: Message[];
+  caption?: string;
+}
+const { actors, messages, caption } = Astro.props;
+const cols = actors.length;
+---
+
+<figure class="rb-seq not-content" style={`--rb-seq-cols: ${cols}`}>
+  <div class="rb-seq-grid" role="list">
+    {actors.map((a, i) => <div class="rb-seq-actor" style={`grid-column: ${i + 1}`} role="listitem">{a}</div>)}
+    {
+      actors.map((_, i) => (
+        <div class="rb-seq-life" style={`grid-column: ${i + 1}; grid-row: 2 / span ${messages.length}`} aria-hidden="true" />
+      ))
+    }
+    {
+      messages.map((m, row) => {
+        const lo = Math.min(m.from, m.to);
+        const hi = Math.max(m.from, m.to);
+        const self = m.from === m.to;
+        const dir = m.to > m.from ? 'right' : 'left';
+        return (
+          <div
+            class:list={['rb-seq-msg', self ? 'rb-seq-self' : `rb-seq-${dir}`]}
+            style={`grid-column: ${lo + 1} / ${hi + 2}; grid-row: ${row + 2}; --rb-seq-span: ${hi - lo + 1}`}
+            role="listitem"
+          >
+            <span class="rb-seq-label" set:html={m.label} />
+            {!self && <span class="rb-seq-arrow" aria-hidden="true" />}
+            {m.note && <span class="rb-seq-note">{m.note}</span>}
+          </div>
+        );
+      })
+    }
+  </div>
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<style>
+  .rb-seq {
+    margin: 1.75rem 0;
+    padding: 1rem;
+    background: var(--rb-card);
+    border: 1px solid var(--rb-line);
+    border-radius: 12px;
+    overflow-x: auto;
+  }
+  .rb-seq-grid {
+    display: grid;
+    grid-template-columns: repeat(var(--rb-seq-cols), minmax(7rem, 1fr));
+    row-gap: 0.55rem;
+    column-gap: 0;
+    position: relative;
+  }
+  .rb-seq-actor {
+    grid-row: 1;
+    justify-self: center;
+    font-weight: 600;
+    font-size: var(--sl-text-sm);
+    color: var(--sl-color-white);
+    background: var(--rb-card-raised);
+    border: 1px solid var(--rb-line);
+    border-radius: 8px;
+    padding: 0.3rem 0.8rem;
+    margin-bottom: 0.4rem;
+  }
+  .rb-seq-life {
+    justify-self: center;
+    width: 0;
+    border-left: 1px dashed var(--rb-line);
+    margin-top: -0.4rem;
+  }
+  .rb-seq-msg {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    font-size: var(--sl-text-xs);
+  }
+  .rb-seq-right,
+  .rb-seq-left {
+    margin-inline: calc(100% / (2 * var(--rb-seq-span)));
+  }
+  .rb-seq-label {
+    font-family: var(--sl-font-mono);
+    color: var(--sl-color-gray-1);
+    text-align: center;
+    padding: 0 0.5rem;
+    background: var(--rb-card);
+  }
+  .rb-seq-note {
+    color: var(--sl-color-gray-3);
+    font-size: 0.7rem;
+    text-align: center;
+  }
+  .rb-seq-arrow {
+    position: relative;
+    display: block;
+    width: 100%;
+    height: 2px;
+    margin-top: 0.3rem;
+    background: var(--sl-color-gray-4);
+  }
+  .rb-seq-arrow::after {
+    content: '';
+    position: absolute;
+    top: -4px;
+    border: 5px solid transparent;
+  }
+  .rb-seq-right .rb-seq-arrow::after {
+    right: -2px;
+    border-left-color: var(--sl-color-gray-4);
+    border-right: 0;
+  }
+  .rb-seq-left .rb-seq-arrow::after {
+    left: -2px;
+    border-right-color: var(--sl-color-gray-4);
+    border-left: 0;
+  }
+  .rb-seq-left .rb-seq-arrow {
+    background: repeating-linear-gradient(90deg, var(--sl-color-gray-4) 0 6px, transparent 6px 10px);
+  }
+  .rb-seq-self {
+    margin-inline: 0.5rem;
+  }
+  .rb-seq-self .rb-seq-label {
+    font-family: var(--sl-font);
+    text-align: left;
+    color: var(--sl-color-gray-2);
+    background: var(--rb-mint-subtle);
+    border-radius: 6px;
+    padding: 0.25rem 0.6rem;
+  }
+  figcaption {
+    margin-top: 0.75rem;
+    font-size: var(--sl-text-xs);
+    color: var(--sl-color-gray-3);
+  }
+</style>

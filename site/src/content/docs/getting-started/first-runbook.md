@@ -26,6 +26,7 @@ spec:
       approval:
         prompt: Keep ${{ inputs.service }} running?
         options: [keep, rollback]
+        approvers: { teams: [approvers] }
 ```
 
 Check it offline:
@@ -35,6 +36,15 @@ runbook spec validate hello.yaml
 ```
 
 ## Publish it
+
+An approval names who may decide it, and names resolve against your server
+when you publish. Make the `approvers` team and add yourself, with the
+`user_id` that `bootstrap` printed:
+
+```sh
+runbook team create --slug approvers --title Approvers
+runbook team member add approvers usr_REPLACE_WITH_YOUR_USER_ID
+```
 
 The first runbook of a project is pushed with `--draft`, then published:
 

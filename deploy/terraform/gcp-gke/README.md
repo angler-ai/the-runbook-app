@@ -282,7 +282,9 @@ Before an upgrade:
    `allow_newer_schema = true` while `image` still names the current
    release and run `terraform apply`. This lets an old pod restart safely
    after the new Job has expanded the schema.
-3. Take and await an explicit pre-upgrade backup, recording the printed id:
+3. Take and await an explicit pre-upgrade backup. The argument is a label
+   (stored as the backup's description); Cloud SQL assigns the numeric id,
+   which the script prints once the backup has succeeded:
 
    ```sh
    BACKUP_ID=$(./pre-upgrade-backup.sh pre-upgrade-v0-2-0)

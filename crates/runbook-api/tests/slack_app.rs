@@ -60,7 +60,7 @@ fn url_encode(value: &str) -> String {
 fn click(option: &str) -> Value {
     json!({
         "type": "block_actions",
-        "user": {"id": "U0SLACK1"},
+        "user": {"id": "U0SLACK1", "team_id": "T1"},
         "response_url": "https://hooks.slack.com/actions/T1/1/abc",
         "actions": [{
             "action_id": format!("runbook.decide.{option}"),
@@ -142,5 +142,63 @@ fn slack_does_not_share_the_email_without_the_scope() {
     assert!(
         text.as_str().unwrap().contains("users:read.email"),
         "{text}"
+    );
+}
+
+/// The single ephemeral reply's text.
+fn only_reply(fake: &Fake) -> String {
+    let replies = &fake.slack.borrow().replies;
+    assert_eq!(replies.len(), 1, "{replies:?}");
+    replies[0].1["text"].as_str().unwrap().to_owned()
+}
+
+#[test]
+fn a_click_from_another_workspace_is_refused() {
+    let r = router(false);
+    let fake: &Fake = &r.backends;
+    run(fake.seed());
+    {
+        let mut slack = fake.slack.borrow_mut();
+        slack.app = Some(app());
+        slack.users_info =
+            Some(json!({"ok": true, "user": {"profile": {"email": "nobody@example.test"}}}));
+    }
+    let mut payload = click("yes");
+    payload["user"]["team_id"] = json!("T2");
+    let response = run(r.handle(slack_request(&payload, "1", SECRET)));
+    assert_eq!(response.status, 200);
+    assert!(
+        only_reply(fake).contains("not the one The Runbook is connected to"),
+        "{}",
+        only_reply(fake)
+    );
+
+    // No team at all is refused too.
+    fake.slack.borrow_mut().replies.clear();
+    let mut payload = click("yes");
+    payload["user"].as_object_mut().unwrap().remove("team_id");
+    run(r.handle(slack_request(&payload, "1", SECRET)));
+    assert!(only_reply(fake).contains("not the one The Runbook is connected to"));
+}
+
+#[test]
+fn a_stranger_from_a_shared_channel_is_refused() {
+    let r = router(false);
+    let fake: &Fake = &r.backends;
+    run(fake.seed());
+    {
+        let mut slack = fake.slack.borrow_mut();
+        slack.app = Some(app());
+        slack.users_info = Some(json!({"ok": true, "user": {
+            "is_stranger": true,
+            "profile": {"email": "nobody@example.test"},
+        }}));
+    }
+    let response = run(r.handle(slack_request(&click("yes"), "1", SECRET)));
+    assert_eq!(response.status, 200);
+    assert!(
+        only_reply(fake).contains("not the one The Runbook is connected to"),
+        "{}",
+        only_reply(fake)
     );
 }

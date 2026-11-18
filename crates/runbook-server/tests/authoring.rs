@@ -99,7 +99,7 @@ async fn setup(db: &database::TestDatabase) -> Api {
     })
     .await
     .unwrap();
-    for n in [1, 2, 3] {
+    for n in [1, 2, 3, 4] {
         c.insert(CredentialRecord {
             id: format!("tok_{n:026}").parse().unwrap(),
             kind: if n == 2 {
@@ -122,6 +122,8 @@ async fn setup(db: &database::TestDatabase) -> Api {
             org_id: org(),
             scopes: if n == 2 {
                 [Scope::RunbooksWrite, Scope::SkillsWrite].into()
+            } else if n == 4 {
+                [Scope::RunbooksRead].into()
             } else {
                 [
                     Scope::RunbooksRead,
@@ -1243,6 +1245,42 @@ async fn sync_refuses_the_whole_batch_and_dry_runs_change_nothing() {
         let denied = sync(&api, sync_body(&[("a.yaml", source("alpha"))], json!({})), 34, 2).await;
         assert_eq!(denied.status, 403);
         assert_eq!(denied.body["code"], "auth.scope_missing");
+    })
+    .await;
+}
+#[tokio::test]
+#[ignore = "requires DATABASE_URL; owned databases only"]
+async fn sync_dry_run_needs_only_read_access() {
+    with_api(async |api, _| {
+        // Token 4 holds runbooks:read alone, as a PR check's token would.
+        let dry = sync(
+            &api,
+            sync_body(&[("a.yaml", source("alpha"))], json!({"dry_run": true})),
+            40,
+            4,
+        )
+        .await;
+        assert_eq!(dry.status, 200, "{:?}", dry.body);
+        assert_eq!(dry.body["dry_run"], true);
+        assert_eq!(actions(&dry.body), [("alpha".into(), "create".into())]);
+
+        let real = sync(
+            &api,
+            sync_body(&[("a.yaml", source("alpha"))], json!({})),
+            41,
+            4,
+        )
+        .await;
+        assert_eq!(real.status, 403, "{:?}", real.body);
+        assert_eq!(real.body["code"], "auth.scope_missing");
+        let explicit = sync(
+            &api,
+            sync_body(&[("a.yaml", source("alpha"))], json!({"dry_run": false})),
+            42,
+            4,
+        )
+        .await;
+        assert_eq!(explicit.status, 403, "{:?}", explicit.body);
     })
     .await;
 }

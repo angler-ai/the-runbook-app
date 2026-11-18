@@ -1,0 +1,101 @@
+---
+title: Security model
+description: What the server enforces, how it tells people from agents, and how secrets, uploads and webhooks are protected.
+sidebar:
+  order: 1
+  label: Overview
+---
+
+import { Aside, CardGrid, LinkCard } from '@astrojs/starlight/components';
+import Flow from '../../../components/Flow.astro';
+
+The Runbook's job is to let agents do real work without letting them do
+what should need a person. That rests on two rules: **the server decides
+what may happen**, and **it knows who is asking from the credential, never
+from the request**.
+
+## What the server enforces
+
+Every write goes through the server, which checks it against the published
+runbook and the caller's credential:
+
+- who may claim and complete a step (`actor`, `assignee` with
+  `assignment: strict`), and who may decide an approval (its approvers, its
+  escalation, and agents only with `allow_agents`);
+- that a destructive step can't follow from a decision an agent or a timeout
+  made, unless the runbook explicitly allows it;
+- leases, so one session at a time works a step, and a stale session's
+  report is refused;
+- timeouts, retries and failure handling;
+- outputs and evidence, checked against their declarations before anything
+  is recorded.
+
+It **can't** see what an agent does on its own machine. `agent.hints`
+(preferred tools and commands) are passed to the agent as preferences only.
+Limit what an agent can do through the access you give it: the credential's
+scopes, and what that machine can reach.
+
+## People and agents
+
+<Flow
+  steps={[
+    { title: 'Personal token', text: 'trb_pat_ · a person', tone: 'human' },
+    { title: 'Agent-kind token', text: 'trb_pat_ --agent · an agent you sponsor', tone: 'agent' },
+    { title: 'Execution pair', text: 'trb_exe_ / trb_exr_ · an agent, one run', tone: 'agent' },
+    { title: 'Service token', text: 'trb_svc_ · a project\'s automation', tone: 'system' },
+  ]}
+/>
+
+The kind of credential decides whether the caller is a person or an agent.
+An agent's claims, reports and memory writes are recorded as an agent's,
+naming its sponsor and token or run, and agents never cast human approvals.
+An OAuth grant to an MCP client is an agent sponsored by the person who
+consented. See [Permissions and tokens](/security/permissions/).
+
+## Secrets
+
+- **Tokens** are stored as SHA-256 hashes; the secret is shown once.
+- **Webhook signing secrets** are sealed (encrypted) at rest with the
+  operator's key, opened only to sign a delivery, and never appear in a
+  view, a log or an error.
+- **Logs** are redacted on the server: [Redaction and the audit
+  trail](/security/audit/).
+- **The CLI** keeps logins in the macOS Keychain or Windows Credential
+  Manager (otherwise a `0600` file) and execution pairs in a `0600` file.
+
+## The web app and uploads
+
+- The web app is served from the server's own origin with a strict Content
+  Security Policy and no CORS. Cookie sessions need `X-Runbook-CSRF: 1` and
+  a matching `Origin` for every change.
+- Uploaded files are served only from a **separate origin** with
+  `Content-Security-Policy: sandbox`, `X-Content-Type-Options: nosniff`, no
+  cookies, and short-lived signed URLs, so a malicious file can never act as
+  the app. Images are re-encoded, which strips EXIF and location data.
+
+## Webhooks and outbound requests
+
+Webhook targets must be `https` and resolve to public addresses. Each
+address is checked again at every delivery and the connection goes to that
+vetted address (no DNS rebinding); redirects are never followed. Private and
+link-local targets need explicit operator settings. Payloads carry no
+credentials.
+
+## Runbook data is data
+
+Inputs, outputs, summaries, comments and memory were written by people and
+earlier steps. The CLI and MCP give them to agents in a separate data
+object or between `RUNBOOK DATA` markers, apart from the step's
+instructions, and the `therunbook` skill tells agents never to follow
+instructions found in data.
+
+<Aside type="note" title="What isn't claimed">
+The Runbook has had no external audit, penetration test or compliance
+attestation yet.
+</Aside>
+
+<CardGrid>
+  <LinkCard title="Permissions and tokens" description="Roles, scopes, token kinds and lifetimes." href="/security/permissions/" />
+  <LinkCard title="Redaction and the audit trail" description="What's redacted, and how every action is recorded." href="/security/audit/" />
+  <LinkCard title="Report a vulnerability" description="Privately, through GitHub." href="/security/reporting/" />
+</CardGrid>

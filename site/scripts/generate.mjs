@@ -5,7 +5,17 @@
 // - cli.md and mcp.md from `runbook __docs-reference`, which dumps the CLI's
 //   clap definitions and runbook-mcp's tool, resource and prompt definitions;
 // - environment.md from deploy/.env.example (the documented settings) plus
-//   every RUNBOOK_* / DATABASE_* name the server's source reads.
+//   every RUNBOOK_* / DATABASE_* name the server's source reads (runbook-server,
+//   runbook-core, runbook-api and the stores);
+// - keys.mdx from the compiler's key tree (probed from runbook-spec's
+//   capability matrix) and scripts/data/keys.md;
+// - diagnostics.mdx from the compiler's message catalog and sources and
+//   scripts/data/diagnostics.md;
+// - webhook-events.mdx from runbook-core's event catalog and delivery
+//   constants and scripts/data/webhook-events.md.
+//
+// The data files hold the prose; the code decides which entries must exist,
+// and generation fails when the two disagree.
 //
 // The CLI comes from `cargo run -p runbook-cli`, or from RUNBOOK_BIN when set
 // (CI can point it at a binary it already built). `npm run check:generated`
@@ -14,6 +24,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, readdirSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { inheritedFrom, loadDataDoc, optionalPaths, treeKeys } from './lib/datadoc.mjs';
 
 const site = join(dirname(fileURLToPath(import.meta.url)), '..');
 const repo = join(site, '..');
@@ -37,10 +48,13 @@ const banner = (source) =>
 const esc = (s) => String(s ?? '').replace(/[<>{}]/g, (c) => `&#${c.charCodeAt(0)};`);
 const oneLine = (s) => esc(s).replace(/\s*\n\s*/g, ' ').trim();
 const code = (s) => '`' + String(s).replace(/`/g, '\\`') + '`';
-const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+// Heading anchors as Starlight makes them (github-slugger): lowercase, drop
+// punctuation except `-` and `_`, spaces to hyphens.
+const slug = (s) => s.toLowerCase().replace(/[^\p{L}\p{N}\p{M}\s_-]/gu, '').replace(/ /g, '-');
 
+// Generated pages have no "Edit page" link: their source is the code.
 function frontmatter(title, description) {
-  return `---\ntitle: ${JSON.stringify(title)}\ndescription: ${JSON.stringify(description)}\n---\n\n`;
+  return `---\ntitle: ${JSON.stringify(title)}\ndescription: ${JSON.stringify(description)}\neditUrl: false\n---\n\n`;
 }
 
 // ---------------------------------------------------------------- CLI ----
@@ -246,7 +260,7 @@ function walk(dir, out = []) {
 
 function serverEnvNames() {
   const dirs = readdirSync(join(repo, 'crates'))
-    .filter((d) => d === 'runbook-server' || d.startsWith('runbook-store-'))
+    .filter((d) => ['runbook-server', 'runbook-core', 'runbook-api'].includes(d) || d.startsWith('runbook-store-'))
     .map((d) => join(repo, 'crates', d, 'src'));
   const found = new Map();
   for (const file of dirs.flatMap((d) => walk(d))) {
@@ -287,7 +301,7 @@ function renderEnv() {
       '## Also read by the server',
       '',
       'These are read by the server but aren\'t in `deploy/.env.example`.',
-      'The [install guide](https://github.com/angler-ai/the-runbook-app/blob/main/docs/install.md)',
+      'The [operating guides](/operating/)',
       'describes most of them.',
       '',
       '| Variable | Read in |',
@@ -347,6 +361,266 @@ function renderSample(file) {
   ].join('\n');
 }
 
+// ------------------------------------------------- data-file helpers ----
+
+// Escape MDX-significant characters in prose, leaving code spans and fenced
+// blocks alone.
+function escProse(text) {
+  return text
+    .split(/(```[\s\S]*?```|`[^`\n]*`)/g)
+    .map((part, i) => (i % 2 ? part : part.replace(/[<>{}]/g, (c) => `&#${c.charCodeAt(0)};`)))
+    .join('');
+}
+
+const attr = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;').replace(/[{}]/g, (c) => `&#${c.charCodeAt(0)};`);
+
+function failIfAny(what, problems) {
+  if (problems.length) {
+    throw new Error(`${what}:\n  ${problems.join('\n  ')}`);
+  }
+}
+
+// --------------------------------------------------------- spec keys ----
+
+function renderKeys(tree) {
+  const sections = loadDataDoc('keys.md', { exampleLang: 'yaml' });
+  const valid = new Map(treeKeys(tree).map((k) => [k.path, k.shape]));
+  const optional = optionalPaths(tree);
+  const documented = new Map(sections.flatMap((s) => s.entries.map((e) => [e.name, e])));
+  const problems = [];
+  for (const path of valid.keys()) {
+    const inherited = inheritedFrom(path);
+    if (!documented.has(path) && !(inherited && documented.has(inherited))) {
+      problems.push(`${path}: in the compiler's key tree but not in scripts/data/keys.md`);
+    }
+  }
+  for (const name of documented.keys()) {
+    if (!valid.has(name) && !optional.has(name)) {
+      problems.push(`${name}: in scripts/data/keys.md but not a key the compiler accepts`);
+    }
+  }
+  for (const e of documented.values()) {
+    if (!e.example) problems.push(`${e.name}: no yaml example`);
+    if (!e.meta.as) problems.push(`${e.name}: no "as:" line`);
+  }
+  failIfAny('The key reference is out of date with the compiler', problems);
+
+  const lines = [
+    frontmatter(
+      'Key reference',
+      'Every key of the runbook language, with a minimal example of each, generated from the compiler.',
+    ).replace(/\n---\n\n$/, '\ntableOfContents:\n  maxHeadingLevel: 2\n---\n\n'),
+    banner('the compiler\'s capability matrix (crates/runbook-spec) and scripts/data/keys.md'),
+    'Every key a runbook can use, in the order you\'d meet them. The list of',
+    'keys comes from the compiler itself, so a key that isn\'t here is refused',
+    '(`spec.unknown_key`). Every example is checked with `runbook spec validate`.',
+    '',
+    'Paths are dotted: `[]` stands for any item of a list, and `<name>` for a',
+    'name you choose, such as an input\'s. A step anywhere (inside `steps`,',
+    '`parallel`, `foreach`, `catch` and so on) takes the same keys as',
+    '`spec.steps[]`. For what a diagnostic means, see',
+    '[diagnostics](/reference/diagnostics/).',
+    '',
+  ];
+  for (const s of sections) {
+    lines.push(`## ${s.title}`, '');
+    if (s.intro) lines.push(escProse(s.intro), '');
+    for (const e of s.entries) {
+      lines.push(`### ${code(e.name)}`, '');
+      const meta = [];
+      if (e.meta.type) meta.push(`<span>Type</span> <code>${attr(e.meta.type)}</code>`);
+      if (e.meta.required === 'yes') meta.push('<span class="rb-keymeta-required">Required</span>');
+      if (e.meta.default) meta.push(`<span>Default</span> <code>${attr(e.meta.default)}</code>`);
+      if (meta.length) lines.push(`<p class="rb-keymeta">${meta.join(' ')}</p>`, '');
+      if (e.body) lines.push(escProse(e.body), '');
+      lines.push('```yaml title="Example"', e.example, '```', '');
+    }
+  }
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n');
+}
+
+// ------------------------------------------------------- diagnostics ----
+
+// Every diagnostic code literal in the non-test sources of the compiler and
+// the expression checker.
+function sourceCodes() {
+  const found = new Set();
+  for (const crate of ['runbook-spec', 'runbook-expr']) {
+    for (const file of walk(join(repo, 'crates', crate, 'src'))) {
+      if (/(^|\/)tests?(\.rs|\/)/.test(relative(repo, file))) continue;
+      const src = readFileSync(file, 'utf8').split('#[cfg(test)]')[0];
+      for (const m of src.matchAll(/"((?:spec|data|expression)\.[a-z_]+)"/g)) found.add(m[1]);
+    }
+  }
+  return found;
+}
+
+function renderDiagnostics(catalog) {
+  const sections = loadDataDoc('diagnostics.md');
+  const messages = new Map(catalog.map((d) => [d.code, d.message]));
+  const codes = new Set([...messages.keys(), ...sourceCodes()]);
+  const documented = new Map(sections.flatMap((s) => s.entries.map((e) => [e.name, e])));
+  const problems = [];
+  for (const c of codes) {
+    if (!documented.has(c)) problems.push(`${c}: reported by the code but not in scripts/data/diagnostics.md`);
+  }
+  for (const c of documented.keys()) {
+    if (!codes.has(c)) problems.push(`${c}: in scripts/data/diagnostics.md but no longer in the code`);
+  }
+  failIfAny('The diagnostics reference is out of date with the compiler', problems);
+
+  const lines = [
+    frontmatter(
+      'Diagnostics',
+      'Every diagnostic the runbook compiler reports: what causes it and how to fix it.',
+    ).replace(/\n---\n\n$/, '\ntableOfContents:\n  maxHeadingLevel: 2\n---\n\n'),
+    banner('the compiler\'s message catalog and sources (crates/runbook-spec, crates/runbook-expr) and scripts/data/diagnostics.md'),
+    'Every code `runbook spec validate`, `runbook push` and publishing can',
+    'report. Each diagnostic names a path into your runbook (a JSON pointer',
+    'such as `/spec/steps/2/approval/options`), a code and a message, and in',
+    '`--json` output a line and column where it can:',
+    '',
+    '```text',
+    '$ runbook spec validate my-runbook.yaml',
+    '/spec/steps/0/actor: spec.invalid_value: spec.invalid_value',
+    '```',
+    '',
+    'The quoted sentence under each code is the compiler\'s message for it,',
+    'which the web editor and the API show.',
+    '',
+    ':::note[Offline validation and publishing]',
+    '`runbook spec validate` checks everything it can without a server. Names',
+    'in your directory (teams, users, skills, called runbooks) and the',
+    'publication rules for approvals (`spec.approvers_required` and the',
+    'destructive-path checks) are checked when you publish.',
+    ':::',
+    '',
+  ];
+  for (const s of sections) {
+    lines.push(`## ${s.title}`, '');
+    if (s.intro) lines.push(escProse(s.intro), '');
+    for (const e of s.entries) {
+      lines.push(`### ${code(e.name)}`, '');
+      if (messages.has(e.name)) lines.push(`> ${esc(messages.get(e.name))}`, '');
+      lines.push(escProse(e.body).replace(/^Fix: /m, '**Fix:** '), '');
+    }
+  }
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n');
+}
+
+// ---------------------------------------------------------- webhooks ----
+
+const DAY = 86_400_000;
+function humanMs(ms) {
+  if (ms % DAY === 0) return ms === DAY ? '24 hours' : `${ms / DAY} days`;
+  if (ms % 3_600_000 === 0) return `${ms / 3_600_000} hours`.replace(/^1 hours/, '1 hour');
+  if (ms % 60_000 === 0) return `${ms / 60_000} min`;
+  return `${ms / 1000} s`;
+}
+
+function renderWebhookEvents(hooks) {
+  const sections = loadDataDoc('webhook-events.md', { exampleLang: 'json' });
+  const documented = new Map(sections.flatMap((s) => s.entries.map((e) => [e.name, e])));
+  const catalog = new Set(hooks.events);
+  const problems = [];
+  for (const ev of catalog) if (!documented.has(ev)) problems.push(`${ev}: in the catalog but not in scripts/data/webhook-events.md`);
+  for (const ev of documented.keys()) if (!catalog.has(ev)) problems.push(`${ev}: in scripts/data/webhook-events.md but not in the catalog`);
+  for (const e of documented.values()) if (!e.example) problems.push(`${e.name}: no json example`);
+  failIfAny('The webhook event reference is out of date with the code', problems);
+
+  const human = new Set(hooks.human_events);
+  const lines = [
+    frontmatter('Webhook events', 'Every webhook event, its payload and the delivery rules, generated from the code.'),
+    banner('the event catalog and delivery constants (crates/runbook-core) and scripts/data/webhook-events.md'),
+    'Every event a webhook subscription can receive. Subscribe to a list of',
+    `types, or to \`${hooks.all_events}\` for all of them. How to receive them is in`,
+    '[Webhooks](/webhooks/); verifying the signature is in',
+    '[Verifying signatures](/webhooks/signatures/).',
+    '',
+    '| Event | For | What happened |',
+    '| --- | --- | --- |',
+  ];
+  for (const s of sections) {
+    for (const e of s.entries) {
+      const first = e.body.split(/(?<=\.)\s/)[0];
+      lines.push(`| [${code(e.name)}](#${slug(e.name)}) | ${human.has(e.name) ? 'People' : s.title} | ${cell(first)} |`);
+    }
+  }
+  lines.push(
+    '',
+    'Events marked **People** are notices for people (approvers, assignees,',
+    'escalations). When one reaches no subscriber, the run page says so.',
+    '',
+    '## The envelope',
+    '',
+    'Every delivery is a `POST` with a JSON body of this shape. Payloads carry',
+    'identifiers, recipients, links and facts about the event, never',
+    'credentials or secrets.',
+    '',
+    '| Field | Meaning |',
+    '| --- | --- |',
+    '| `id` | The event ID (`evt_…`). The same on every retry of the event: deduplicate on it |',
+    '| `type` | The event type |',
+    '| `version` | The envelope version, `1` |',
+    '| `created_at` | When the event happened, RFC 3339 UTC with milliseconds |',
+    '| `org`, `project` | The organization and project IDs |',
+    '| `execution` | The run: `id`, `title`, `runbook`, `runbook_version_id`, `runbook_version` and `url`; `null` for project events |',
+    '| `sequence` | The run event that caused it; orders one run\'s events. `0` when there is no run event |',
+    '| `data` | The event\'s own facts, below |',
+    '',
+    '## Headers',
+    '',
+    '| Header | Value |',
+    '| --- | --- |',
+    '| `Content-Type` | `application/json` |',
+    '| `User-Agent` | `TheRunbook-Webhooks/1` |',
+    '| `Runbook-Event-Id` | The event ID, as in the body |',
+    '| `Runbook-Event-Type` | The event type |',
+    '| `Runbook-Delivery-Id` | This delivery (`whd_…`); a redelivery gets a new one |',
+    '| `Runbook-Timestamp` | Unix seconds when this attempt was signed |',
+    '| `Runbook-Signature` | `v1=<hex HMAC-SHA256>`, one per active secret, comma-separated |',
+    '',
+    '## Delivery rules',
+    '',
+    '| Rule | Value |',
+    '| --- | --- |',
+    `| A delivery succeeds on | A \`2xx\` within ${hooks.delivery_timeout_ms / 1000} seconds |`,
+    '| Retried on | Timeouts, connection errors, `5xx`, `408` and `429` |',
+    '| Failed at once on | Any other status, a redirect (never followed) or a target that fails the address checks |',
+    `| Retries stop after | ${humanMs(hooks.retry_window_ms)} from the delivery's creation |`,
+    `| Signature timestamp tolerance | ${hooks.signature_tolerance_s / 60} minutes |`,
+    `| Secret rotation overlap | ${humanMs(hooks.rotation_overlap_ms)}, during which both secrets sign |`,
+    `| A subscription is disabled after | ${humanMs(hooks.disable_after_ms)} of continuous failure |`,
+    `| Delivery log kept | ${humanMs(hooks.delivery_log_retention_ms)} |`,
+    `| Subscriptions per project | ${hooks.subscription_limit} |`,
+    `| Subscription URL | At most ${hooks.url_max_bytes.toLocaleString('en-US')} bytes |`,
+    `| Signing secrets | Start with \`${hooks.secret_prefix}\`; shown once, on create and on rotate |`,
+    '',
+    'The wait before each retry doubles, up to a ceiling:',
+    '',
+    '| Retry | Waits |',
+    '| --- | --- |',
+  );
+  const seen = new Set();
+  hooks.backoff_ms.forEach((ms, i) => {
+    if (seen.has(ms)) return;
+    seen.add(ms);
+    const last = i === hooks.backoff_ms.length - 1 || hooks.backoff_ms[i + 1] === ms;
+    lines.push(`| ${last ? `${i + 1} and later` : i + 1} | ${humanMs(ms)} |`);
+  });
+  lines.push('');
+  for (const s of sections) {
+    lines.push(`## ${s.title}`, '');
+    if (s.intro) lines.push(escProse(s.intro), '');
+    for (const e of s.entries) {
+      lines.push(`### ${code(e.name)}`, '');
+      lines.push(escProse(e.body), '');
+      lines.push('```json title="Example body"', e.example, '```', '');
+    }
+  }
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n');
+}
+
 // ---------------------------------------------------------------- main ----
 
 if (process.argv[1] !== fileURLToPath(import.meta.url)) {
@@ -358,6 +632,9 @@ const pages = {
   'cli.mdx': renderCli(ref.cli),
   'mcp.mdx': renderMcp(ref.mcp),
   'environment.mdx': renderEnv(),
+  'keys.mdx': renderKeys(ref.spec.keys),
+  'diagnostics.mdx': renderDiagnostics(ref.spec.diagnostics),
+  'webhook-events.mdx': renderWebhookEvents(ref.webhooks),
 };
 for (const [name, body] of Object.entries(pages)) {
   writeFileSync(join(outDir, name), body);

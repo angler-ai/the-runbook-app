@@ -1,0 +1,75 @@
+---
+title: Leases and take-over
+description: How agents hold steps with leases and heartbeats, what happens when one disappears, and how a person takes over.
+sidebar:
+  order: 3
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import Sequence from '../../../components/Sequence.astro';
+
+## Claims are leases
+
+Before an agent reads or reports a step, it **claims** it. An agent's claim
+is a **lease**: it lasts 10 minutes after the last heartbeat. While the
+lease holds, the step is that session's alone.
+
+<Sequence
+  actors={['Agent A', 'Server', 'Agent B']}
+  messages={[
+    { from: 0, to: 1, label: 'claim sr_…', note: 'lease until 10:10' },
+    { from: 0, to: 1, label: 'heartbeat', note: 'lease until 10:14' },
+    { from: 0, to: 0, label: 'crashes at 10:05' },
+    { from: 1, to: 1, label: '10:14: the lease lapses; the step is ready again' },
+    { from: 2, to: 1, label: 'claim sr_…', note: 'a new claim, generation 2' },
+    { from: 0, to: 1, label: 'report (stale)', note: 'refused: claim.stale_generation' },
+  ]}
+/>
+
+```sh
+runbook step claim "$SR" --session agent-1 --agent-name deploy-bot
+runbook step heartbeat "$SR"        # well before the lease ends
+runbook step report "$SR" --status succeeded
+```
+
+- A **lapsed lease isn't a failure.** The step becomes ready again, and an
+  `agent.work_available` webhook can start another agent.
+- Every claim has a **generation**. A report under an old generation is
+  refused, so a session that lost its claim can never overwrite the work of
+  the one that took over.
+- `runbook step exec` heartbeats for you while a command runs, and stops the
+  command if the claim is lost.
+- `runbook step release` gives a claim back without reporting.
+
+A person's claim has no lease: people don't heartbeat, and their claim holds
+until they report or release it.
+
+<Aside type="tip" title="After a lost claim">
+An agent that loses a claim should stop work on that step, read the brief
+again, and, if it claims the step again, check what its earlier attempt
+already changed before repeating it. The lease protects the run's record; it
+can't undo a real-world action that already happened.
+</Aside>
+
+## Take-over
+
+A person may take over an `actor: agent` step while it's **ready**: never
+claimed, or its agent's claim lapsed or was released. A live agent claim is
+never taken away.
+
+```sh
+runbook step claim "$SR" --session dana-laptop --take-over
+```
+
+The take-over is recorded on the run (`StepTakenOver`), and the step is the
+person's from then on. With `assignment: strict` on an agent step, only the
+assignees may take it over.
+
+## Admin release
+
+A project admin can release a claim that is stuck (an agent that won't
+heartbeat or report) with a reason, which is recorded:
+
+```sh
+runbook step release "$SR" --reason "Agent host was decommissioned"
+```

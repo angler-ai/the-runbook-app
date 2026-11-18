@@ -1044,6 +1044,18 @@ async fn write_directory(
                 .await
                 .map_err(sql)?;
             }
+            DirectoryMutation::SetProjectArchived {
+                project_id,
+                archived,
+            } => {
+                c.execute(
+                    "UPDATE runbook.project SET archived = $3 \
+                     WHERE org_id = $1 AND project_id = $2",
+                    &[&org, &project_id.as_str(), &archived],
+                )
+                .await
+                .map_err(sql)?;
+            }
             DirectoryMutation::GrantProjectRole {
                 project_id,
                 user_id,

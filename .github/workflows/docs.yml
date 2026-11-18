@@ -1,8 +1,10 @@
 name: Docs
 
-# The docs site (site/, DOCS1): regenerate the CLI, MCP, environment and
-# samples pages from the code and fail if the committed pages are stale,
-# validate every sample runbook, and build the site. There is no deploy job
+# The docs site (site/, DOCS1): regenerate the CLI, MCP, environment, key,
+# diagnostics, webhook event and samples pages from the code and fail if the
+# committed pages are stale, validate every sample and example runbook, run
+# the site's script tests (including the webhook signature samples), and
+# build the site, which checks every internal link. There is no deploy job
 # yet: GitHub Pages at docs.therunbook.app needs the DNS record from the
 # owner and the repository to be public.
 
@@ -15,6 +17,9 @@ on:
       - 'crates/runbook-cli/**'
       - 'crates/runbook-mcp/**'
       - 'crates/runbook-spec/**'
+      - 'crates/runbook-expr/src/**'
+      - 'crates/runbook-core/src/**'
+      - 'crates/runbook-api/src/**'
       - 'crates/runbook-server/src/**'
       - 'crates/runbook-store-*/src/**'
       - 'deploy/.env.example'
@@ -28,6 +33,9 @@ on:
       - 'crates/runbook-cli/**'
       - 'crates/runbook-mcp/**'
       - 'crates/runbook-spec/**'
+      - 'crates/runbook-expr/src/**'
+      - 'crates/runbook-core/src/**'
+      - 'crates/runbook-api/src/**'
       - 'crates/runbook-server/src/**'
       - 'crates/runbook-store-*/src/**'
       - 'deploy/.env.example'
@@ -83,6 +91,9 @@ jobs:
         env:
           RUNBOOK_BIN: ../target/debug/runbook
         run: npm run check:samples
-      - name: Build the site
+      - name: Script tests and signature samples
+        working-directory: site
+        run: node --test scripts/tests/*.test.mjs
+      - name: Build the site and check its links
         working-directory: site
         run: npm run build

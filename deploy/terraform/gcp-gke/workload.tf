@@ -46,8 +46,11 @@ resource "kubernetes_config_map" "runbook_config" {
       RUNBOOK_DATABASE_POOL_SIZE      = tostring(var.database_pool_size)
       RUNBOOK_AUTH_DATABASE_POOL_SIZE = tostring(var.auth_database_pool_size)
       RUNBOOK_SHUTDOWN_TIMEOUT_SECS   = tostring(var.shutdown_timeout_secs)
-      RUNBOOK_TRUSTED_PROXIES         = "35.191.0.0/16,130.211.0.0/16"
-      RUNBOOK_BLOB_STORE              = var.blob_store
+      # Google's front ends, and the load balancer's own address: it appends
+      # itself to X-Forwarded-For after the client, so without it every
+      # client would look like the load balancer and share its limits.
+      RUNBOOK_TRUSTED_PROXIES = "35.191.0.0/16,130.211.0.0/16,${google_compute_global_address.ingress_ip.address}"
+      RUNBOOK_BLOB_STORE      = var.blob_store
     },
     var.blob_store == "gcs" ? {
       RUNBOOK_BLOB_BUCKET = google_storage_bucket.blobs[0].name
@@ -87,6 +90,13 @@ resource "kubernetes_deployment" "runbook" {
       metadata {
         labels = {
           "app.kubernetes.io/name" = "runbook"
+        }
+        # Pods read the ConfigMap and the Secret only at start: a change to
+        # either rolls the Deployment (a rotated Slack, SMTP or Google secret
+        # takes effect on apply). Hashes only; no values.
+        annotations = {
+          "runbook.dev/config-sha256" = sha256(jsonencode(kubernetes_config_map.runbook_config.data))
+          "runbook.dev/secret-sha256" = nonsensitive(sha256(jsonencode(kubernetes_secret.runbook_secrets.data)))
         }
       }
 

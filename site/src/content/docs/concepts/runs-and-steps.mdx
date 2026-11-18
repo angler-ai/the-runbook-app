@@ -1,0 +1,121 @@
+---
+title: Runbooks, runs and steps
+description: What a runbook is, what happens when it runs, and the states a run and its steps go through.
+sidebar:
+  order: 1
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import Flow from '../../../components/Flow.astro';
+
+A **runbook** is a procedure written as a short YAML file: inputs, steps and
+outputs. A **run** (an execution, `exe_…`) is one pass through it. Each step
+in a run is a **step run** (`sr_…`), done by a person, an agent or the engine
+itself.
+
+```yaml title="post-deploy-checks.yaml"
+metadata: { id: post-deploy-checks }
+spec:
+  inputs:
+    service: { type: string, required: true }
+  steps:
+    - id: check_health
+      actor: agent
+      check: true
+      instructions: Call /healthz on ${{ inputs.service }}; pass on 200.
+    - id: sign_off
+      actor: human
+      instructions: Look over the dashboards and confirm the deploy is healthy.
+```
+
+## From draft to run
+
+<Flow
+  steps={[
+    { title: 'Draft', text: 'Saved and checked on every save', tag: 'push --draft' },
+    { title: 'Version', text: 'Published, numbered, immutable', tag: 'publish', tone: 'current' },
+    { title: 'Run', text: 'A version plus its inputs', tag: 'run start', tone: 'agent' },
+  ]}
+/>
+
+You save a runbook as a **draft** and **publish** it. Publishing compiles it
+against your server: unknown keys, bad expressions and broken limits are
+refused, and teams, people, skills and called runbooks are resolved and
+pinned. Each publish is a new numbered **version**, and a run keeps the
+version it started with, so editing a runbook never changes a run in
+flight.
+
+Runs start from the CLI, the web app, the API, MCP, a schedule or a webhook
+trigger:
+
+```sh
+runbook run start post-deploy-checks --project prod --input service=api
+```
+
+## A run's life
+
+<Flow
+  steps={[
+    { title: 'queued', text: 'Behind a concurrency limit', tone: 'muted' },
+    { title: 'running', text: 'An agent has work, or the engine is moving', tone: 'agent' },
+    { title: 'waiting', text: 'On a person, a timer or a signal', tone: 'human' },
+    { title: 'succeeded · failed · cancelled', text: 'Final', tone: 'current' },
+  ]}
+/>
+
+A run is **running** while agent work is open, and **waiting** while it
+waits only on people, timers or signals. A person can **pause** and
+**resume** it. When it ends, its `finally` steps run (the cleanup phase),
+then it's **succeeded**, **failed** or **cancelled**.
+
+## A step's life
+
+| Status | Meaning |
+| --- | --- |
+| `pending` | Not reached yet |
+| `ready` | Can be claimed by someone its `actor` allows |
+| `claimed` | Someone is working on it; an agent holds a lease |
+| `waiting` | A wait, an approval or a child run is in progress |
+| `succeeded`, `failed` | Reported, or decided by the engine |
+| `skipped` | Its `if` was false, or a person skipped a skippable step |
+| `timed_out` | It ran past its timeout |
+| `expired` | An approval that ran past its escalation undecided |
+| `cancelled` | Its run or branch was cancelled |
+
+A **check** (`check: true`) also records a **verdict** (`pass`, `warn` or
+`fail`) separately from its status: a check that ran and found a problem
+**succeeded** with verdict **fail**. Later steps read both, as
+`steps.<id>.status` and `steps.<id>.verdict`.
+
+Steps run in order unless [control flow](/language/control-flow/) says
+otherwise: groups, parallel branches, loops, `foreach`, `switch` and calls
+to other runbooks.
+
+## Kinds of steps
+
+| Kind | Key | Done by |
+| --- | --- | --- |
+| Task | `instructions` (or nothing) | A person or an agent, by `actor` |
+| Check | `check: true` | A person or an agent, with a verdict |
+| Approval | `approval` | Named approvers |
+| Wait | `wait` | The engine: a timer, a time or a signal |
+| Set, End | `set`, `end` | The engine |
+| Call | `call` | A child run |
+| Containers | `steps`, `parallel`, `foreach`, `loop`, `switch` | Their steps |
+
+<Aside type="tip">
+Every step has an ID, and that's all it needs: a step with no `title` gets
+one from its ID, and with no `actor` it's for anyone.
+</Aside>
+
+## Where to read the result
+
+The run page reads like a document: each step, who did it, their outputs,
+logs and evidence, and every decision. The same record exports as a report:
+
+```sh
+runbook run report "$EXE" --format md
+runbook run report "$EXE" --format pdf --out report.pdf
+```
+
+See [The run record](/concepts/run-record/).

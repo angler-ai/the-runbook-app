@@ -1,0 +1,232 @@
+---
+title: Verifying signatures
+description: Check the Runbook-Signature header in TypeScript, Python and Go, with a test vector.
+sidebar:
+  order: 2
+---
+
+import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Every delivery is signed with the subscription's secret (`whsec_…`, shown
+once when you create the subscription or rotate it). Check the signature on
+every request before you act on it; a receiver that doesn't is open to
+anyone who finds its URL.
+
+## The scheme
+
+```text
+Runbook-Timestamp: 1763458212
+Runbook-Signature: v1=b528e12e66278e5153b4c540e627aecbb327bbeefab40ff5f439b078ca22b2f2
+```
+
+<Steps>
+
+1. Take the `Runbook-Timestamp` header (Unix seconds) and the **raw request
+   body**, byte for byte, before any JSON parsing.
+2. Compute HMAC-SHA256 of `"{timestamp}.{body}"`, keyed by the secret string
+   itself (all of it, `whsec_` included), as lowercase hex.
+3. `Runbook-Signature` holds one or more `v1=<hex>` entries, comma-separated.
+   Accept the request if **any** entry equals your result, compared in
+   constant time. During a secret rotation the header carries one entry per
+   active secret, newest first, for 24 hours.
+4. Reject timestamps more than **5 minutes** from your clock, so a captured
+   request can't be replayed later.
+
+</Steps>
+
+Then deduplicate on the event ID (`Runbook-Event-Id`, the body's `id`):
+delivery is at least once, so the same event can arrive more than once.
+
+## Code
+
+Each function takes the secret, the raw body, the two headers and the
+current time, and returns whether the delivery is authentic.
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts title="verify.ts"
+import { createHmac, timingSafeEqual } from 'node:crypto';
+
+const TOLERANCE_SECONDS = 300;
+
+export function verifyRunbookSignature(
+  secret: string, // the subscription's whsec_… secret
+  rawBody: string | Buffer, // the request body exactly as received
+  timestamp: string, // the Runbook-Timestamp header
+  signatureHeader: string, // the Runbook-Signature header
+  nowSeconds: number = Math.floor(Date.now() / 1000),
+): boolean {
+  if (!/^[0-9]+$/.test(timestamp)) return false;
+  if (Math.abs(nowSeconds - Number(timestamp)) > TOLERANCE_SECONDS) return false;
+  const expected = Buffer.from(
+    createHmac('sha256', secret).update(`${timestamp}.`).update(rawBody).digest('hex'),
+  );
+  return signatureHeader.split(',').some((entry) => {
+    const value = entry.trim();
+    if (!value.startsWith('v1=')) return false;
+    const candidate = Buffer.from(value.slice(3));
+    return candidate.length === expected.length && timingSafeEqual(candidate, expected);
+  });
+}
+```
+
+With Express, read the body raw for this route:
+
+```ts title="server.ts"
+import express from 'express';
+import { verifyRunbookSignature } from './verify.ts';
+
+const app = express();
+app.post('/runbook', express.raw({ type: 'application/json' }), (req, res) => {
+  const ok = verifyRunbookSignature(
+    process.env.RUNBOOK_WEBHOOK_SECRET!,
+    req.body,
+    req.get('Runbook-Timestamp') ?? '',
+    req.get('Runbook-Signature') ?? '',
+  );
+  if (!ok) return res.status(401).end();
+  const event = JSON.parse(req.body.toString('utf8'));
+  // Deduplicate on event.id, then hand the work off and answer quickly.
+  res.status(204).end();
+});
+app.listen(9000);
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python title="verify.py"
+import hashlib
+import hmac
+import time
+
+TOLERANCE_SECONDS = 300
+
+
+def verify_runbook_signature(secret, raw_body, timestamp, signature_header, now=None):
+    """secret: the whsec_ string; raw_body: bytes as received; the two
+    headers as strings. Returns True when the delivery is authentic."""
+    if not (timestamp.isascii() and timestamp.isdigit()):
+        return False
+    now = int(time.time()) if now is None else now
+    if abs(now - int(timestamp)) > TOLERANCE_SECONDS:
+        return False
+    expected = hmac.new(
+        secret.encode(), timestamp.encode() + b"." + raw_body, hashlib.sha256
+    ).hexdigest()
+    for entry in signature_header.split(","):
+        entry = entry.strip()
+        if entry.startswith("v1=") and hmac.compare_digest(entry[3:], expected):
+            return True
+    return False
+```
+
+With Flask, use `request.get_data()` for the raw body:
+
+```python title="app.py"
+import os
+from flask import Flask, request
+from verify import verify_runbook_signature
+
+app = Flask(__name__)
+
+@app.post("/runbook")
+def receive():
+    if not verify_runbook_signature(
+        os.environ["RUNBOOK_WEBHOOK_SECRET"],
+        request.get_data(),
+        request.headers.get("Runbook-Timestamp", ""),
+        request.headers.get("Runbook-Signature", ""),
+    ):
+        return "", 401
+    event = request.get_json()
+    # Deduplicate on event["id"], then hand the work off and answer quickly.
+    return "", 204
+```
+
+</TabItem>
+<TabItem label="Go">
+
+```go title="verify.go"
+package runbookhook
+
+import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"strconv"
+	"strings"
+	"time"
+)
+
+const toleranceSeconds = 300
+
+// VerifySignature reports whether a delivery is authentic. secret is the
+// subscription's whsec_ secret; rawBody is the body exactly as received.
+func VerifySignature(secret string, rawBody []byte, timestamp, signatureHeader string, now time.Time) bool {
+	if timestamp == "" || strings.Trim(timestamp, "0123456789") != "" {
+		return false
+	}
+	ts, err := strconv.ParseInt(timestamp, 10, 64)
+	if err != nil {
+		return false
+	}
+	if d := now.Unix() - ts; d > toleranceSeconds || d < -toleranceSeconds {
+		return false
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(timestamp + "."))
+	mac.Write(rawBody)
+	expected := []byte(hex.EncodeToString(mac.Sum(nil)))
+	for _, entry := range strings.Split(signatureHeader, ",") {
+		entry = strings.TrimSpace(entry)
+		if strings.HasPrefix(entry, "v1=") && hmac.Equal([]byte(entry[3:]), expected) {
+			return true
+		}
+	}
+	return false
+}
+```
+
+In an `http.Handler`, read the body with `io.ReadAll(r.Body)` before
+decoding it, and pass `r.Header.Get("Runbook-Timestamp")` and
+`r.Header.Get("Runbook-Signature")`.
+
+</TabItem>
+</Tabs>
+
+## Test vector
+
+Check your implementation against this delivery, with the clock at the
+timestamp:
+
+| | |
+| --- | --- |
+| Secret | `whsec_RTvjUcKXtNZ1T5WVpsbUlo3e0xgR8z8ApXzhxQ8Ke2w` |
+| `Runbook-Timestamp` | `1763458212` |
+| Body | `{"id":"evt_01JD2W1B3D5F7H9K1M3P5R7T9V","type":"webhook.test","version":1}` |
+| `Runbook-Signature` | `v1=b528e12e66278e5153b4c540e627aecbb327bbeefab40ff5f439b078ca22b2f2` |
+
+The same body with any byte changed, or a timestamp more than 300 seconds
+away, must fail. (The site's tests run all three samples against this
+vector.)
+
+<Aside type="caution" title="Common mistakes">
+- **Parsing first.** Re-serialized JSON isn't byte-identical to what was
+  signed. Verify the raw body, then parse it.
+- **Comparing with `==`.** Use a constant-time comparison, as above.
+- **Checking only the first entry.** During a rotation, the entry for your
+  secret may not be first.
+</Aside>
+
+## Rotating the secret
+
+```sh
+runbook webhook rotate-secret whk_… --project prod --json
+```
+
+The new secret is printed once. For the next 24 hours, deliveries are
+signed with both the new and the previous secret, so switch your receiver to
+the new one within that window. A receiver may hold both secrets while it
+switches: accept a match on either.

@@ -1,0 +1,32 @@
+---
+title: Report a vulnerability
+description: How to report a security problem in The Runbook privately.
+sidebar:
+  order: 4
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+Please report security problems privately, not in a public issue,
+discussion or pull request.
+
+<Steps>
+
+1. Open the repository's [security
+   advisories](https://github.com/angler-ai/the-runbook-app/security/advisories/new)
+   page ("Report a vulnerability"). This uses GitHub's private
+   vulnerability reporting: only the maintainers see your report.
+2. Describe the problem, the affected component (server, sign-in service,
+   CLI, MCP server, web app, Cloudflare edition) and version or commit, and
+   the steps to reproduce it. A proof of concept helps.
+3. We'll acknowledge the report, keep you updated while we fix it, and
+   credit you in the advisory if you'd like.
+
+</Steps>
+
+Please give us a reasonable time to release a fix before you disclose the
+problem publicly, and don't test against servers you don't own.
+
+The repository's
+[`SECURITY.md`](https://github.com/angler-ai/the-runbook-app/blob/main/SECURITY.md)
+has the same policy.

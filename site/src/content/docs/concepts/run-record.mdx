@@ -1,0 +1,99 @@
+---
+title: The run record
+description: How every action on a run is recorded, and the reports you can export from it.
+sidebar:
+  order: 9
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+import Flow from '../../../components/Flow.astro';
+
+Every action on a run is an **event**: a start, a claim, a heartbeat, a
+report, a decision, a signal, a take-over, a timer firing. Events are
+appended, never edited, and each records **who** caused it: a person, an
+agent (with its sponsor, token or run, session and model), a service token,
+a schedule (`schedule:<id>`), a webhook trigger (`webhook:<id>`), or the
+engine. The run's state is computed from its events, so the record and the
+run can't disagree.
+
+<Flow
+  steps={[
+    { title: 'Events', text: 'Append-only, with who and when', tone: 'system' },
+    { title: 'Run page', text: 'Reads like a document', tone: 'current' },
+    { title: 'Reports', text: 'Markdown, JSON, JUnit, PDF', tone: 'agent' },
+    { title: 'Archives', text: 'One file per runbook per day', tone: 'muted' },
+  ]}
+/>
+
+## The run page
+
+The web app shows a run as a document: the runbook's steps in order, each
+with who did it, when, its status and verdict, its outputs, summary, logs,
+evidence and checklist, and every approval with who decided what and why.
+Runs that end have their `spec.report` summary at the top.
+
+## Reports
+
+<Tabs>
+<TabItem label="Markdown">
+
+```sh
+runbook run report "$EXE" --format md > run.md
+```
+
+For tickets, postmortems and chat.
+
+</TabItem>
+<TabItem label="PDF">
+
+```sh
+runbook run report "$EXE" --format pdf --out run.pdf
+```
+
+For audits and sign-off records.
+
+</TabItem>
+<TabItem label="JUnit">
+
+```sh
+runbook run report "$EXE" --format junit > run.xml
+```
+
+Checks become test cases, so CI systems show a run's verdicts like a test
+suite.
+
+</TabItem>
+<TabItem label="JSON">
+
+```sh
+runbook run report "$EXE" --format json
+```
+
+Every section with its step run IDs, for your own tools.
+
+</TabItem>
+</Tabs>
+
+## Watching live
+
+```sh
+runbook run watch "$EXE"          # events as they happen
+runbook run get "$EXE" --wait     # block until the run ends; exit 3 if it failed
+```
+
+The web app's run page updates live the same way, over a server-sent event
+stream.
+
+## Correcting the record
+
+The record is never rewritten, but it can be amended:
+
+- a person with `executions:admin` can **override** a step's result, which
+  is recorded as its own event next to the original;
+- a step whose result was changed afterwards is marked **amended**, and
+  steps that had read its old outputs are marked **stale**, so nobody trusts
+  a value that changed;
+- `runbook run rerun` starts a fresh run with the same inputs.
+
+See [Redaction and the audit trail](/security/audit/) for what's redacted
+and where else actions are recorded.

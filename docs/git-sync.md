@@ -57,6 +57,13 @@ runbook token create --kind service --role editor --project app \
   --scope runbooks:read --scope runbooks:publish --name "ci sync app"
 ```
 
+A dry run needs only `runbooks:read`, so pull request checks can use a read-only token, kept apart from the token that publishes from the default branch:
+
+```sh
+runbook token create --kind service --role viewer --project app \
+  --scope runbooks:read --name "ci check app"
+```
+
 With `--each-project`, the CLI uses `RUNBOOK_TOKEN_<PROJECT>` for each project when it is set. The slug is upper-cased and `-` becomes `_`, so `data-pipelines` uses `RUNBOOK_TOKEN_DATA_PIPELINES`. Otherwise it uses `RUNBOOK_TOKEN`.
 
 ## GitHub Actions

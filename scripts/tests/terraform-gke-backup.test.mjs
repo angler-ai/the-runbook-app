@@ -33,9 +33,10 @@ exit 9
 printf '%s\\n' "$*" >> "$FAKE_LOG"
 case "$*" in
   *"backups list"*)
-    printf '%s' "$FAKE_EXISTING"
+    if [ -f "$FAKE_STATE.created" ]; then printf '%s\\n' 1700000000123; else printf '%s' "$FAKE_EXISTING"; fi
     ;;
   *"backups create"*)
+    : > "$FAKE_STATE.created"
     printf '%s\\n' 'Creating backup...' >&2
     ;;
   *"backups describe"*)
@@ -82,24 +83,27 @@ esac
   };
 }
 
-test('pre-upgrade backup creates and waits for a named Cloud SQL backup', () => {
+test('pre-upgrade backup creates a labelled Cloud SQL backup and waits for its assigned id', () => {
   const fake = fakeTools({ statuses: ['RUNNING', 'SUCCESSFUL'] });
   try {
     const out = fake.run();
     assert.equal(out.status, 0, out.stderr);
-    assert.equal(out.stdout.trim(), 'pre-upgrade-test');
+    assert.equal(out.stdout.trim(), '1700000000123');
     assert.match(
       out.calls,
-      /sql backups create --instance=runbook-postgres --project=example-project --backup-id=pre-upgrade-test/,
+      /sql backups create --instance=runbook-postgres --project=example-project --description=pre-upgrade-test --async/,
     );
+    assert.doesNotMatch(out.calls, /--backup-id/);
+    assert.match(out.calls, /backups list .*--filter=description=pre-upgrade-test --format=value\(id\)/);
+    assert.match(out.calls, /backups describe 1700000000123 /);
     assert.ok(out.calls.indexOf('backups create') < out.calls.lastIndexOf('backups describe'));
   } finally {
     rmSync(fake.dir, { recursive: true, force: true });
   }
 });
 
-test('pre-upgrade backup refuses an existing backup id', () => {
-  const fake = fakeTools({ existing: 'pre-upgrade-test' });
+test('pre-upgrade backup refuses a label already in use', () => {
+  const fake = fakeTools({ existing: '1690000000001' });
   try {
     const out = fake.run();
     assert.notEqual(out.status, 0);

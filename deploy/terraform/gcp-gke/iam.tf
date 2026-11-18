@@ -6,11 +6,24 @@ resource "google_service_account" "runbook_gsa" {
   depends_on = [google_project_service.apis]
 }
 
-# Grant Cloud SQL client permission so the Cloud SQL Auth Proxy sidecar can connect
+# Cloud SQL client, so the Auth Proxy sidecar can connect: only to this
+# module's instance, since the project may hold other teams' databases.
 resource "google_project_iam_member" "cloudsql_client" {
   project = var.project_id
   role    = "roles/cloudsql.client"
   member  = "serviceAccount:${google_service_account.runbook_gsa.email}"
+
+  condition {
+    title       = "runbook-instance-only"
+    description = "Only The Runbook's own Cloud SQL instance"
+    expression  = "resource.name == \"projects/${var.project_id}/instances/${google_sql_database_instance.postgres.name}\""
+  }
+
+  # A new condition replaces the binding; grant the new one first so the
+  # running proxy never loses access.
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 # Bind GSA to KSA via Workload Identity

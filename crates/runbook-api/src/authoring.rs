@@ -123,6 +123,11 @@ impl<D: DirectoryOperations, C: CredentialStore, F: AuthoringFactory> AuthoringS
                 }
             } else if r.method == "GET" || route.path == "/v1/validate" && project.is_some() {
                 Scope::RunbooksRead
+            } else if route.path.ends_with("/sync")
+                && r.body.get("dry_run").and_then(Value::as_bool) == Some(true)
+            {
+                // A dry run changes nothing, so a read-only token (a PR check) may ask.
+                Scope::RunbooksRead
             } else if route.path.ends_with("/versions")
                 || route.path.ends_with("/sync")
                 || route.path.ends_with("/detach")

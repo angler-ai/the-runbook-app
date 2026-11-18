@@ -1,0 +1,175 @@
+---
+title: Install and configure
+description: The settings every install needs, on Docker, a native binary, Kubernetes or Cloudflare.
+sidebar:
+  order: 2
+---
+
+import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+The [quick starts](/getting-started/docker/) get a server running in
+minutes. This page is the reference behind them: what every install needs,
+and the settings you'll want before real use.
+
+## What every install needs
+
+| Setting | Docker/Kubernetes | Cloudflare | Why |
+| --- | --- | --- | --- |
+| Public origin | `RUNBOOK_ORIGIN` | `ORIGIN` (api), `RUNBOOK_ORIGIN` (sign-in) | Links, cookies, CSRF and OAuth all use it. `scheme://host[:port]`, no path |
+| Database | `DATABASE_URL` (PostgreSQL 14+) | D1, Durable Objects, R2 bindings | State |
+| Webhook sealing key | `RUNBOOK_WEBHOOK_SECRET_KEY` | `WEBHOOK_SECRET_KEY` secret | Encrypts webhook signing secrets at rest. 32 random bytes, base64. Keep it with your backups |
+| Sign-in | `RUNBOOK_AUTH_SECRET` and an email or Google method | The sign-in Worker's `RUNBOOK_AUTH_SECRET` | People sign in. Without it, only tokens work |
+| First owner | `runbook-server bootstrap` | `POST /internal/bootstrap` with `BOOTSTRAP_SECRET` | Creates the organization, its owner and the `default` project |
+
+Every setting of the container edition is in [Environment
+variables](/reference/environment/), generated from the server's source.
+
+## Platforms
+
+<Tabs syncKey="edition">
+<TabItem label="Docker compose">
+
+```sh
+cp deploy/.env.example deploy/.env && chmod 600 deploy/.env
+# fill in deploy/.env, then:
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build --wait
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env exec server runbook-server doctor
+```
+
+The compose file runs the server and PostgreSQL, with the server connecting
+as an unprivileged role. For a database you run elsewhere, use
+`deploy/docker-compose.external-db.yml` with `DATABASE_URL`. Full steps:
+[Quick start with Docker](/getting-started/docker/).
+
+</TabItem>
+<TabItem label="Native binary">
+
+```sh
+cargo build --release --locked -p runbook-server -p runbook-cli
+export DATABASE_URL='postgres://runbook:…@db.internal:5432/runbook?sslmode=verify-full'
+export RUNBOOK_ORIGIN=https://runbooks.example.com
+export RUNBOOK_LISTEN_ADDR=127.0.0.1:8080
+export RUNBOOK_WEBHOOK_SECRET_KEY="$(cat /etc/runbook/webhook-secret-key)"
+runbook-server serve
+```
+
+The database role needs `CREATE` on the database (the server creates the
+`runbook` schema, and the sign-in service its `auth` schema). The sign-in
+service is a Node or Bun program in `auth/`, built once
+(`cd auth && npm ci --ignore-scripts && npm run build`) and started by
+`serve` as a child process. Serve the web app by building `web/` and
+setting `RUNBOOK_WEB_DIR` to its `dist`.
+
+</TabItem>
+<TabItem label="Kubernetes">
+
+Run the image as a Deployment behind your ingress, with `DATABASE_URL` and
+the secrets from a Secret. Any number of replicas can share one database.
+Set `RUNBOOK_MIGRATE_ON_START=false` and run `runbook-server migrate` as a
+Job before rolling out, if you prefer migrations as a separate step.
+
+On Google Cloud, the Terraform module in `deploy/terraform/gcp-gke/`
+provisions GKE, Cloud SQL, Secret Manager and an HTTPS load balancer:
+[Quick start on GKE](/getting-started/gke/). Cloud Run, Fly.io, Render,
+ECS and VMs are covered in
+[`deploy/platforms.md`](https://github.com/angler-ai/the-runbook-app/blob/main/deploy/platforms.md).
+
+</TabItem>
+<TabItem label="Cloudflare">
+
+The Workers edition deploys to your own account on the Workers Paid plan:
+D1, R2, Queues and two Workers. The secrets are set with
+`npx wrangler secret put`, the rest in `wrangler.prod.jsonc` and
+`wrangler.auth.prod.jsonc`. Full steps: [Quick start on
+Cloudflare](/getting-started/cloudflare/).
+
+</TabItem>
+</Tabs>
+
+## Behind a proxy
+
+Terminate TLS in a reverse proxy and set `RUNBOOK_ORIGIN` to its
+`https://` URL. Tell the server which proxies to trust, so per-client limits
+(sign-in codes, device logins) see the real client:
+
+```sh
+RUNBOOK_TRUSTED_PROXIES=10.0.0.0/8,::1
+```
+
+The client is then the right-most `X-Forwarded-For` hop that isn't a trusted
+proxy. Without it, every client behind the proxy shares one set of limits.
+Trust a proxy only if nothing else can reach the server's port.
+
+## Evidence uploads
+
+Files and screenshots attached to steps are off until you give them their
+own origin, so a malicious upload can never act as the app:
+
+| Docker/Kubernetes | Cloudflare | |
+| --- | --- | --- |
+| `RUNBOOK_UPLOAD_SIGNING_KEY` | `RUNBOOK_UPLOAD_SIGNING_KEY` secret | 32 random bytes, base64; signs upload and file URLs |
+| `RUNBOOK_USERCONTENT_ORIGIN` | `RUNBOOK_USERCONTENT_ORIGIN` var | A different host name, ideally on a separate registrable domain |
+| `RUNBOOK_USERCONTENT_LISTEN_ADDR` (optional) | A custom domain on the api Worker | Where that origin is served |
+
+User content is served with `Content-Security-Policy: sandbox`, `nosniff`
+and no cookies. Images are re-encoded at upload, which strips EXIF and GPS
+data. `/v1/meta` reports `capabilities.uploads: true` once both are set.
+
+## Branding
+
+Set the web app's accent colours (`#rrggbb`) to your own:
+
+```sh
+RUNBOOK_THEME_ACCENT='#0f766e'
+RUNBOOK_THEME_ACCENT_SECONDARY='#f59e0b'
+RUNBOOK_THEME_DARK_ACCENT='#5eead4'   # optional, dark theme only
+```
+
+An invalid value stops `serve` from starting
+(`config.invalid_theme_color`); on Cloudflare it's logged and the default
+theme is served.
+
+## Create the first owner
+
+<Tabs syncKey="edition">
+<TabItem label="Docker/Kubernetes">
+
+```sh
+runbook-server bootstrap --owner-email you@example.com --owner-name "Your Name"
+```
+
+A local command on the server host, never an HTTP route. It runs once per
+database and prints the organization, owner and project IDs; the owner then
+signs in with a code sent to that address. `--with-token` also prints an
+owner token and a project service token, once. Without sign-in configured,
+plain `bootstrap` prints both tokens.
+
+</TabItem>
+<TabItem label="Cloudflare">
+
+```sh
+curl -X POST https://runbooks.example.com/internal/bootstrap \
+  -H "x-bootstrap-secret: $BOOTSTRAP_SECRET" -H 'Content-Type: application/json' \
+  -d '{"organization": "My Organization", "user_name": "Initial Admin",
+       "project_slug": "default", "owner_email": "admin@example.com"}'
+npx wrangler secret delete BOOTSTRAP_SECRET
+```
+
+Deleting the secret disables the route.
+
+</TabItem>
+</Tabs>
+
+<Aside type="tip" title="Lost the owner?">
+On the server host, `runbook-server assign-owner --org <org_id> --user
+<usr_id>` records a new owner. It's local only, like `bootstrap`.
+</Aside>
+
+## Check the install
+
+```sh
+runbook-server doctor            # database, schema version, blob store
+curl -s https://runbooks.example.com/v1/meta   # version, schema, capabilities
+runbook login https://runbooks.example.com
+runbook whoami
+```

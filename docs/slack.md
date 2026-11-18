@@ -25,6 +25,7 @@ In **Project settings → Slack notifications**, paste an incoming-webhook URL (
 ### How a click becomes a vote
 
 - Each click is checked against Slack's signature, made with your signing secret. Requests more than five minutes old are refused.
+- Only clicks from the workspace the app is installed in count; people from other workspaces in a shared channel are refused.
 - The person who clicked is looked up in Slack (`users.info`) and matched to a Runbook account by email. That account must be an active member of the organization.
 - The vote is cast through the normal decision route, with that person's own permissions. Approver rules, minimums and one-vote-per-person apply exactly as in the app. The token used exists for one minute and is revoked straight away.
 - The person gets a reply only they can see, such as "Your vote (approve) is recorded." or "You are not an approver for this step."

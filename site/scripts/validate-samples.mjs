@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sampleFiles } from './generate.mjs';
+import { loadDataDoc, wrapKeyExample } from './lib/datadoc.mjs';
 
 // Complete runbooks in the hand-written pages: every ```yaml block that
 // starts with `metadata:` or `apiVersion:`. Fragments (a single step) are
@@ -42,6 +43,39 @@ function pageExamples() {
 const examples = pageExamples();
 process.on('exit', () => rmSync(examples.tmp, { recursive: true, force: true }));
 
+// Every example in the key reference (scripts/data/keys.md), wrapped into a
+// complete runbook as its `as:` line says.
+for (const section of loadDataDoc('keys.md', { exampleLang: 'yaml' })) {
+  for (const entry of section.entries) {
+    const out = join(examples.tmp, `key_${entry.name.replace(/[^a-z0-9]+/gi, '_')}.yaml`);
+    writeFileSync(out, wrapKeyExample(entry));
+    examples.files.push(out);
+  }
+}
+
+// `runbook spec validate` runs offline and skips the publication policy, so
+// an approval without approvers validates but can't be published
+// (spec.approvers_required). Catch that here for every checked runbook.
+function approvalsWithoutApprovers(src) {
+  const lines = src.split('\n');
+  const bad = [];
+  lines.forEach((line, i) => {
+    const m = line.match(/^(\s*)(- )?approval:/);
+    if (!m) return;
+    const indent = m[1].length + (m[2] ? 2 : 0);
+    if (/approvers:/.test(line)) return;
+    for (let j = i + 1; j < lines.length; j++) {
+      const l = lines[j];
+      if (!l.trim()) continue;
+      const lead = l.match(/^\s*/)[0].length;
+      if (lead <= indent) break;
+      if (/^\s*approvers:/.test(l)) return;
+    }
+    bad.push(i + 1);
+  });
+  return bad;
+}
+
 const NEEDS_SERVER = new Set([
   'spec.unresolved_team',
   'spec.unresolved_user',
@@ -65,6 +99,12 @@ for (const file of [...sampleFiles(), ...examples.files]) {
     out = e.stdout;
   }
   const name = relative(process.cwd(), file);
+  const missing = approvalsWithoutApprovers(readFileSync(file, 'utf8'));
+  if (missing.length) {
+    failed++;
+    console.error(`FAIL ${name}: approval without approvers at line ${missing.join(', ')} (spec.approvers_required at publish)`);
+    continue;
+  }
   let report;
   try {
     report = JSON.parse(out);
