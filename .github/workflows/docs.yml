@@ -1,0 +1,88 @@
+name: Docs
+
+# The docs site (site/, DOCS1): regenerate the CLI, MCP, environment and
+# samples pages from the code and fail if the committed pages are stale,
+# validate every sample runbook, and build the site. There is no deploy job
+# yet: GitHub Pages at docs.therunbook.app needs the DNS record from the
+# owner and the repository to be public.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - 'crates/runbook-cli/**'
+      - 'crates/runbook-mcp/**'
+      - 'crates/runbook-spec/**'
+      - 'crates/runbook-server/src/**'
+      - 'crates/runbook-store-*/src/**'
+      - 'deploy/.env.example'
+      - 'scripts/dev/review-runbooks/**'
+      - 'docs/release-notes.md'
+      - 'api/openapi.draft.json'
+      - '.github/workflows/docs.yml'
+  pull_request:
+    paths:
+      - 'site/**'
+      - 'crates/runbook-cli/**'
+      - 'crates/runbook-mcp/**'
+      - 'crates/runbook-spec/**'
+      - 'crates/runbook-server/src/**'
+      - 'crates/runbook-store-*/src/**'
+      - 'deploy/.env.example'
+      - 'scripts/dev/review-runbooks/**'
+      - 'docs/release-notes.md'
+      - 'api/openapi.draft.json'
+      - '.github/workflows/docs.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ${{ github.event.repository.private && 'self-hosted' || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    steps:
+      # Same action tags as the repository's other workflows (core.yml).
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Install Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '26.8.1'
+          package-manager-cache: false
+      - name: Install rustup if the runner lacks it
+        if: ${{ github.event.repository.private }}
+        run: |
+          if ! command -v rustup >/dev/null 2>&1 && [ ! -x "$HOME/.cargo/bin/rustup" ]; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+          fi
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Install pinned toolchain
+        run: |
+          rustup toolchain install
+          rustup show active-toolchain
+      - name: Build the CLI
+        run: cargo build --locked -p runbook-cli
+      - name: Install site dependencies without lifecycle scripts
+        working-directory: site
+        run: npm ci --ignore-scripts
+      - name: Generated pages are up to date
+        working-directory: site
+        env:
+          RUNBOOK_BIN: ../target/debug/runbook
+        run: npm run check:generated
+      - name: Sample runbooks validate
+        working-directory: site
+        env:
+          RUNBOOK_BIN: ../target/debug/runbook
+        run: npm run check:samples
+      - name: Build the site
+        working-directory: site
+        run: npm run build

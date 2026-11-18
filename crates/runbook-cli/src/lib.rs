@@ -9,6 +9,7 @@ pub mod cliutil;
 pub mod config;
 pub mod credstore;
 pub mod diff;
+pub mod docgen;
 pub mod evidence;
 pub mod exec;
 pub mod host;

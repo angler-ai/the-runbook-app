@@ -103,13 +103,18 @@ resource "kubernetes_manifest" "migration_job" {
                 failureThreshold = 60
               }
               resources = {
+                # ephemeral-storage set explicitly: GKE Autopilot adds 1Gi
+                # otherwise, and kubernetes_manifest then fails the apply
+                # with "inconsistent result after apply".
                 requests = {
-                  cpu    = "100m"
-                  memory = "128Mi"
+                  cpu                 = "100m"
+                  memory              = "128Mi"
+                  "ephemeral-storage" = "1Gi"
                 }
                 limits = {
-                  cpu    = "500m"
-                  memory = "512Mi"
+                  cpu                 = "500m"
+                  memory              = "512Mi"
+                  "ephemeral-storage" = "1Gi"
                 }
               }
               securityContext = {
@@ -147,13 +152,18 @@ resource "kubernetes_manifest" "migration_job" {
                 },
               ]
               resources = {
+                # ephemeral-storage set explicitly: GKE Autopilot adds 1Gi
+                # otherwise, and kubernetes_manifest then fails the apply
+                # with "inconsistent result after apply".
                 requests = {
-                  cpu    = "100m"
-                  memory = "128Mi"
+                  cpu                 = "100m"
+                  memory              = "128Mi"
+                  "ephemeral-storage" = "1Gi"
                 }
                 limits = {
-                  cpu    = "500m"
-                  memory = "512Mi"
+                  cpu                 = "500m"
+                  memory              = "512Mi"
+                  "ephemeral-storage" = "1Gi"
                 }
               }
               securityContext = {

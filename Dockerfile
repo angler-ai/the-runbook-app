@@ -42,8 +42,8 @@ FROM rust-base AS builder
 ARG RUNBOOK_CACHE_ID=default
 # Cache mounts keep the registry and target dir between builds (local only;
 # nothing from them lands in the image except the two copied binaries).
-RUN --mount=type=cache,id=runbook-cargo-registry,target=/usr/local/cargo/registry \
-    --mount=type=cache,id=runbook-cargo-target-${RUNBOOK_CACHE_ID},target=/src/target \
+RUN --mount=type=cache,id=runbook-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=runbook-cargo-target-${RUNBOOK_CACHE_ID},target=/src/target,sharing=locked \
     cargo build --release --locked -p runbook-server -p runbook-cli \
  && install -D -m 0755 target/release/runbook-server /out/runbook-server \
  && install -D -m 0755 target/release/runbook /out/runbook
@@ -53,8 +53,8 @@ RUN --mount=type=cache,id=runbook-cargo-registry,target=/usr/local/cargo/registr
 # `npm run wasm:build` (web/scripts/build-wasm.mjs) without wasm-opt.
 FROM rust-base AS wasm
 ARG RUNBOOK_CACHE_ID=default
-RUN --mount=type=cache,id=runbook-cargo-registry,target=/usr/local/cargo/registry \
-    --mount=type=cache,id=runbook-cargo-target-wasm-${RUNBOOK_CACHE_ID},target=/src/target \
+RUN --mount=type=cache,id=runbook-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=runbook-cargo-target-wasm-${RUNBOOK_CACHE_ID},target=/src/target,sharing=locked \
     cargo build --release --locked -p runbook-web-wasm --lib --target wasm32-unknown-unknown \
  && install -D -m 0644 target/wasm32-unknown-unknown/release/runbook_web_wasm.wasm /out/runbook.wasm
 
@@ -64,7 +64,7 @@ RUN --mount=type=cache,id=runbook-cargo-registry,target=/usr/local/cargo/registr
 FROM ${NODE_IMAGE} AS web
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json web/.npmrc ./
-RUN --mount=type=cache,id=runbook-npm-cache,target=/root/.npm \
+RUN --mount=type=cache,id=runbook-npm-cache,target=/root/.npm,sharing=locked \
     npm ci --ignore-scripts --no-audit --no-fund
 # The UI imports the API contract and its examples from the repository root.
 COPY api /src/api
@@ -80,7 +80,7 @@ RUN npm run build
 FROM ${NODE_IMAGE} AS auth
 WORKDIR /src/auth
 COPY auth/package.json auth/package-lock.json ./
-RUN --mount=type=cache,id=runbook-npm-cache,target=/root/.npm \
+RUN --mount=type=cache,id=runbook-npm-cache,target=/root/.npm,sharing=locked \
     npm ci --ignore-scripts --no-audit --no-fund
 COPY auth ./
 RUN npm run build

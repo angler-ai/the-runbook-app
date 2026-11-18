@@ -1,0 +1,54 @@
+---
+title: The Runbook
+description: Runbooks that people and AI agents run together.
+template: splash
+hero:
+  tagline: Write a procedure once as a short YAML file. Agents claim and do their steps, people approve and take over where judgment matters, and every run leaves a readable record of who did what.
+  actions:
+    - text: Quick start with Docker
+      link: /getting-started/docker/
+      icon: right-arrow
+    - text: Read the concepts
+      link: /concepts/runs-and-steps/
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+The Runbook is open source and self-hosted: one container with PostgreSQL, or
+your own Cloudflare account. These docs cover the open-source server, the
+`runbook` CLI, the MCP server, the REST API and the runbook language.
+
+```yaml
+metadata: { id: post-deploy-checks }
+spec:
+  defaults: { actor: agent }
+  inputs:
+    service: { type: string, required: true }
+  steps:
+    - id: check_health
+      instructions: Call /healthz on ${{ inputs.service }} three times; pass on 200 within 500 ms.
+    - id: compare_error_rate
+      instructions: Compare the 5xx rate with the hour before the deploy.
+    - id: summarize
+```
+
+<CardGrid>
+  <Card title="Get started" icon="rocket">
+    Run the server with [Docker](/getting-started/docker/), on
+    [your Cloudflare account](/getting-started/cloudflare/) or on
+    [GKE with Terraform](/getting-started/gke/).
+  </Card>
+  <Card title="Learn the language" icon="document">
+    [Steps, actors and approvals](/concepts/runs-and-steps/), then
+    [control flow](/language/control-flow/) and the [samples](/samples/).
+  </Card>
+  <Card title="Connect your agent" icon="puzzle">
+    Agents work through the [CLI](/reference/cli/) or the
+    [MCP server](/reference/mcp/), under leases with heartbeats.
+  </Card>
+  <Card title="Call the API" icon="seti:json">
+    Every route and schema in the [API explorer](/api/), rendered from the
+    OpenAPI contract.
+  </Card>
+</CardGrid>

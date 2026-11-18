@@ -66,3 +66,12 @@ test('migration Job: its proxy reaches a private-IP instance and the kubelet can
   assert.ok(podLabels, 'pod template labels found');
   assert.doesNotMatch(podLabels[1], /"app\.kubernetes\.io\/name"\s*=\s*"runbook"\s*$/m);
 });
+
+test('every container sets ephemeral-storage, so Autopilot does not change the applied manifest', async () => {
+  const { readFileSync } = await import('node:fs');
+  const migration = readFileSync(`${tfDir}/migration.tf`, 'utf8');
+  const workload = readFileSync(`${tfDir}/workload.tf`, 'utf8');
+  // Two containers each: requests and limits.
+  assert.equal((migration.match(/"ephemeral-storage"\s*=\s*"1Gi"/g) || []).length, 4);
+  assert.equal((workload.match(/"ephemeral-storage"\s*=\s*"1Gi"/g) || []).length, 4);
+});

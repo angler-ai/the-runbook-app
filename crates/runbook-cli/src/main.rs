@@ -1339,6 +1339,18 @@ fn context_project_env() {
 }
 
 fn run() -> i32 {
+    // DOCS1: `runbook __docs-reference` prints the CLI and MCP reference as
+    // JSON for the docs site (site/scripts/generate.mjs). It is not a clap
+    // subcommand, so it never shows in help or in the reference itself.
+    if env::args().nth(1).as_deref() == Some("__docs-reference") {
+        use clap::CommandFactory;
+        let reference = runbook_cli::docgen::reference(&Cli::command());
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&reference).expect("reference serializes")
+        );
+        return 0;
+    }
     context_project_env();
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,

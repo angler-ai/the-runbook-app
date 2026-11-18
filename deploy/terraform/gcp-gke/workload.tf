@@ -126,13 +126,16 @@ resource "kubernetes_deployment" "runbook" {
           }
 
           resources {
+            # ephemeral-storage explicit, as Autopilot would set it.
             requests = {
-              cpu    = "50m"
-              memory = "64Mi"
+              cpu                 = "50m"
+              memory              = "64Mi"
+              "ephemeral-storage" = "1Gi"
             }
             limits = {
-              cpu    = "200m"
-              memory = "256Mi"
+              cpu                 = "200m"
+              memory              = "256Mi"
+              "ephemeral-storage" = "1Gi"
             }
           }
         }
@@ -214,12 +217,14 @@ resource "kubernetes_deployment" "runbook" {
 
           resources {
             requests = {
-              cpu    = var.resources.requests.cpu
-              memory = var.resources.requests.memory
+              cpu                 = var.resources.requests.cpu
+              memory              = var.resources.requests.memory
+              "ephemeral-storage" = "1Gi"
             }
             limits = {
-              cpu    = var.resources.limits.cpu
-              memory = var.resources.limits.memory
+              cpu                 = var.resources.limits.cpu
+              memory              = var.resources.limits.memory
+              "ephemeral-storage" = "1Gi"
             }
           }
         }

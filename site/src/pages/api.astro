@@ -1,0 +1,30 @@
+---
+// The API explorer (DOCS1): Scalar, rendered in the browser from the
+// OpenAPI contract that scripts/prepare-public.mjs copies to /api/openapi.json.
+// "Try it" requests go to the server URL and token the reader enters.
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>API explorer | The Runbook</title>
+    <meta name="description" content="Every route, schema and error code of The Runbook's REST API." />
+  </head>
+  <body>
+    <noscript>
+      The API explorer needs JavaScript. The contract itself is at
+      <a href={`${base}/api/openapi.json`}>/api/openapi.json</a>.
+    </noscript>
+    <script
+      id="api-reference"
+      data-url={`${base}/api/openapi.json`}
+      data-configuration={JSON.stringify({
+        hideClientButton: true,
+        servers: [{ url: 'http://127.0.0.1:8080', description: 'A local server' }],
+      })}
+    ></script>
+    <script is:inline src={`${base}/api/scalar.js`}></script>
+  </body>
+</html>
