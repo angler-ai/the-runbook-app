@@ -1,0 +1,68 @@
+# Local development secrets and overrides for wrangler dev (.dev.vars).
+# Copy to .dev.vars (never commit .dev.vars) and fill in placeholders:
+#   cp .dev.vars.example .dev.vars && chmod 600 .dev.vars
+#
+# In deployed Cloudflare environments, set secrets with wrangler secret put:
+#   wrangler secret put BOOTSTRAP_SECRET
+#   wrangler secret put WEBHOOK_SECRET_KEY
+#   wrangler secret put RUNBOOK_UPLOAD_SIGNING_KEY
+#   wrangler secret put RUNBOOK_OPERATOR_SECRET
+#   wrangler secret put RUNBOOK_AUTH_INTERNAL_SECRET
+
+# --- Bootstrap Secret ---------------------------------------------------------
+# Required to call POST /internal/bootstrap during first-run initialization.
+# Must be at least 32 characters. Generate with: openssl rand -hex 32
+# Once bootstrap is complete, delete this secret in production.
+BOOTSTRAP_SECRET=CHANGE_ME_TO_32_RANDOM_HEX_CHARACTERS_FOR_BOOTSTRAP
+
+# --- Webhook Signing & Sealing Secret -----------------------------------------
+# Required. 32 random bytes in base64 used to seal webhook signing secrets at rest
+# using AES-256-GCM. Generate once and keep stable:
+#   openssl rand -base64 32
+WEBHOOK_SECRET_KEY=CHANGE_ME_TO_BASE64_ENCODED_32_RANDOM_BYTES_SEAL_KEY==
+
+# Optional. Comma-separated list of previous base64 keys for seamless key rotation:
+# WEBHOOK_PREVIOUS_SECRET_KEYS=
+
+# --- Evidence Upload Signing Key (CF7) ----------------------------------------
+# Required for binary evidence uploads. 32 random bytes in base64:
+#   openssl rand -base64 32
+# Note: Uploads stay off without both RUNBOOK_USERCONTENT_ORIGIN and RUNBOOK_UPLOAD_SIGNING_KEY.
+# Images stay refused on Workers for now (upload.type_unsupported).
+RUNBOOK_UPLOAD_SIGNING_KEY=CHANGE_ME_TO_BASE64_ENCODED_32_RANDOM_BYTES_UPLOAD_KEY==
+
+# --- Operator Secret (CF8) ----------------------------------------------------
+# Optional. Must be at least 32 characters. Enables /internal/portable/import
+# and /internal/portable/export (absent / returns 404 otherwise):
+#   openssl rand -hex 32
+RUNBOOK_OPERATOR_SECRET=CHANGE_ME_TO_32_RANDOM_HEX_CHARACTERS_FOR_OPERATOR
+
+# --- Internal Auth Secret (CF7) -----------------------------------------------
+# Required when using the Better Auth Worker. 32+ random characters shared between
+# the api Worker and the auth Worker for internal session resolution and can-register:
+#   openssl rand -hex 32
+RUNBOOK_AUTH_INTERNAL_SECRET=CHANGE_ME_TO_32_RANDOM_HEX_CHARACTERS_FOR_AUTH
+
+# --- Environment Variable Overrides (optional) -------------------------------
+# Canonical origin URL of the deployment:
+ORIGIN=http://127.0.0.1:8787
+
+# Separate origin for user evidence uploads (must differ from ORIGIN by hostname/port):
+RUNBOOK_USERCONTENT_ORIGIN=http://localhost:8787
+
+# Monthly execution quota per organization (positive integer or "off"):
+RUNBOOK_LIMIT_EXECUTIONS_MONTHLY=off
+
+# Data retention policy:
+# Retention is OFF by default. Nothing is deleted unless an operator explicitly configures a window.
+# Setting RUNBOOK_RETENTION_LIVE_DAYS enables deletion of live run detail.
+# Startup rule: RUNBOOK_RETENTION_SUMMARY_DAYS must be >= RUNBOOK_RETENTION_ARCHIVE_DAYS.
+# If archives are kept forever (ARCHIVE_DAYS unset or "off"), SUMMARY_DAYS must also be unset or "off".
+# RUNBOOK_RETENTION_LIVE_DAYS=90
+# RUNBOOK_RETENTION_ARCHIVE_DAYS=365
+# RUNBOOK_RETENTION_SUMMARY_DAYS=730
+
+# Test seams (RUNBOOK_TEST_*, WEBHOOKS_ALLOW_PRIVATE, SSE_KEEPALIVE_MS,
+# SSE_LIFETIME_MS, CF1_FAULT_INJECTION) exist only in the local test build;
+# the deploy build refuses to serve while any is set (README, Testing).
+

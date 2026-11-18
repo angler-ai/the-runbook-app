@@ -1,0 +1,495 @@
+{
+  "commands": [
+    {
+      "reads": [],
+      "step_id": "verify",
+      "type": "MakeStepReady"
+    },
+    {
+      "type": "NotifyAgentWork",
+      "work": {
+        "base_sequence": 2,
+        "params": null,
+        "reads": [],
+        "ready_steps": [
+          {
+            "actor_kind": "agent",
+            "path": "verify",
+            "step_run_id": "sr_00000000000000000000000001",
+            "title": "Verify inputs"
+          }
+        ],
+        "reason": "initial"
+      }
+    },
+    {
+      "outputs": {
+        "reads": [
+          {
+            "kind": "Value",
+            "origin": {
+              "path": "inputs.code",
+              "record": {
+                "execution_id": "exe_00000000000000000000000001",
+                "iteration_path": [],
+                "revision": 1,
+                "step_run_id": null
+              }
+            }
+          },
+          {
+            "kind": "Value",
+            "origin": {
+              "path": "inputs.contact",
+              "record": {
+                "execution_id": "exe_00000000000000000000000001",
+                "iteration_path": [],
+                "revision": 1,
+                "step_run_id": null
+              }
+            }
+          },
+          {
+            "kind": "Value",
+            "origin": {
+              "path": "inputs.deploy_date",
+              "record": {
+                "execution_id": "exe_00000000000000000000000001",
+                "iteration_path": [],
+                "revision": 1,
+                "step_run_id": null
+              }
+            }
+          },
+          {
+            "kind": "Value",
+            "origin": {
+              "path": "inputs.docs_url",
+              "record": {
+                "execution_id": "exe_00000000000000000000000001",
+                "iteration_path": [],
+                "revision": 1,
+                "step_run_id": null
+              }
+            }
+          },
+          {
+            "kind": "Value",
+            "origin": {
+              "path": "inputs.owner",
+              "record": {
+                "execution_id": "exe_00000000000000000000000001",
+                "iteration_path": [],
+                "revision": 1,
+                "step_run_id": null
+              }
+            }
+          },
+          {
+            "kind": "Value",
+            "origin": {
+              "path": "inputs.scheduled_at",
+              "record": {
+                "execution_id": "exe_00000000000000000000000001",
+                "iteration_path": [],
+                "revision": 1,
+                "step_run_id": null
+              }
+            }
+          },
+          {
+            "kind": "Membership",
+            "origin": {
+              "path": "inputs.tags",
+              "record": {
+                "execution_id": "exe_00000000000000000000000001",
+                "iteration_path": [],
+                "revision": 1,
+                "step_run_id": null
+              }
+            }
+          },
+          {
+            "kind": "Value",
+            "origin": {
+              "path": "inputs.tags[0]",
+              "record": {
+                "execution_id": "exe_00000000000000000000000001",
+                "iteration_path": [],
+                "revision": 1,
+                "step_run_id": null
+              }
+            }
+          },
+          {
+            "kind": "Value",
+            "origin": {
+              "path": "inputs.tags[1]",
+              "record": {
+                "execution_id": "exe_00000000000000000000000001",
+                "iteration_path": [],
+                "revision": 1,
+                "step_run_id": null
+              }
+            }
+          },
+          {
+            "kind": "Value",
+            "origin": {
+              "path": "inputs.timeout",
+              "record": {
+                "execution_id": "exe_00000000000000000000000001",
+                "iteration_path": [],
+                "revision": 1,
+                "step_run_id": null
+              }
+            }
+          }
+        ],
+        "values": {
+          "code": {
+            "String": "RUN-123"
+          },
+          "contact": {
+            "String": "ops@runbook.example.com"
+          },
+          "deploy_date": {
+            "String": "2026-11-12"
+          },
+          "docs_url": {
+            "String": "https://runbook.example.com/docs"
+          },
+          "owner": {
+            "String": "user:usr_00000000000000000000000001"
+          },
+          "scheduled_at": {
+            "String": "2026-11-12T19:00:00Z"
+          },
+          "tags": {
+            "Array": [
+              {
+                "String": "web"
+              },
+              {
+                "String": "worker"
+              }
+            ]
+          },
+          "timeout": {
+            "String": "15m"
+          }
+        }
+      },
+      "status": "succeeded",
+      "type": "CompleteExecution"
+    }
+  ],
+  "events": [
+    {
+      "actor": {
+        "kind": "system"
+      },
+      "at_ms": 0,
+      "event": {
+        "data": {
+          "context": {
+            "created_by": "",
+            "fields": {},
+            "inputs": {
+              "code": {
+                "String": "RUN-123"
+              },
+              "contact": {
+                "String": "ops@runbook.example.com"
+              },
+              "deploy_date": {
+                "String": "2026-11-12"
+              },
+              "docs_url": {
+                "String": "https://runbook.example.com/docs"
+              },
+              "owner": {
+                "String": "user:usr_00000000000000000000000001"
+              },
+              "scheduled_at": {
+                "String": "2026-11-12T19:00:00Z"
+              },
+              "tags": {
+                "Array": [
+                  {
+                    "String": "web"
+                  },
+                  {
+                    "String": "worker"
+                  }
+                ]
+              },
+              "timeout": {
+                "String": "15m"
+              }
+            },
+            "limits": {
+              "hard_deadline_at_ms": null,
+              "max_step_runs": null
+            },
+            "project_vars": {},
+            "tags": [],
+            "title": "Input Types",
+            "url": ""
+          },
+          "reads": [],
+          "vars": {}
+        },
+        "engine_version": 6,
+        "type": "ExecutionStarted"
+      },
+      "execution_id": "exe_00000000000000000000000001",
+      "seq": 1
+    },
+    {
+      "actor": {
+        "kind": "system"
+      },
+      "at_ms": 0,
+      "event": {
+        "reads": [],
+        "step_id": "verify",
+        "step_run_id": "sr_00000000000000000000000001",
+        "type": "StepReady"
+      },
+      "execution_id": "exe_00000000000000000000000001",
+      "seq": 2
+    },
+    {
+      "actor": {
+        "kind": "system"
+      },
+      "at_ms": 0,
+      "event": {
+        "type": "AgentWorkAvailable",
+        "work": {
+          "base_sequence": 2,
+          "params": null,
+          "reads": [],
+          "ready_steps": [
+            {
+              "actor_kind": "agent",
+              "path": "verify",
+              "step_run_id": "sr_00000000000000000000000001",
+              "title": "Verify inputs"
+            }
+          ],
+          "reason": "initial"
+        }
+      },
+      "execution_id": "exe_00000000000000000000000001",
+      "seq": 3
+    },
+    {
+      "actor": {
+        "kind": "human",
+        "user_id": "usr_00000000000000000000000001"
+      },
+      "at_ms": 0,
+      "event": {
+        "report": {
+          "evidence": [],
+          "logs": [],
+          "outputs": {},
+          "status": "succeeded",
+          "summary": null,
+          "verdict": null
+        },
+        "step_run_id": "sr_00000000000000000000000001",
+        "type": "StepReported"
+      },
+      "execution_id": "exe_00000000000000000000000001",
+      "seq": 4
+    },
+    {
+      "actor": {
+        "kind": "system"
+      },
+      "at_ms": 0,
+      "event": {
+        "outputs": {
+          "reads": [
+            {
+              "kind": "Value",
+              "origin": {
+                "path": "inputs.code",
+                "record": {
+                  "execution_id": "exe_00000000000000000000000001",
+                  "iteration_path": [],
+                  "revision": 1,
+                  "step_run_id": null
+                }
+              }
+            },
+            {
+              "kind": "Value",
+              "origin": {
+                "path": "inputs.contact",
+                "record": {
+                  "execution_id": "exe_00000000000000000000000001",
+                  "iteration_path": [],
+                  "revision": 1,
+                  "step_run_id": null
+                }
+              }
+            },
+            {
+              "kind": "Value",
+              "origin": {
+                "path": "inputs.deploy_date",
+                "record": {
+                  "execution_id": "exe_00000000000000000000000001",
+                  "iteration_path": [],
+                  "revision": 1,
+                  "step_run_id": null
+                }
+              }
+            },
+            {
+              "kind": "Value",
+              "origin": {
+                "path": "inputs.docs_url",
+                "record": {
+                  "execution_id": "exe_00000000000000000000000001",
+                  "iteration_path": [],
+                  "revision": 1,
+                  "step_run_id": null
+                }
+              }
+            },
+            {
+              "kind": "Value",
+              "origin": {
+                "path": "inputs.owner",
+                "record": {
+                  "execution_id": "exe_00000000000000000000000001",
+                  "iteration_path": [],
+                  "revision": 1,
+                  "step_run_id": null
+                }
+              }
+            },
+            {
+              "kind": "Value",
+              "origin": {
+                "path": "inputs.scheduled_at",
+                "record": {
+                  "execution_id": "exe_00000000000000000000000001",
+                  "iteration_path": [],
+                  "revision": 1,
+                  "step_run_id": null
+                }
+              }
+            },
+            {
+              "kind": "Membership",
+              "origin": {
+                "path": "inputs.tags",
+                "record": {
+                  "execution_id": "exe_00000000000000000000000001",
+                  "iteration_path": [],
+                  "revision": 1,
+                  "step_run_id": null
+                }
+              }
+            },
+            {
+              "kind": "Value",
+              "origin": {
+                "path": "inputs.tags[0]",
+                "record": {
+                  "execution_id": "exe_00000000000000000000000001",
+                  "iteration_path": [],
+                  "revision": 1,
+                  "step_run_id": null
+                }
+              }
+            },
+            {
+              "kind": "Value",
+              "origin": {
+                "path": "inputs.tags[1]",
+                "record": {
+                  "execution_id": "exe_00000000000000000000000001",
+                  "iteration_path": [],
+                  "revision": 1,
+                  "step_run_id": null
+                }
+              }
+            },
+            {
+              "kind": "Value",
+              "origin": {
+                "path": "inputs.timeout",
+                "record": {
+                  "execution_id": "exe_00000000000000000000000001",
+                  "iteration_path": [],
+                  "revision": 1,
+                  "step_run_id": null
+                }
+              }
+            }
+          ],
+          "values": {
+            "code": {
+              "String": "RUN-123"
+            },
+            "contact": {
+              "String": "ops@runbook.example.com"
+            },
+            "deploy_date": {
+              "String": "2026-11-12"
+            },
+            "docs_url": {
+              "String": "https://runbook.example.com/docs"
+            },
+            "owner": {
+              "String": "user:usr_00000000000000000000000001"
+            },
+            "scheduled_at": {
+              "String": "2026-11-12T19:00:00Z"
+            },
+            "tags": {
+              "Array": [
+                {
+                  "String": "web"
+                },
+                {
+                  "String": "worker"
+                }
+              ]
+            },
+            "timeout": {
+              "String": "15m"
+            }
+          }
+        },
+        "status": "succeeded",
+        "type": "ExecutionCompleted"
+      },
+      "execution_id": "exe_00000000000000000000000001",
+      "seq": 5
+    }
+  ],
+  "format": "pure-engine-trace-v1",
+  "outputs": {
+    "code": "RUN-123",
+    "contact": "ops@runbook.example.com",
+    "deploy_date": "2026-11-12",
+    "docs_url": "https://runbook.example.com/docs",
+    "owner": "user:usr_00000000000000000000000001",
+    "scheduled_at": "2026-11-12T19:00:00Z",
+    "tags": [
+      "web",
+      "worker"
+    ],
+    "timeout": "15m"
+  },
+  "runbook": "spec:\n  inputs:\n    tags:\n      type: multi_enum\n      options: [web, api, worker, db]\n    deploy_date:\n      type: date\n    scheduled_at:\n      type: datetime\n    timeout:\n      type: duration\n    docs_url:\n      type: url\n    contact:\n      type: email\n    owner:\n      type: user\n    code:\n      type: string\n      pattern: \"^[A-Z]{3}-\\\\d{3}$\"\n  steps:\n    - id: verify\n      title: Verify inputs\n  outputs:\n    tags: \"${{ inputs.tags }}\"\n    deploy_date: \"${{ inputs.deploy_date }}\"\n    scheduled_at: \"${{ inputs.scheduled_at }}\"\n    timeout: \"${{ inputs.timeout }}\"\n    docs_url: \"${{ inputs.docs_url }}\"\n    contact: \"${{ inputs.contact }}\"\n    owner: \"${{ inputs.owner }}\"\n    code: \"${{ inputs.code }}\"\n",
+  "status": "succeeded"
+}

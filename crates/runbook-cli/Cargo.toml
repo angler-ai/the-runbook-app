@@ -1,0 +1,54 @@
+[package]
+name = "runbook-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license = "AGPL-3.0-only"
+
+[[bin]]
+name = "runbook"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+clap = { version = "4", features = ["derive", "env"] }
+runbook-spec = { path = "../runbook-spec" }
+# CLI3 `runbook diff --text`; the same unified diff the server's version
+# diff uses (already locked through runbook-api).
+similar = { version = "3.2", default-features = false, features = ["text"] }
+runbook-model = { path = "../runbook-model" }
+runbook-mcp = { path = "../runbook-mcp" }
+yaml-rust2 = { version = "0.10", default-features = false }
+ureq = { version = "2", features = ["json"] }
+getrandom = "0.3"
+base64 = "0.22"
+runbook-core = { path = "../runbook-core" }
+imagesize = { version = "=0.15.0", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+
+# CLI3 `step exec`: forward SIGINT/SIGTERM to the command's process group.
+# Already locked through runbook-server.
+[target.'cfg(unix)'.dependencies]
+libc = "=0.2.191"
+
+# CLI3: login tokens in the macOS Keychain / Windows Credential Manager.
+# Linux builds use the 0600 file (no D-Bus Secret Service in a static CLI).
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "=3.6.3", default-features = false, features = ["apple-native"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "=3.6.3", default-features = false, features = ["windows-native"] }
+
+[dev-dependencies]
+tempfile = "3"
+# The agent-loop end-to-end test (tests/agent_loop_e2e.rs) runs the real
+# server on an owned PostgreSQL database.
+runbook-server = { path = "../runbook-server" }
+runbook-store-postgres = { path = "../runbook-store-postgres" }
+tokio = { version = "=1.54.1", features = ["rt", "time", "macros"] }
+# MCP1: normalizes IDs and nonces in the stdio/HTTP parity trace; already
+# locked through runbook-api.
+regex = "1"

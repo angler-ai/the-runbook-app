@@ -1,0 +1,2 @@
+# DO and D1 migrations are checksummed byte for byte: keep them LF everywhere.
+cloudflare/migrations/** text eol=lf

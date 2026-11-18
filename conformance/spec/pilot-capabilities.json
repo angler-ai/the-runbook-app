@@ -1,0 +1,2179 @@
+{
+  "profile": "token-authenticated-pilot",
+  "version": 1,
+  "meaning": "Supported is a promise for the finished pilot by the named task owners, not a claim that a runtime implementation is already available.",
+  "path_syntax": "Dotted paths with * for schema names or array indices. flagship_leaves uses concrete RFC 6901 source pointers.",
+  "defaults": {
+    "unknown_non_extension_keyword": "rejected",
+    "x-*": "preserved, opaque, never executed"
+  },
+  "deferred_validation": {
+    "A5": [
+      "Declaration shapes, recursive type constraints and field count (at most 10 indexed fields)",
+      "foreach.max_items and loop.max_iterations required bounds",
+      "General value/enumeration and structural validity"
+    ],
+    "A0/A4": [
+      "Expression language surface and cost profile"
+    ]
+  },
+  "rules": [
+    {
+      "path": "apiVersion",
+      "value": "therunbook.app/v1",
+      "class": "supported",
+      "owner": "A1/A5/B1/B3"
+    },
+    {
+      "path": "kind",
+      "value": "Runbook",
+      "class": "supported",
+      "owner": "A1/A5/B1/B3"
+    },
+    {
+      "path": "metadata.id",
+      "value": "example",
+      "class": "supported",
+      "owner": "A1/A5/B1/B3"
+    },
+    {
+      "path": "metadata.title",
+      "value": "example",
+      "class": "supported",
+      "owner": "A1/A5/B1/B3"
+    },
+    {
+      "path": "metadata.description",
+      "value": "example",
+      "class": "supported",
+      "owner": "A1/A5/B1/B3"
+    },
+    {
+      "path": "metadata.tags",
+      "value": "example",
+      "class": "supported",
+      "owner": "A1/A5/B1/B3"
+    },
+    {
+      "path": "metadata.owners",
+      "value": "example",
+      "class": "supported",
+      "owner": "A1/A5/B1/B3"
+    },
+    {
+      "path": "spec.execution.title",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A18/A19/B5"
+    },
+    {
+      "path": "spec.execution.tags",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A18/A19/B5"
+    },
+    {
+      "path": "spec.execution.timeout",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A18/A19/B5"
+    },
+    {
+      "path": "spec.execution.cleanup_timeout",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A18/A19/B5"
+    },
+    {
+      "path": "spec.execution.concurrency.key",
+      "value": "example",
+      "class": "supported",
+      "owner": "B5"
+    },
+    {
+      "path": "spec.execution.concurrency.limit",
+      "value": "example",
+      "class": "supported",
+      "owner": "B5"
+    },
+    {
+      "path": "spec.execution.concurrency.on_conflict",
+      "value": "queue",
+      "class": "supported",
+      "owner": "B5"
+    },
+    {
+      "path": "spec.execution.concurrency.on_conflict",
+      "value": "reject",
+      "class": "supported",
+      "owner": "B5/LANG3"
+    },
+    {
+      "path": "spec.execution.concurrency.on_conflict",
+      "value": "cancel_previous",
+      "class": "supported",
+      "owner": "B5/LANG3"
+    },
+    {
+      "path": "spec.inputs.*.type",
+      "value": "string",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.type",
+      "value": "text",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.type",
+      "value": "number",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.type",
+      "value": "integer",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.type",
+      "value": "boolean",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.type",
+      "value": "enum",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.type",
+      "value": "list",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.type",
+      "value": "object",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.title",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.description",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.required",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.default",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.options",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.min",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.max",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.items",
+      "value": {},
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.properties",
+      "value": {},
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.pattern",
+      "value": ".*",
+      "class": "supported",
+      "owner": "A4/A5/LANG5"
+    },
+    {
+      "path": "spec.fields.*.type",
+      "value": "string",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.fields.*.type",
+      "value": "text",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.fields.*.type",
+      "value": "number",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.fields.*.type",
+      "value": "integer",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.fields.*.type",
+      "value": "boolean",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.fields.*.type",
+      "value": "enum",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.fields.*.type",
+      "value": "list",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.fields.*.type",
+      "value": "object",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.fields.*.title",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.fields.*.description",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.fields.*.required",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.fields.*.default",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.fields.*.options",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.fields.*.min",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.fields.*.max",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.fields.*.items",
+      "value": {},
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.fields.*.properties",
+      "value": {},
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.fields.*.pattern",
+      "value": ".*",
+      "class": "supported",
+      "owner": "A4/A5/LANG5"
+    },
+    {
+      "path": "spec.steps.*.outputs.*.type",
+      "value": "string",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.steps.*.outputs.*.type",
+      "value": "text",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.steps.*.outputs.*.type",
+      "value": "number",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.steps.*.outputs.*.type",
+      "value": "integer",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.steps.*.outputs.*.type",
+      "value": "boolean",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.steps.*.outputs.*.type",
+      "value": "enum",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.steps.*.outputs.*.type",
+      "value": "list",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.steps.*.outputs.*.type",
+      "value": "object",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.steps.*.outputs.*.title",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.steps.*.outputs.*.description",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.steps.*.outputs.*.required",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.steps.*.outputs.*.default",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.steps.*.outputs.*.options",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.steps.*.outputs.*.min",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.steps.*.outputs.*.max",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.steps.*.outputs.*.items",
+      "value": {},
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.steps.*.outputs.*.properties",
+      "value": {},
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.steps.*.outputs.*.pattern",
+      "value": ".*",
+      "class": "supported",
+      "owner": "A4/A5/LANG5"
+    },
+    {
+      "path": "spec.inputs.*.items.type",
+      "value": "string",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.items.type",
+      "value": "text",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.items.type",
+      "value": "number",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.items.type",
+      "value": "integer",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.items.type",
+      "value": "boolean",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.items.type",
+      "value": "enum",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.items.type",
+      "value": "list",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.items.type",
+      "value": "object",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.items.title",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.items.description",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.items.required",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.items.default",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.items.options",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.items.min",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.items.max",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.items.items",
+      "value": {},
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.items.properties",
+      "value": {},
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.items.pattern",
+      "value": ".*",
+      "class": "supported",
+      "owner": "A4/A5/LANG5"
+    },
+    {
+      "path": "spec.inputs.*.properties.*.type",
+      "value": "string",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.properties.*.type",
+      "value": "text",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.properties.*.type",
+      "value": "number",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.properties.*.type",
+      "value": "integer",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.properties.*.type",
+      "value": "boolean",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.properties.*.type",
+      "value": "enum",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.properties.*.type",
+      "value": "list",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.properties.*.type",
+      "value": "object",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.properties.*.title",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.properties.*.description",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.properties.*.required",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.properties.*.default",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.properties.*.options",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.properties.*.min",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.properties.*.max",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.properties.*.items",
+      "value": {},
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.properties.*.properties",
+      "value": {},
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.properties.*.pattern",
+      "value": ".*",
+      "class": "supported",
+      "owner": "A4/A5/LANG5"
+    },
+    {
+      "path": "spec.inputs.*.items.properties.*.items.type",
+      "value": "string",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.items.properties.*.items.type",
+      "value": "text",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.items.properties.*.items.type",
+      "value": "number",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.items.properties.*.items.type",
+      "value": "integer",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.items.properties.*.items.type",
+      "value": "boolean",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.items.properties.*.items.type",
+      "value": "enum",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.items.properties.*.items.type",
+      "value": "list",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.items.properties.*.items.type",
+      "value": "object",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.items.properties.*.items.title",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.items.properties.*.items.description",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.items.properties.*.items.required",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.items.properties.*.items.default",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.items.properties.*.items.options",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.items.properties.*.items.min",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.items.properties.*.items.max",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.items.properties.*.items.items",
+      "value": {},
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.items.properties.*.items.properties",
+      "value": {},
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.items.properties.*.items.pattern",
+      "value": ".*",
+      "class": "supported",
+      "owner": "A4/A5/LANG5"
+    },
+    {
+      "path": "spec.fields.*.indexed",
+      "value": true,
+      "class": "supported",
+      "owner": "B3/B8"
+    },
+    {
+      "path": "spec.fields.*.locked",
+      "value": true,
+      "class": "supported",
+      "owner": "B3/B8"
+    },
+    {
+      "path": "spec.inputs.*",
+      "value": {},
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.fields.*",
+      "value": {},
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.vars.*",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.vars.*.arbitrary",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.default.arbitrary",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.inputs.*.options.0.arbitrary",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.defaults.actor",
+      "value": "example",
+      "class": "supported",
+      "owner": "A5/A15/A18"
+    },
+    {
+      "path": "spec.defaults.timeout",
+      "value": "example",
+      "class": "supported",
+      "owner": "A5/A15/A18"
+    },
+    {
+      "path": "spec.defaults.on_failure",
+      "value": "example",
+      "class": "supported",
+      "owner": "A5/A15/A18"
+    },
+    {
+      "path": "spec.defaults.retry.max_attempts",
+      "value": "example",
+      "class": "supported",
+      "owner": "A5/A15/A18"
+    },
+    {
+      "path": "spec.defaults.retry.backoff",
+      "value": "example",
+      "class": "supported",
+      "owner": "A5/A15/A18"
+    },
+    {
+      "path": "spec.skills.*",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5/A20/B3"
+    },
+    {
+      "path": "spec.steps",
+      "value": [],
+      "class": "supported",
+      "owner": "A7-A20/B8"
+    },
+    {
+      "path": "spec.finally",
+      "value": [],
+      "class": "supported",
+      "owner": "A7-A20/B8"
+    },
+    {
+      "path": "spec.outputs.*",
+      "value": "example",
+      "class": "supported",
+      "owner": "A7-A20/B8"
+    },
+    {
+      "path": "spec.report",
+      "value": "example",
+      "class": "supported",
+      "owner": "A20/B8"
+    },
+    {
+      "path": "spec.steps.*.id",
+      "value": "example",
+      "class": "supported",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "spec.steps.*.title",
+      "value": "example",
+      "class": "supported",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "spec.steps.*.if",
+      "value": "example",
+      "class": "supported",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "spec.steps.*.actor",
+      "value": "example",
+      "class": "supported",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "spec.steps.*.assignee",
+      "value": "example",
+      "class": "supported",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "spec.steps.*.check",
+      "value": "example",
+      "class": "supported",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "spec.steps.*.skippable",
+      "value": "example",
+      "class": "supported",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "spec.steps.*.timeout",
+      "value": "example",
+      "class": "supported",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "spec.steps.*.on_failure",
+      "value": "example",
+      "class": "supported",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "spec.steps.*.destructive",
+      "value": "example",
+      "class": "supported",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "spec.steps.*.allow_auto_decision",
+      "value": "example",
+      "class": "supported",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "spec.steps.*.instructions",
+      "value": "example",
+      "class": "supported",
+      "owner": "A20"
+    },
+    {
+      "path": "spec.steps.*.instructions.default",
+      "value": "example",
+      "class": "supported",
+      "owner": "A20"
+    },
+    {
+      "path": "spec.steps.*.instructions.human",
+      "value": "example",
+      "class": "supported",
+      "owner": "A20"
+    },
+    {
+      "path": "spec.steps.*.instructions.agent",
+      "value": "example",
+      "class": "supported",
+      "owner": "A20"
+    },
+    {
+      "path": "spec.steps.*.skill",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5/A20/B3"
+    },
+    {
+      "path": "spec.steps.*.skills",
+      "value": ["example"],
+      "class": "supported",
+      "owner": "LANG8"
+    },
+    {
+      "path": "spec.steps.*.assignment",
+      "value": "strict",
+      "class": "supported",
+      "owner": "LANG7"
+    },
+    {
+      "path": "spec.steps.*.labels",
+      "value": {"audience": "customer"},
+      "class": "supported",
+      "owner": "LANG9"
+    },
+    {
+      "path": "spec.steps.*.retry.on",
+      "value": ["timeout"],
+      "class": "supported",
+      "owner": "LANG9"
+    },
+    {
+      "path": "spec.steps.*.catch_on",
+      "value": ["timeout"],
+      "class": "supported",
+      "owner": "LANG9"
+    },
+    {
+      "path": "spec.steps.*.remind_after",
+      "value": "2h",
+      "class": "supported",
+      "owner": "LANG9"
+    },
+    {
+      "path": "spec.steps.*.remind_every",
+      "value": "4h",
+      "class": "supported",
+      "owner": "LANG9"
+    },
+    {
+      "path": "spec.steps.*.escalate_after",
+      "value": "1d",
+      "class": "supported",
+      "owner": "LANG9"
+    },
+    {
+      "path": "spec.steps.*.escalate_to",
+      "value": ["team:leads"],
+      "class": "supported",
+      "owner": "LANG9"
+    },
+    {
+      "path": "spec.defaults.remind_after",
+      "value": "2h",
+      "class": "supported",
+      "owner": "LANG9"
+    },
+    {
+      "path": "spec.defaults.escalate_to",
+      "value": ["team:leads"],
+      "class": "supported",
+      "owner": "LANG9"
+    },
+    {
+      "path": "spec.steps.*.with.*",
+      "value": "example",
+      "class": "supported",
+      "owner": "A4/A5/A20/B3"
+    },
+    {
+      "path": "spec.steps.*.checklist",
+      "value": [],
+      "class": "supported",
+      "owner": "A8"
+    },
+    {
+      "path": "spec.steps.*.checklist.0",
+      "value": "example",
+      "class": "supported",
+      "owner": "A8"
+    },
+    {
+      "path": "spec.steps.*.retry.max_attempts",
+      "value": "example",
+      "class": "supported",
+      "owner": "A5/A15/A18"
+    },
+    {
+      "path": "spec.steps.*.retry.backoff",
+      "value": "example",
+      "class": "supported",
+      "owner": "A5/A15/A18"
+    },
+    {
+      "path": "spec.steps.*.evidence.required.0",
+      "value": "link",
+      "class": "supported",
+      "owner": "A8/B8"
+    },
+    {
+      "path": "spec.steps.*.evidence.required.0",
+      "value": "log",
+      "class": "supported",
+      "owner": "A8/B8"
+    },
+    {
+      "path": "spec.steps.*.evidence.required.0",
+      "value": "file",
+      "class": "supported",
+      "owner": "A8/B8/UP1"
+    },
+    {
+      "path": "spec.steps.*.evidence.required.0",
+      "value": "screenshot",
+      "class": "supported",
+      "owner": "A8/B8/UP1"
+    },
+    {
+      "path": "spec.steps.*.evidence.accepted.0",
+      "value": "link",
+      "class": "supported",
+      "owner": "A8/B8"
+    },
+    {
+      "path": "spec.steps.*.evidence.accepted.0",
+      "value": "log",
+      "class": "supported",
+      "owner": "A8/B8"
+    },
+    {
+      "path": "spec.steps.*.evidence.accepted.0",
+      "value": "file",
+      "class": "supported",
+      "owner": "A8/B8/UP1"
+    },
+    {
+      "path": "spec.steps.*.evidence.accepted.0",
+      "value": "screenshot",
+      "class": "supported",
+      "owner": "A8/B8/UP1"
+    },
+    {
+      "path": "spec.steps.*.evidence.required.0",
+      "value": "video",
+      "class": "rejected"
+    },
+    {
+      "path": "spec.steps.*.agent.tools",
+      "value": [],
+      "class": "preserved"
+    },
+    {
+      "path": "spec.steps.*.agent.commands",
+      "value": [],
+      "class": "preserved"
+    },
+    {
+      "path": "spec.steps.*.agent.hints.tools",
+      "value": [],
+      "class": "preserved"
+    },
+    {
+      "path": "spec.steps.*.agent.hints.commands",
+      "value": [],
+      "class": "preserved"
+    },
+    {
+      "path": "spec.steps.*.agent.runner",
+      "value": true,
+      "class": "rejected"
+    },
+    {
+      "path": "spec.steps.*.agent.model",
+      "value": true,
+      "class": "rejected"
+    },
+    {
+      "path": "spec.steps.*.agent.max_cost_usd",
+      "value": true,
+      "class": "rejected"
+    },
+    {
+      "path": "spec.steps.*.agent.max_tokens",
+      "value": true,
+      "class": "rejected"
+    },
+    {
+      "path": "spec.steps.*.steps",
+      "value": [],
+      "class": "supported",
+      "owner": "A7/A14/A19"
+    },
+    {
+      "path": "spec.steps.*.catch",
+      "value": [],
+      "class": "supported",
+      "owner": "A7/A14/A19"
+    },
+    {
+      "path": "spec.steps.*.finally",
+      "value": [],
+      "class": "supported",
+      "owner": "A7/A14/A19"
+    },
+    {
+      "path": "spec.steps.*.parallel",
+      "value": [],
+      "class": "supported",
+      "owner": "A11"
+    },
+    {
+      "path": "spec.steps.*.join",
+      "value": "all",
+      "class": "supported",
+      "owner": "A11"
+    },
+    {
+      "path": "spec.steps.*.join",
+      "value": "any",
+      "class": "supported",
+      "owner": "A11/LANG2"
+    },
+    {
+      "path": "spec.steps.*.join",
+      "value": {
+        "at_least": 1
+      },
+      "class": "supported",
+      "owner": "A11/LANG2"
+    },
+    {
+      "path": "spec.steps.*.join.at_least",
+      "value": 1,
+      "class": "supported",
+      "owner": "A11/LANG2"
+    },
+    {
+      "path": "spec.steps.*.fail_fast",
+      "value": true,
+      "class": "supported",
+      "owner": "A11"
+    },
+    {
+      "path": "spec.steps.*.foreach.items",
+      "value": "example",
+      "class": "supported",
+      "owner": "A12"
+    },
+    {
+      "path": "spec.steps.*.foreach.as",
+      "value": "example",
+      "class": "supported",
+      "owner": "A12"
+    },
+    {
+      "path": "spec.steps.*.foreach.key",
+      "value": "example",
+      "class": "supported",
+      "owner": "A12"
+    },
+    {
+      "path": "spec.steps.*.foreach.concurrency",
+      "value": "example",
+      "class": "supported",
+      "owner": "A12"
+    },
+    {
+      "path": "spec.steps.*.foreach.max_items",
+      "value": "example",
+      "class": "supported",
+      "owner": "A12"
+    },
+    {
+      "path": "spec.steps.*.foreach.steps",
+      "value": [],
+      "class": "supported",
+      "owner": "A12"
+    },
+    {
+      "path": "spec.steps.*.loop.until",
+      "value": "example",
+      "class": "supported",
+      "owner": "A13"
+    },
+    {
+      "path": "spec.steps.*.loop.while",
+      "value": "example",
+      "class": "supported",
+      "owner": "A13/LANG1"
+    },
+    {
+      "path": "spec.steps.*.loop.max_iterations",
+      "value": "example",
+      "class": "supported",
+      "owner": "A13"
+    },
+    {
+      "path": "spec.steps.*.loop.delay",
+      "value": "example",
+      "class": "supported",
+      "owner": "A13"
+    },
+    {
+      "path": "spec.steps.*.loop.steps",
+      "value": [],
+      "class": "supported",
+      "owner": "A13"
+    },
+    {
+      "path": "spec.steps.*.switch.cases.*.when",
+      "value": "example",
+      "class": "supported",
+      "owner": "A10"
+    },
+    {
+      "path": "spec.steps.*.switch.cases.*.steps",
+      "value": [],
+      "class": "supported",
+      "owner": "A10"
+    },
+    {
+      "path": "spec.steps.*.switch.default.steps",
+      "value": [],
+      "class": "supported",
+      "owner": "A10"
+    },
+    {
+      "path": "spec.steps.*.wait.for",
+      "value": "example",
+      "class": "supported",
+      "owner": "A17"
+    },
+    {
+      "path": "spec.steps.*.wait.until",
+      "value": "example",
+      "class": "supported",
+      "owner": "A17"
+    },
+    {
+      "path": "spec.steps.*.wait.signal",
+      "value": "example",
+      "class": "supported",
+      "owner": "A17"
+    },
+    {
+      "path": "spec.steps.*.wait.timeout",
+      "value": "example",
+      "class": "supported",
+      "owner": "A17"
+    },
+    {
+      "path": "spec.steps.*.wait.outputs.*.type",
+      "value": "string",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.steps.*.approval.prompt",
+      "value": "example",
+      "class": "supported",
+      "owner": "A6/A16/A18/B1/B6"
+    },
+    {
+      "path": "spec.steps.*.approval.min",
+      "value": "example",
+      "class": "supported",
+      "owner": "A6/A16/A18/B1/B6"
+    },
+    {
+      "path": "spec.steps.*.approval.timeout",
+      "value": "example",
+      "class": "supported",
+      "owner": "A6/A16/A18/B1/B6"
+    },
+    {
+      "path": "spec.steps.*.approval.escalation_timeout",
+      "value": "example",
+      "class": "supported",
+      "owner": "A6/A16/A18/B1/B6"
+    },
+    {
+      "path": "spec.steps.*.approval.on_expired",
+      "value": "example",
+      "class": "supported",
+      "owner": "A6/A16/A18/B1/B6"
+    },
+    {
+      "path": "spec.steps.*.approval.allow_agents",
+      "value": "example",
+      "class": "supported",
+      "owner": "A6/A16/A18/B1/B6"
+    },
+    {
+      "path": "spec.steps.*.approval.escalate_to.0",
+      "value": "example",
+      "class": "supported",
+      "owner": "A6/A16/A18/B1/B6"
+    },
+    {
+      "path": "spec.steps.*.approval.options.0",
+      "value": "keep",
+      "class": "supported",
+      "owner": "A6/A16"
+    },
+    {
+      "path": "spec.steps.*.approval.options.*.id",
+      "value": "example",
+      "class": "supported",
+      "owner": "A6/A16"
+    },
+    {
+      "path": "spec.steps.*.approval.options.*.title",
+      "value": "example",
+      "class": "supported",
+      "owner": "A6/A16"
+    },
+    {
+      "path": "spec.steps.*.approval.options.*.auto",
+      "value": "example",
+      "class": "supported",
+      "owner": "A6/A16"
+    },
+    {
+      "path": "spec.steps.*.approval.approvers.users",
+      "value": [],
+      "class": "supported",
+      "owner": "A6/A16"
+    },
+    {
+      "path": "spec.steps.*.approval.approvers.teams",
+      "value": [],
+      "class": "supported",
+      "owner": "A6/A16"
+    },
+    {
+      "path": "spec.steps.*.approval.on_timeout",
+      "value": "escalate",
+      "class": "supported",
+      "owner": "A6/A16"
+    },
+    {
+      "path": "spec.steps.*.approval.on_timeout.decide",
+      "value": "rollback",
+      "class": "supported",
+      "owner": "A6/A16"
+    },
+    {
+      "path": "spec.steps.*.set.vars.*",
+      "value": "example",
+      "class": "supported",
+      "owner": "A9"
+    },
+    {
+      "path": "spec.steps.*.set.fields.*",
+      "value": "example",
+      "class": "supported",
+      "owner": "A9"
+    },
+    {
+      "path": "spec.steps.*.end.status",
+      "value": "example",
+      "class": "supported",
+      "owner": "A9/A19"
+    },
+    {
+      "path": "spec.steps.*.end.message",
+      "value": "example",
+      "class": "supported",
+      "owner": "A9/A19"
+    },
+    {
+      "path": "kind",
+      "value": "StepLibrary",
+      "class": "rejected"
+    },
+    {
+      "path": "apiVersion",
+      "value": "therunbook.app/v2",
+      "class": "rejected"
+    },
+    {
+      "path": "spec.triggers.schedule.*.id",
+      "value": "nightly",
+      "class": "supported",
+      "owner": "LANG9b"
+    },
+    {
+      "path": "spec.triggers.schedule.*.cron",
+      "value": "0 2 * * *",
+      "class": "supported",
+      "owner": "LANG9b"
+    },
+    {
+      "path": "spec.triggers.schedule.*.timezone",
+      "value": "America/Los_Angeles",
+      "class": "supported",
+      "owner": "LANG9b"
+    },
+    {
+      "path": "spec.triggers.schedule.*.inputs.*",
+      "value": "api",
+      "class": "supported",
+      "owner": "LANG9b"
+    },
+    {
+      "path": "spec.triggers.schedule.*.catch_up",
+      "value": "1h",
+      "class": "supported",
+      "owner": "LANG9b"
+    },
+    {
+      "path": "spec.triggers.webhook.*.id",
+      "value": "on_deploy",
+      "class": "supported",
+      "owner": "LANG9b"
+    },
+    {
+      "path": "spec.triggers.webhook.*.payload.*.type",
+      "value": "string",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.triggers.webhook.*.when",
+      "value": "${{ payload.status == 'success' }}",
+      "class": "supported",
+      "owner": "LANG9b"
+    },
+    {
+      "path": "spec.triggers.webhook.*.inputs.*",
+      "value": "${{ payload.service }}",
+      "class": "supported",
+      "owner": "LANG9b"
+    },
+    {
+      "path": "spec.triggers.webhook.*.dedupe",
+      "value": "${{ payload.id }}",
+      "class": "supported",
+      "owner": "LANG9b"
+    },
+    {
+      "path": "spec.steps.*.call",
+      "value": {},
+      "class": "supported",
+      "owner": "LANG4"
+    },
+    {
+      "path": "spec.steps.*.call.runbook",
+      "value": "other",
+      "class": "supported",
+      "owner": "LANG4"
+    },
+    {
+      "path": "spec.steps.*.call.version",
+      "value": 3,
+      "class": "supported",
+      "owner": "LANG4"
+    },
+    {
+      "path": "spec.steps.*.call.with.env",
+      "value": "prod",
+      "class": "supported",
+      "owner": "LANG4"
+    },
+    {
+      "path": "spec.steps.*.call.outputs.*.type",
+      "value": "integer",
+      "class": "supported",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "spec.magic",
+      "value": true,
+      "class": "rejected"
+    },
+    {
+      "path": "spec.inputs.*.future",
+      "value": true,
+      "class": "rejected"
+    },
+    {
+      "path": "spec.inputs.*.type",
+      "value": "multi_enum",
+      "class": "supported",
+      "owner": "A4/A5/LANG5"
+    },
+    {
+      "path": "spec.inputs.*.type",
+      "value": "date",
+      "class": "supported",
+      "owner": "A4/A5/LANG5"
+    },
+    {
+      "path": "spec.inputs.*.type",
+      "value": "datetime",
+      "class": "supported",
+      "owner": "A4/A5/LANG5"
+    },
+    {
+      "path": "spec.inputs.*.type",
+      "value": "duration",
+      "class": "supported",
+      "owner": "A4/A5/LANG5"
+    },
+    {
+      "path": "spec.inputs.*.type",
+      "value": "url",
+      "class": "supported",
+      "owner": "A4/A5/LANG5"
+    },
+    {
+      "path": "spec.inputs.*.type",
+      "value": "email",
+      "class": "supported",
+      "owner": "A4/A5/LANG5"
+    },
+    {
+      "path": "spec.inputs.*.type",
+      "value": "user",
+      "class": "supported",
+      "owner": "A4/A5/LANG5"
+    },
+    {
+      "path": "spec.inputs.*.type",
+      "value": "secret_ref",
+      "class": "rejected"
+    },
+    {
+      "path": "x-extension",
+      "value": {
+        "nested": "retained"
+      },
+      "class": "preserved"
+    },
+    {
+      "path": "metadata.x-extension",
+      "value": {
+        "nested": "retained"
+      },
+      "class": "preserved"
+    },
+    {
+      "path": "spec.x-extension",
+      "value": {
+        "nested": "retained"
+      },
+      "class": "preserved"
+    },
+    {
+      "path": "spec.inputs.x-extension",
+      "value": {
+        "nested": "retained"
+      },
+      "class": "preserved"
+    },
+    {
+      "path": "spec.inputs.*.x-extension",
+      "value": {
+        "nested": "retained"
+      },
+      "class": "preserved"
+    },
+    {
+      "path": "spec.inputs.*.items.x-extension",
+      "value": {
+        "nested": "retained"
+      },
+      "class": "preserved"
+    },
+    {
+      "path": "spec.inputs.*.properties.*.x-extension",
+      "value": {
+        "nested": "retained"
+      },
+      "class": "preserved"
+    },
+    {
+      "path": "spec.vars.x-extension",
+      "value": {
+        "nested": "retained"
+      },
+      "class": "preserved"
+    },
+    {
+      "path": "spec.execution.concurrency.x-extension",
+      "value": {
+        "nested": "retained"
+      },
+      "class": "preserved"
+    },
+    {
+      "path": "spec.steps.*.x-extension",
+      "value": {
+        "nested": "retained"
+      },
+      "class": "preserved"
+    },
+    {
+      "path": "spec.steps.*.foreach.x-extension",
+      "value": {
+        "nested": "retained"
+      },
+      "class": "preserved"
+    },
+    {
+      "path": "spec.steps.*.loop.x-extension",
+      "value": {
+        "nested": "retained"
+      },
+      "class": "preserved"
+    },
+    {
+      "path": "spec.steps.*.switch.cases.*.x-extension",
+      "value": {
+        "nested": "retained"
+      },
+      "class": "preserved"
+    },
+    {
+      "path": "spec.steps.*.approval.options.*.x-extension",
+      "value": {
+        "nested": "retained"
+      },
+      "class": "preserved"
+    },
+    {
+      "path": "spec.steps.*.agent.x-extension",
+      "value": {
+        "nested": "retained"
+      },
+      "class": "preserved"
+    },
+    {
+      "path": "spec.agents.params",
+      "value": {
+        "repo": "acme/api",
+        "workflow": "runbook-resume.yml"
+      },
+      "class": "supported",
+      "owner": "C1"
+    },
+    {
+      "path": "spec.agents.params.x-opaque.nested",
+      "value": null,
+      "class": "supported",
+      "owner": "C1"
+    },
+    {
+      "path": "spec.agents.dispatch",
+      "value": {
+        "github": {}
+      },
+      "class": "rejected",
+      "code": "spec.agents_dispatch_removed",
+      "guidance": "Use project webhook subscriptions and spec.agents.params."
+    },
+    {
+      "path": "spec.agents.dispatch.github.repo",
+      "value": "acme/api",
+      "class": "rejected",
+      "code": "spec.agents_dispatch_removed",
+      "guidance": "Use project webhook subscriptions and spec.agents.params."
+    }
+  ],
+  "flagship_leaves": [
+    {
+      "path": "/apiVersion",
+      "owner": "A1/A5/B1/B3"
+    },
+    {
+      "path": "/kind",
+      "owner": "A1/A5/B1/B3"
+    },
+    {
+      "path": "/metadata/description",
+      "owner": "A1/A5/B1/B3"
+    },
+    {
+      "path": "/metadata/id",
+      "owner": "A1/A5/B1/B3"
+    },
+    {
+      "path": "/metadata/owners/0",
+      "owner": "A1/A5/B1/B3"
+    },
+    {
+      "path": "/metadata/tags/0",
+      "owner": "A1/A5/B1/B3"
+    },
+    {
+      "path": "/metadata/tags/1",
+      "owner": "A1/A5/B1/B3"
+    },
+    {
+      "path": "/metadata/title",
+      "owner": "A1/A5/B1/B3"
+    },
+    {
+      "path": "/spec/agents/params/repo",
+      "owner": "C1"
+    },
+    {
+      "path": "/spec/agents/params/workflow",
+      "owner": "C1"
+    },
+    {
+      "path": "/spec/defaults/actor",
+      "owner": "A5/A15/A18"
+    },
+    {
+      "path": "/spec/defaults/on_failure",
+      "owner": "A5/A15/A18"
+    },
+    {
+      "path": "/spec/defaults/timeout",
+      "owner": "A5/A15/A18"
+    },
+    {
+      "path": "/spec/execution/cleanup_timeout",
+      "owner": "A4/A18/A19/B5"
+    },
+    {
+      "path": "/spec/execution/concurrency/key",
+      "owner": "B5"
+    },
+    {
+      "path": "/spec/execution/concurrency/limit",
+      "owner": "B5"
+    },
+    {
+      "path": "/spec/execution/concurrency/on_conflict",
+      "owner": "B5"
+    },
+    {
+      "path": "/spec/execution/timeout",
+      "owner": "A4/A18/A19/B5"
+    },
+    {
+      "path": "/spec/execution/title",
+      "owner": "A4/A18/A19/B5"
+    },
+    {
+      "path": "/spec/fields/severity/default",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "/spec/fields/severity/indexed",
+      "owner": "B3/B8"
+    },
+    {
+      "path": "/spec/fields/severity/options/0",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "/spec/fields/severity/options/1",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "/spec/fields/severity/options/2",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "/spec/fields/severity/type",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "/spec/finally/0/id",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "/spec/finally/0/instructions",
+      "owner": "A20"
+    },
+    {
+      "path": "/spec/finally/0/title",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "/spec/inputs/regions/default/0",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "/spec/inputs/regions/default/1",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "/spec/inputs/regions/default/2",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "/spec/inputs/regions/items/type",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "/spec/inputs/regions/type",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "/spec/inputs/service/options/0",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "/spec/inputs/service/options/1",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "/spec/inputs/service/options/2",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "/spec/inputs/service/required",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "/spec/inputs/service/type",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "/spec/inputs/version/required",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "/spec/inputs/version/type",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "/spec/outputs/result",
+      "owner": "A7-A20/B8"
+    },
+    {
+      "path": "/spec/skills/error_rates",
+      "owner": "A4/A5/A20/B3"
+    },
+    {
+      "path": "/spec/skills/rollback",
+      "owner": "A4/A5/A20/B3"
+    },
+    {
+      "path": "/spec/steps/0/id",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "/spec/steps/0/parallel/0/check",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "/spec/steps/0/parallel/0/id",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "/spec/steps/0/parallel/0/instructions",
+      "owner": "A20"
+    },
+    {
+      "path": "/spec/steps/0/parallel/0/outputs/status_code/required",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "/spec/steps/0/parallel/0/outputs/status_code/type",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "/spec/steps/0/parallel/0/title",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "/spec/steps/0/parallel/1/actor",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "/spec/steps/0/parallel/1/check",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "/spec/steps/0/parallel/1/checklist/0",
+      "owner": "A8"
+    },
+    {
+      "path": "/spec/steps/0/parallel/1/checklist/1",
+      "owner": "A8"
+    },
+    {
+      "path": "/spec/steps/0/parallel/1/id",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "/spec/steps/0/parallel/1/title",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "/spec/steps/0/title",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "/spec/steps/1/foreach/as",
+      "owner": "A12"
+    },
+    {
+      "path": "/spec/steps/1/foreach/concurrency",
+      "owner": "A12"
+    },
+    {
+      "path": "/spec/steps/1/foreach/items",
+      "owner": "A12"
+    },
+    {
+      "path": "/spec/steps/1/foreach/max_items",
+      "owner": "A12"
+    },
+    {
+      "path": "/spec/steps/1/foreach/steps/0/check",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "/spec/steps/1/foreach/steps/0/evidence/required/0",
+      "owner": "A8/B8"
+    },
+    {
+      "path": "/spec/steps/1/foreach/steps/0/id",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "/spec/steps/1/foreach/steps/0/outputs/rate/required",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "/spec/steps/1/foreach/steps/0/outputs/rate/type",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "/spec/steps/1/foreach/steps/0/skill",
+      "owner": "A4/A5/A20/B3"
+    },
+    {
+      "path": "/spec/steps/1/foreach/steps/0/title",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "/spec/steps/1/foreach/steps/0/with/region",
+      "owner": "A4/A5/A20/B3"
+    },
+    {
+      "path": "/spec/steps/1/foreach/steps/0/with/window",
+      "owner": "A4/A5/A20/B3"
+    },
+    {
+      "path": "/spec/steps/1/id",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "/spec/steps/1/title",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "/spec/steps/2/id",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "/spec/steps/2/if",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "/spec/steps/2/loop/delay",
+      "owner": "A13"
+    },
+    {
+      "path": "/spec/steps/2/loop/max_iterations",
+      "owner": "A13"
+    },
+    {
+      "path": "/spec/steps/2/loop/steps/0/check",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "/spec/steps/2/loop/steps/0/id",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "/spec/steps/2/loop/steps/0/outputs/rate/required",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "/spec/steps/2/loop/steps/0/outputs/rate/type",
+      "owner": "A4/A5"
+    },
+    {
+      "path": "/spec/steps/2/loop/steps/0/skill",
+      "owner": "A4/A5/A20/B3"
+    },
+    {
+      "path": "/spec/steps/2/loop/steps/0/title",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "/spec/steps/2/loop/until",
+      "owner": "A13"
+    },
+    {
+      "path": "/spec/steps/2/title",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "/spec/steps/3/id",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "/spec/steps/3/switch/cases/0/steps/0/approval/approvers/teams/0",
+      "owner": "A6/A16"
+    },
+    {
+      "path": "/spec/steps/3/switch/cases/0/steps/0/approval/escalate_to/0",
+      "owner": "A6/A16/A18/B1/B6"
+    },
+    {
+      "path": "/spec/steps/3/switch/cases/0/steps/0/approval/escalation_timeout",
+      "owner": "A6/A16/A18/B1/B6"
+    },
+    {
+      "path": "/spec/steps/3/switch/cases/0/steps/0/approval/on_timeout",
+      "owner": "A6/A16"
+    },
+    {
+      "path": "/spec/steps/3/switch/cases/0/steps/0/approval/options/0",
+      "owner": "A6/A16"
+    },
+    {
+      "path": "/spec/steps/3/switch/cases/0/steps/0/approval/options/1",
+      "owner": "A6/A16"
+    },
+    {
+      "path": "/spec/steps/3/switch/cases/0/steps/0/approval/prompt",
+      "owner": "A6/A16/A18/B1/B6"
+    },
+    {
+      "path": "/spec/steps/3/switch/cases/0/steps/0/approval/timeout",
+      "owner": "A6/A16/A18/B1/B6"
+    },
+    {
+      "path": "/spec/steps/3/switch/cases/0/steps/0/id",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "/spec/steps/3/switch/cases/0/steps/0/title",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "/spec/steps/3/switch/cases/0/steps/1/destructive",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "/spec/steps/3/switch/cases/0/steps/1/id",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "/spec/steps/3/switch/cases/0/steps/1/if",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "/spec/steps/3/switch/cases/0/steps/1/skill",
+      "owner": "A4/A5/A20/B3"
+    },
+    {
+      "path": "/spec/steps/3/switch/cases/0/steps/1/title",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "/spec/steps/3/switch/cases/0/steps/2/id",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "/spec/steps/3/switch/cases/0/steps/2/set/fields/severity",
+      "owner": "A9"
+    },
+    {
+      "path": "/spec/steps/3/switch/cases/0/steps/2/set/vars/result",
+      "owner": "A9"
+    },
+    {
+      "path": "/spec/steps/3/switch/cases/0/when",
+      "owner": "A10"
+    },
+    {
+      "path": "/spec/steps/3/switch/default/steps/0/id",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "/spec/steps/3/switch/default/steps/0/set/fields/severity",
+      "owner": "A9"
+    },
+    {
+      "path": "/spec/steps/3/switch/default/steps/0/set/vars/result",
+      "owner": "A9"
+    },
+    {
+      "path": "/spec/steps/3/title",
+      "owner": "A5/A8/A15-A20/B1/B6"
+    },
+    {
+      "path": "/spec/vars/result",
+      "owner": "A4/A5"
+    }
+  ],
+  "publication_constraints": {
+    "node.timeout": "Tasks only; spec.timeout_requires_task on controls. defaults.timeout applies only to tasks; nested wait/approval timeouts and execution timeout remain supported.",
+    "approval.allow_agents": "Requires min: 1 (spec.agent_approval_requires_min_one); agent DecisionApplied is separate from human signatures; destructive-path prohibition remains.",
+    "end": "Rejected anywhere inside finally (spec.end_in_finally); normal and catch sections remain supported."
+  }
+}

@@ -1,0 +1,13 @@
+# external_db.sh only: attach the server to the throwaway database's
+# project-scoped network, so the database is reached by DATABASE_URL alone
+# (no compose service, no published port, works the same on Linux and
+# Docker Desktop).
+services:
+  server:
+    networks:
+      - default
+      - externaldb
+networks:
+  externaldb:
+    external: true
+    name: ${SMOKE_EXTERNAL_DB_NETWORK:?set by external_db.sh}

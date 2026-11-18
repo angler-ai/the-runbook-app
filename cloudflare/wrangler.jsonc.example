@@ -1,0 +1,161 @@
+// Production deployment template for The Runbook Cloudflare edition (CF10).
+// Copy to wrangler.prod.jsonc (git-ignored; the tracked wrangler.jsonc is the
+// local-only test config and must stay so), fill in your resource IDs, and
+// deploy with `-c wrangler.prod.jsonc`. Never commit real account IDs,
+// database IDs, or secrets.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "runbook-api",
+  "main": "build/index.js",
+  "compatibility_date": "2026-09-18",
+  "workers_dev": false,
+  "preview_urls": false,
+  "build": {
+    // The deploy build only (no test seams, gate fix B1).
+    "command": "node scripts/build-worker.mjs worker"
+  },
+
+  // Routes / Custom Domains:
+  // Configure the public API hostname under your Cloudflare zone.
+  // "routes": [
+  //   { "pattern": "api.runbooks.example.com/*", "zone_name": "example.com" }
+  // ],
+
+  // Durable Objects:
+  // - ExecutionDO: execution projection head, event stream, timers, leases, outbox, and SSE bridge.
+  // - OrgDO: organization monthly execution quota counters and reservations.
+  // - WebhookDO: one per webhook subscription: its delivery log, retry state and redelivery (CF11).
+  // - LimitsDO: one per rate-limit key: AUTH3's windows, shared by every isolate (gate fix B2).
+  "durable_objects": {
+    "bindings": [
+      { "name": "EXECUTIONS", "class_name": "ExecutionDO" },
+      { "name": "ORGS", "class_name": "OrgDO" },
+      { "name": "WEBHOOKS", "class_name": "WebhookDO" },
+      { "name": "LIMITS", "class_name": "LimitsDO" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["ExecutionDO"] },
+    { "tag": "v2", "new_sqlite_classes": ["OrgDO"] },
+    { "tag": "v3", "new_sqlite_classes": ["WebhookDO"] },
+    { "tag": "v4", "new_sqlite_classes": ["LimitsDO"] }
+  ],
+
+  // D1 Relational Database:
+  // Create with: wrangler d1 create runbook-production
+  // Apply migrations before traffic: npx wrangler d1 migrations apply DB --remote
+  // CF11 shards: DB is the control database and every organization's shard by
+  // default. A further shard is another binding here (apply the same
+  // migrations to it) plus RUNBOOK_D1_SHARDS below; see README "D1 shards".
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "runbook-production",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations/d1"
+    }
+    // ,{
+    //   "binding": "DB_2",
+    //   "database_name": "runbook-production-2",
+    //   "database_id": "00000000-0000-0000-0000-000000000000",
+    //   "migrations_dir": "migrations/d1"
+    // }
+  ],
+
+  // R2 Object Storage:
+  // - BLOBS: execution log chunks, content-addressed snapshots, daily archives.
+  // - USER_CONTENT: binary uploads and evidence (served from separate user-content hostname).
+  // Create with:
+  //   wrangler r2 bucket create runbook-blobs
+  //   wrangler r2 bucket create runbook-user-content
+  "r2_buckets": [
+    { "binding": "BLOBS", "bucket_name": "runbook-blobs" },
+    { "binding": "USER_CONTENT", "bucket_name": "runbook-user-content" }
+  ],
+
+  // Queues:
+  // - NOTIFICATIONS: event notification intents dispatched from ExecutionDO outbox.
+  // - DLQ: messages failing fan-out after max_retries (100) are parked here.
+  // Create with:
+  //   wrangler queues create runbook-notifications
+  //   wrangler queues create runbook-notifications-dlq
+  "queues": {
+    "producers": [
+      { "binding": "NOTIFICATIONS", "queue": "runbook-notifications" }
+    ],
+    "consumers": [
+      {
+        "queue": "runbook-notifications",
+        "max_batch_size": 10,
+        "max_batch_timeout": 1,
+        "max_retries": 100,
+        "dead_letter_queue": "runbook-notifications-dlq"
+      }
+    ]
+  },
+
+  // Cron Triggers:
+  // - `* * * * *`: webhook redelivery pass (every minute).
+  // - `17 0 * * *`: daily archive and data retention sweep (shortly after 00:00 UTC).
+  "triggers": {
+    "crons": ["* * * * *", "17 0 * * *"]
+  },
+
+  // Service Bindings (optional / auth, CF7):
+  // Internal binding connecting the api Worker to the Better Auth sign-in Worker without public routes.
+  // "services": [
+  //   { "binding": "AUTH", "service": "runbook-auth" }
+  // ],
+
+  // Static Web Assets (optional / UI, CF7):
+  // Points to the web client build directory (e.g. web/dist). run_worker_first ensures
+  // API routes and SPA client routing route through the Worker to serve index.html (no-store),
+  // while immutable hashed assets under /assets/* are served directly by Cloudflare with long-term caching.
+  // "assets": {
+  //   "directory": "build-assets",
+  //   "binding": "ASSETS",
+  //   "html_handling": "none",
+  //   "not_found_handling": "none",
+  //   "run_worker_first": ["/*", "!/assets/*", "!/manifest.webmanifest"]
+  // },
+
+  // Environment Variables (public configuration):
+  "vars": {
+    // The public canonical origin of The Runbook (scheme://host[:port]).
+    "ORIGIN": "https://api.runbooks.example.com",
+
+    // User-content origin for binary evidence uploads (CF7).
+    // Must differ from ORIGIN by hostname or port. Evidence uploads stay off
+    // without both RUNBOOK_USERCONTENT_ORIGIN and RUNBOOK_UPLOAD_SIGNING_KEY.
+    // Note: Images stay refused on Workers for now (upload.type_unsupported).
+    // "RUNBOOK_USERCONTENT_ORIGIN": "https://usercontent.runbooks.example.com",
+
+    // Monthly execution limits per organization (positive integer or "off" for unlimited).
+    // Starts exceeding this quota return HTTP 429 limit.executions_monthly.
+    "RUNBOOK_LIMIT_EXECUTIONS_MONTHLY": "off"
+
+    // D1 shard mapping (CF11), a JSON string; unset maps everything to DB.
+    // A value that does not parse refuses requests (d1.shards_invalid).
+    // "RUNBOOK_D1_SHARDS": "{\"control\": \"DB\", \"default\": \"DB\", \"orgs\": {\"org_…\": \"DB_2\"}}"
+
+    // Theme colour override (UI-1), each "#rrggbb"; /v1/meta reports them as
+    // `theme` and the web app uses them. The first two apply to both themes;
+    // the DARK ones replace them in the dark theme only. A value that is not
+    // #rrggbb is logged (config.invalid_theme_color) and the whole override
+    // ignored (the default theme is served); a colour under WCAG AA contrast
+    // (4.5:1 against #ffffff, or #14133a in the dark theme) is only logged.
+    // "RUNBOOK_THEME_ACCENT": "#4338ca",
+    // "RUNBOOK_THEME_ACCENT_SECONDARY": "#0e7490",
+    // "RUNBOOK_THEME_DARK_ACCENT": "#a5b4fc",
+    // "RUNBOOK_THEME_DARK_ACCENT_SECONDARY": "#67e8f9",
+
+    // Data retention policy (commented out by default; nothing is deleted unless an operator explicitly configures a window):
+    // Setting these enables deletion of live run detail.
+    // Startup rule: RUNBOOK_RETENTION_SUMMARY_DAYS must be >= RUNBOOK_RETENTION_ARCHIVE_DAYS.
+    // If archives are kept forever (RUNBOOK_RETENTION_ARCHIVE_DAYS unset or "off"),
+    // RUNBOOK_RETENTION_SUMMARY_DAYS must also be unset or "off".
+    // "RUNBOOK_RETENTION_LIVE_DAYS": "90",
+    // "RUNBOOK_RETENTION_ARCHIVE_DAYS": "365",
+    // "RUNBOOK_RETENTION_SUMMARY_DAYS": "730"
+  }
+}

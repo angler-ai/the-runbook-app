@@ -1,0 +1,45 @@
+// Production template for the sign-in Worker (auth/, Better Auth on the api
+// Worker's D1). Copy to wrangler.auth.prod.jsonc (git-ignored), fill in your
+// resource IDs and deploy with `-c wrangler.auth.prod.jsonc`. The two Workers
+// bind each other, so the first time: this Worker without `services`, then the
+// api Worker, then this one again (README §0). Never commit real IDs,
+// addresses or secrets.
+// Secrets: wrangler secret put RUNBOOK_AUTH_SECRET / RUNBOOK_AUTH_INTERNAL_SECRET
+// (the internal secret is the api Worker's too).
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "runbook-auth",
+  "main": "../auth/dist/worker.mjs",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  // The api Worker's database: the auth tables live beside its tables.
+  // Apply them before traffic:
+  //   npx wrangler d1 migrations apply DB --remote -c wrangler.auth.prod.jsonc
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "runbook-production",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "../auth/drizzle/sqlite"
+    }
+  ],
+  // The api Worker, for the can-register callback (D45) without a public hop.
+  "services": [{ "binding": "API", "service": "runbook-api" }],
+  // Email codes through Cloudflare Email Service (D48,
+  // RUNBOOK_AUTH_EMAIL_TRANSPORT=cloudflare). Sending to arbitrary recipients
+  // needs the Workers Paid plan and an onboarded sending domain (dashboard:
+  // Compute -> Email Service -> Email Sending -> Onboard Domain; review the
+  // SPF, DKIM, DMARC and bounce records before applying them). Omit this and
+  // the email method stays off.
+  "send_email": [{ "name": "EMAIL", "allowed_sender_addresses": ["login@runbooks.example.com"] }],
+  "vars": {
+    "RUNBOOK_ORIGIN": "https://runbooks.example.com",
+    "RUNBOOK_AUTH_METHODS": "email",
+    "RUNBOOK_AUTH_EMAIL_TRANSPORT": "cloudflare",
+    "RUNBOOK_EMAIL_FROM": "The Runbook <login@runbooks.example.com>",
+    "RUNBOOK_AUTH_CAN_REGISTER_URL": "https://api.internal/internal/can-register"
+    // Optional: "RUNBOOK_AUTH_ALLOWED_DOMAINS": "example.com"
+  }
+}

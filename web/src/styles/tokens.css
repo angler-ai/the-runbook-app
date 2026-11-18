@@ -1,0 +1,338 @@
+/* ==========================================================================
+   Runbook Design Tokens (UI-1)
+
+   Colours: Angler AI's palette (product surfaces light and dense; dark on Ink).
+   Structure, type, spacing and radii: Shelf's design language (a 232px tinted
+   sidebar, quiet nav rows, list and detail panes, a white "paper" surface).
+
+   Light theme on :root; dark via the system preference (unless data-theme is
+   "light") and via data-theme="dark". All colour tokens are hex.
+
+   Every text pairing below meets WCAG AA (4.5:1) in its theme. Two derived
+   shades exist only for that reason:
+   - muted text is #566479, not Slate #64748b (4.34:1 on Light Gray fails);
+   - mint text is #087a5b, not Mint 700 #0aa57b (3.1:1 on white fails).
+   An operator's colour override (GET /v1/meta `theme`) replaces the accent
+   tokens at boot; see src/theme/.
+   ========================================================================== */
+
+:root {
+  /* --- Surfaces --- */
+  --rb-color-bg: #FFFFFF;              /* Canvas: main content area */
+  --rb-color-sidebar: #F1F5F9;         /* Light Gray: sidebar */
+  --rb-color-sidebar-hover: #E2E8F0;   /* Slate 200: sidebar row hover */
+  --rb-color-surface: #FFFFFF;         /* Paper: cards, panels, list */
+  --rb-color-surface-raised: #F8FAFC;  /* Table heads, toolbars */
+  --rb-color-hover: #F1F5F9;           /* Row hover on paper */
+
+  /* --- Text --- */
+  --rb-color-text: #1A1A2E;            /* Near-black */
+  --rb-color-text-muted: #566479;      /* Derived slate (AA on every light tint) */
+
+  /* --- Lines --- */
+  --rb-color-border: #E2E8F0;          /* Slate 200: hairlines */
+  --rb-color-border-strong: #CBD5E1;   /* Border Strong */
+  --rb-color-border-input: #64748B;    /* Slate: control borders (>= 3:1) */
+
+  /* --- Accent (Indigo) --- */
+  --rb-color-accent: #4338CA;          /* Indigo: primary actions, links, selection */
+  --rb-color-accent-fg: #FFFFFF;       /* Text on accent */
+  --rb-color-accent-hover: #A6A2E5;    /* Light Indigo: the signature lighter hover */
+  --rb-color-accent-hover-fg: #14133A; /* Ink on Light Indigo (7.5:1) */
+  --rb-color-accent-strong: #3730A3;   /* Indigo 700: link hover */
+  --rb-color-accent-subtle: #EEEDFB;   /* Selected rows and nav (indigo text 6.8:1) */
+  --rb-color-accent-line: #C9C6F2;     /* Selected borders */
+
+  /* --- Secondary accent (Mint) --- */
+  --rb-color-accent-secondary: #00CC99;        /* Mint: fills, dots, bars (not text) */
+  --rb-color-accent-secondary-text: #087A5B;   /* Derived mint for text on light (5.3:1) */
+  --rb-color-accent-secondary-subtle: #CBF3E7; /* Light Mint */
+
+  /* --- Semantic --- */
+  --rb-color-danger: #DC2626;          /* Danger buttons (white text 4.8:1) */
+  --rb-color-danger-fg: #FFFFFF;
+  --rb-color-danger-text: #B91C1C;
+  --rb-color-warning: #F59E0B;         /* Warning fills */
+  --rb-color-warning-text: #92400E;
+  --rb-color-overlay: #1A1A2E8C;       /* Modal scrim: Near-black at 55% */
+  --rb-color-focus: #4338CA;
+
+  /* --- Status Colors (Pills) --- */
+  --rb-status-queued-fg: #334155;
+  --rb-status-queued-bg: #F1F5F9;
+
+  --rb-status-running-fg: #4338CA;
+  --rb-status-running-bg: #EEEDFB;
+
+  --rb-status-waiting-fg: #3730A3;
+  --rb-status-waiting-bg: #E0DEF8;
+
+  --rb-status-paused-fg: #92400E;
+  --rb-status-paused-bg: #FEF3C7;
+
+  --rb-status-succeeded-fg: #065F46;
+  --rb-status-succeeded-bg: #CBF3E7;
+
+  --rb-status-failed-fg: #B91C1C;
+  --rb-status-failed-bg: #FEE2E2;
+
+  --rb-status-cancelled-fg: #334155;
+  --rb-status-cancelled-bg: #F1F5F9;
+
+  --rb-status-skipped-fg: #334155;
+  --rb-status-skipped-bg: #F1F5F9;
+
+  --rb-status-timed-out-fg: #9A3412;
+  --rb-status-timed-out-bg: #FFEDD5;
+
+  --rb-status-expired-fg: #92400E;
+  --rb-status-expired-bg: #FEF3C7;
+
+  /* --- Verdict Colors (Outlined Tags) --- */
+  --rb-verdict-pass-fg: #087A5B;
+  --rb-verdict-pass-bg: #ECFBF5;
+  --rb-verdict-pass-border: #0AA57B;
+
+  --rb-verdict-warn-fg: #92400E;
+  --rb-verdict-warn-bg: #FFFBEB;
+  --rb-verdict-warn-border: #D97706;
+
+  --rb-verdict-fail-fg: #B91C1C;
+  --rb-verdict-fail-bg: #FEF2F2;
+  --rb-verdict-fail-border: #DC2626;
+
+  --rb-verdict-none-fg: #566479;
+  --rb-verdict-none-bg: #F8FAFC;
+  --rb-verdict-none-border: #64748B;
+
+  /* --- Stale and Amended Markers (Dashed amber) --- */
+  --rb-stale-fg: #92400E;
+  --rb-stale-bg: #FFFBEB;
+  --rb-stale-border: #D97706;
+
+  --rb-amended-fg: #92400E;
+  --rb-amended-bg: #FFFBEB;
+  --rb-amended-border: #D97706;
+
+  /* --- Typography (Shelf: DM Sans for UI, IBM Plex Mono for code and IDs) --- */
+  --rb-font-family-sans: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --rb-font-family-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  --rb-font-size-2xs: 11px;
+  --rb-font-size-xs: 12px;
+  --rb-font-size-sm: 13px;
+  --rb-font-size-base: 14px;
+  --rb-font-size-md: 16px;
+  --rb-font-size-lg: 21px;
+  --rb-font-size-xl: 24px;
+
+  --rb-font-weight-regular: 400;
+  --rb-font-weight-medium: 500;
+  --rb-font-weight-semibold: 600;
+  --rb-font-weight-bold: 700;
+
+  --rb-line-height-tight: 1.25;
+  --rb-line-height-normal: 1.5;
+  --rb-line-height-relaxed: 1.7;
+
+  /* --- 4px Spacing Scale --- */
+  --rb-spacing-0: 0px;
+  --rb-spacing-1: 4px;
+  --rb-spacing-2: 8px;
+  --rb-spacing-3: 12px;
+  --rb-spacing-4: 16px;
+  --rb-spacing-5: 20px;
+  --rb-spacing-6: 24px;
+  --rb-spacing-8: 32px;
+  --rb-spacing-10: 40px;
+  --rb-spacing-12: 48px;
+  --rb-spacing-16: 64px;
+
+  /* --- Layout (Shelf) --- */
+  --rb-sidebar-width: 232px;
+  --rb-header-height: 56px;
+
+  /* --- Radii (Shelf's small radii: 5px rows, 6px controls, 12px dialogs) --- */
+  --rb-radius-none: 0px;
+  --rb-radius-sm: 4px;
+  --rb-radius-md: 6px;
+  --rb-radius-lg: 12px;
+  --rb-radius-full: 9999px;
+
+  /* --- Elevation and motion --- */
+  --rb-shadow-overlay: 0 20px 80px #1A1A2E1F;
+  --rb-shadow-card: 0 1px 2px #1A1A2E0D;
+  --rb-ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* ==========================================================================
+   Dark Theme (Ink ground): system preference (when not forced to light) and
+   explicit dark. The two blocks must stay identical. Both apply on screen
+   only: a page printed from the dark theme prints on the light tokens
+   (UI-3 review: white paper, dark text).
+   ========================================================================== */
+
+@media screen and (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --rb-color-bg: #0E0F14;
+    --rb-color-sidebar: #0A0B0F;
+    --rb-color-sidebar-hover: #20222C;
+    --rb-color-surface: #15161D;
+    --rb-color-surface-raised: #1A1C24;
+    --rb-color-hover: #20222C;
+
+    --rb-color-text: #F1F5F9;
+    --rb-color-text-muted: #94A3B8;
+
+    --rb-color-border: #262833;
+    --rb-color-border-strong: #343746;
+    --rb-color-border-input: #666B82;
+
+    --rb-color-accent: #A6A2E5;
+    --rb-color-accent-fg: #0E0F14;
+    --rb-color-accent-hover: #C4C1EE;
+    --rb-color-accent-hover-fg: #0E0F14;
+    --rb-color-accent-strong: #C4C1EE;
+    --rb-color-accent-subtle: #1E1D3F;
+    --rb-color-accent-line: #3D3A85;
+
+    --rb-color-accent-secondary: #00CC99;
+    --rb-color-accent-secondary-text: #00CC99;
+    --rb-color-accent-secondary-subtle: #0C3A3B;
+
+    --rb-color-danger: #F87171;
+    --rb-color-danger-fg: #0E0F14;
+    --rb-color-danger-text: #FCA5A5;
+    --rb-color-warning: #F59E0B;
+    --rb-color-warning-text: #FCD34D;
+    --rb-color-overlay: #000000A6;
+    --rb-color-focus: #A6A2E5;
+
+    --rb-status-queued-fg: #CBD5E1;
+    --rb-status-queued-bg: #22242E;
+    --rb-status-running-fg: #C4C1EE;
+    --rb-status-running-bg: #1E1D3F;
+    --rb-status-waiting-fg: #A6A2E5;
+    --rb-status-waiting-bg: #20222C;
+    --rb-status-paused-fg: #FCD34D;
+    --rb-status-paused-bg: #3A2914;
+    --rb-status-succeeded-fg: #00CC99;
+    --rb-status-succeeded-bg: #0C3A3B;
+    --rb-status-failed-fg: #FCA5A5;
+    --rb-status-failed-bg: #43132B;
+    --rb-status-cancelled-fg: #CBD5E1;
+    --rb-status-cancelled-bg: #22242E;
+    --rb-status-skipped-fg: #CBD5E1;
+    --rb-status-skipped-bg: #22242E;
+    --rb-status-timed-out-fg: #FDBA74;
+    --rb-status-timed-out-bg: #3D1D16;
+    --rb-status-expired-fg: #FCD34D;
+    --rb-status-expired-bg: #3A2914;
+
+    --rb-verdict-pass-fg: #6EE7B7;
+    --rb-verdict-pass-bg: #0C3A3B;
+    --rb-verdict-pass-border: #00CC99;
+    --rb-verdict-warn-fg: #FDE68A;
+    --rb-verdict-warn-bg: #3A2914;
+    --rb-verdict-warn-border: #F59E0B;
+    --rb-verdict-fail-fg: #FCA5A5;
+    --rb-verdict-fail-bg: #43132B;
+    --rb-verdict-fail-border: #EF4444;
+    --rb-verdict-none-fg: #94A3B8;
+    --rb-verdict-none-bg: #0E0F14;
+    --rb-verdict-none-border: #64748B;
+
+    --rb-stale-fg: #FDE68A;
+    --rb-stale-bg: #3A2914;
+    --rb-stale-border: #F59E0B;
+    --rb-amended-fg: #FDE68A;
+    --rb-amended-bg: #3A2914;
+    --rb-amended-border: #F59E0B;
+
+    --rb-shadow-overlay: 0 20px 80px #00000080;
+    --rb-shadow-card: 0 1px 2px #00000040;
+  }
+}
+
+@media screen {
+  :root[data-theme="dark"],
+  [data-theme="dark"] {
+    --rb-color-bg: #0E0F14;
+    --rb-color-sidebar: #0A0B0F;
+    --rb-color-sidebar-hover: #20222C;
+    --rb-color-surface: #15161D;
+    --rb-color-surface-raised: #1A1C24;
+    --rb-color-hover: #20222C;
+
+    --rb-color-text: #F1F5F9;
+    --rb-color-text-muted: #94A3B8;
+
+    --rb-color-border: #262833;
+    --rb-color-border-strong: #343746;
+    --rb-color-border-input: #666B82;
+
+    --rb-color-accent: #A6A2E5;
+    --rb-color-accent-fg: #0E0F14;
+    --rb-color-accent-hover: #C4C1EE;
+    --rb-color-accent-hover-fg: #0E0F14;
+    --rb-color-accent-strong: #C4C1EE;
+    --rb-color-accent-subtle: #1E1D3F;
+    --rb-color-accent-line: #3D3A85;
+
+    --rb-color-accent-secondary: #00CC99;
+    --rb-color-accent-secondary-text: #00CC99;
+    --rb-color-accent-secondary-subtle: #0C3A3B;
+
+    --rb-color-danger: #F87171;
+    --rb-color-danger-fg: #0E0F14;
+    --rb-color-danger-text: #FCA5A5;
+    --rb-color-warning: #F59E0B;
+    --rb-color-warning-text: #FCD34D;
+    --rb-color-overlay: #000000A6;
+    --rb-color-focus: #A6A2E5;
+
+    --rb-status-queued-fg: #CBD5E1;
+    --rb-status-queued-bg: #22242E;
+    --rb-status-running-fg: #C4C1EE;
+    --rb-status-running-bg: #1E1D3F;
+    --rb-status-waiting-fg: #A6A2E5;
+    --rb-status-waiting-bg: #20222C;
+    --rb-status-paused-fg: #FCD34D;
+    --rb-status-paused-bg: #3A2914;
+    --rb-status-succeeded-fg: #00CC99;
+    --rb-status-succeeded-bg: #0C3A3B;
+    --rb-status-failed-fg: #FCA5A5;
+    --rb-status-failed-bg: #43132B;
+    --rb-status-cancelled-fg: #CBD5E1;
+    --rb-status-cancelled-bg: #22242E;
+    --rb-status-skipped-fg: #CBD5E1;
+    --rb-status-skipped-bg: #22242E;
+    --rb-status-timed-out-fg: #FDBA74;
+    --rb-status-timed-out-bg: #3D1D16;
+    --rb-status-expired-fg: #FCD34D;
+    --rb-status-expired-bg: #3A2914;
+
+    --rb-verdict-pass-fg: #6EE7B7;
+    --rb-verdict-pass-bg: #0C3A3B;
+    --rb-verdict-pass-border: #00CC99;
+    --rb-verdict-warn-fg: #FDE68A;
+    --rb-verdict-warn-bg: #3A2914;
+    --rb-verdict-warn-border: #F59E0B;
+    --rb-verdict-fail-fg: #FCA5A5;
+    --rb-verdict-fail-bg: #43132B;
+    --rb-verdict-fail-border: #EF4444;
+    --rb-verdict-none-fg: #94A3B8;
+    --rb-verdict-none-bg: #0E0F14;
+    --rb-verdict-none-border: #64748B;
+
+    --rb-stale-fg: #FDE68A;
+    --rb-stale-bg: #3A2914;
+    --rb-stale-border: #F59E0B;
+    --rb-amended-fg: #FDE68A;
+    --rb-amended-bg: #3A2914;
+    --rb-amended-border: #F59E0B;
+
+    --rb-shadow-overlay: 0 20px 80px #00000080;
+    --rb-shadow-card: 0 1px 2px #00000040;
+  }
+}

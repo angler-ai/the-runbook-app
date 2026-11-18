@@ -1,0 +1,108 @@
+apiVersion: therunbook.app/v1
+kind: Runbook
+metadata:
+  id: post-deploy
+  title: Post-deploy verification
+  description: Verify a production deploy and decide whether to keep it.
+  owners: [team:oncall]
+  tags: [deploy, production]
+spec:
+  execution:
+    title: "Verify ${{ inputs.service }} ${{ inputs.version }}"
+    timeout: 2h
+    cleanup_timeout: 30m
+    concurrency: { key: "${{ inputs.service }}", limit: 1, on_conflict: queue }
+  inputs:
+    service: { type: enum, options: [api, web, worker], required: true }
+    version: { type: string, required: true }
+    regions: { type: list, items: { type: string }, default: [us-west, us-east, eu-west] }
+  fields:
+    severity: { type: enum, options: [none, minor, major], default: none, indexed: true }
+  vars: { result: undetermined }
+  defaults: { actor: agent, timeout: 15m, on_failure: handoff }
+  agents:
+    params: { repo: acme/api, workflow: runbook-resume.yml }
+  skills:
+    error_rates: ./skills/check-error-rates
+    rollback: ./skills/rollback-service
+  steps:
+    - id: smoke
+      title: Smoke tests
+      parallel:
+        - id: api_health
+          title: Health endpoint returns 200
+          check: true
+          instructions: Call /healthz on ${{ inputs.service }} and record the status code.
+          outputs:
+            status_code: { type: integer, required: true }
+        - id: login_flow
+          title: Log in as the test user
+          check: true
+          actor: human
+          checklist: [Login page loads, Dashboard shows data]
+    - id: regions
+      title: Error rate per region
+      foreach:
+        items: "${{ inputs.regions }}"
+        as: region
+        concurrency: 3
+        max_items: 12
+        steps:
+          - id: error_rate
+            title: "Error rate in ${{ region }}"
+            check: true
+            skill: error_rates
+            with: { region: "${{ region }}", window: 10m }
+            outputs:
+              rate: { type: number, required: true }
+            evidence: { required: [link] }
+    - id: stabilize
+      title: Wait for errors to settle
+      if: "${{ steps.regions.items.exists(i, i.error_rate.outputs.rate > 0.01) }}"
+      loop:
+        until: "${{ steps.recheck.outputs.rate <= 0.01 }}"
+        max_iterations: 3
+        delay: 5m
+        steps:
+          - id: recheck
+            title: Re-check the global error rate
+            check: true
+            skill: error_rates
+            outputs:
+              rate: { type: number, required: true }
+    - id: decide
+      title: Keep or roll back
+      switch:
+        cases:
+          - when: "${{ steps.smoke.verdict == 'fail' || steps.regions.verdict == 'fail' || steps.stabilize.verdict == 'fail' }}"
+            steps:
+              - id: signoff
+                title: Roll back or keep?
+                approval:
+                  prompt: Checks failed for ${{ inputs.version }}. Choose an action.
+                  options: [rollback, keep]
+                  approvers: { teams: [oncall] }
+                  timeout: 30m
+                  on_timeout: escalate
+                  escalate_to: [team:eng-leads]
+                  escalation_timeout: 30m
+              - id: rollback
+                if: "${{ steps.signoff.outputs.decision == 'rollback' }}"
+                title: "Roll back ${{ inputs.service }}"
+                destructive: true
+                skill: rollback
+              - id: mark_major
+                set:
+                  fields: { severity: major }
+                  vars:
+                    result: "${{ steps.signoff.outputs.decision == 'rollback' ? 'rolled_back' : 'kept' }}"
+        default:
+          steps:
+            - id: mark_healthy
+              set: { fields: { severity: none }, vars: { result: healthy } }
+  outputs:
+    result: "${{ vars.result }}"
+  finally:
+    - id: notify
+      title: Post the report to the deploys channel
+      instructions: Post the execution report link and the final decision.

@@ -1,0 +1,118 @@
+# Resume a Runbook execution with an agent. Started by the relay in this
+# folder (workflow_dispatch) when The Runbook sends `agent.work_available`.
+# Copy to .github/workflows/runbook-resume.yml in the repository the relay
+# dispatches to.
+#
+# Repository settings:
+#   secrets.RUNBOOK_SERVICE_TOKEN  a service token (trb_svc_) of the project,
+#                                  scope executions:act; used only to mint
+#                                  execution-scoped credentials
+#   secrets.ANTHROPIC_API_KEY      for the agent (or your agent's own key)
+#   vars.RUNBOOK_HOST              e.g. https://runbook.example.com
+#   vars.CLAUDE_CODE_VERSION       the exact agent CLI version to run (pinned)
+#   vars.RUNBOOK_CLI_URL           where to download the runbook CLI binary
+#                                  (a release asset or your own build)
+#   vars.RUNBOOK_CLI_SHA256        that binary's SHA-256; the job refuses any
+#                                  other bytes
+#
+# Everything this job runs before the service token is used is pinned:
+# actions by full commit SHA, the CLI by checksum, the agent by version.
+name: runbook-resume
+
+on:
+  workflow_dispatch:
+    inputs:
+      execution_id:
+        description: Runbook execution to resume (exe_...)
+        required: true
+        type: string
+      event_id:
+        description: The webhook event that asked for this run (evt_...)
+        required: true
+        type: string
+
+# One job per execution at a time: a second dispatch for the same run waits
+# for the first instead of starting a competing agent session.
+concurrency:
+  group: runbook-${{ inputs.execution_id }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  resume:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      # Inputs reach scripts only through the environment, never by
+      # expression interpolation into a script (script injection).
+      EXECUTION_ID: ${{ inputs.execution_id }}
+      EVENT_ID: ${{ inputs.event_id }}
+      RUNBOOK_HOST: ${{ vars.RUNBOOK_HOST }}
+      # The CLI's 0600 credential store lives outside the workspace; the
+      # agent below may only read files inside the workspace.
+      XDG_CONFIG_HOME: ${{ runner.temp }}/runbook-config
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # No GitHub token left in .git/config for the agent to find.
+          persist-credentials: false
+
+      - name: Check inputs
+        run: |
+          [[ "$EXECUTION_ID" =~ ^exe_[0-7][0-9A-HJKMNP-TV-Z]{25}$ ]] || { echo "invalid execution id" >&2; exit 1; }
+          [[ "$EVENT_ID" =~ ^evt_[0-9A-HJKMNP-TV-Z]{26}$ ]] || { echo "invalid event id" >&2; exit 1; }
+          echo "Resuming $EXECUTION_ID for $EVENT_ID"
+
+      # The CLI by checksum, not a mutable action tag: the next step hands
+      # it the service token.
+      - name: Install the runbook CLI
+        env:
+          RUNBOOK_CLI_URL: ${{ vars.RUNBOOK_CLI_URL }}
+          RUNBOOK_CLI_SHA256: ${{ vars.RUNBOOK_CLI_SHA256 }}
+        run: |
+          [ -n "$RUNBOOK_CLI_URL" ] && [ -n "$RUNBOOK_CLI_SHA256" ] || { echo "set vars.RUNBOOK_CLI_URL and vars.RUNBOOK_CLI_SHA256" >&2; exit 1; }
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -fsSL --proto '=https' "$RUNBOOK_CLI_URL" -o "$RUNNER_TEMP/bin/runbook"
+          echo "$RUNBOOK_CLI_SHA256  $RUNNER_TEMP/bin/runbook" | sha256sum -c -
+          chmod 0755 "$RUNNER_TEMP/bin/runbook"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      # The trusted launcher step: the service token is visible to this
+      # step only. `runbook run token` stores the execution-scoped
+      # access/refresh pair in the CLI's 0600 credential store and prints no
+      # secret. Nothing here echoes a token.
+      - name: Mint execution-scoped credentials
+        env:
+          RUNBOOK_TOKEN: ${{ secrets.RUNBOOK_SERVICE_TOKEN }}
+        run: runbook run token "$EXECUTION_ID" > /dev/null
+
+      # Install The Runbook skill for the agent (vendored in this repository
+      # at .claude/skills/therunbook; copy it from The Runbook's skills/
+      # folder). Skip if your runner image already has it.
+      - name: Install the skill
+        run: |
+          if [ -d .claude/skills/therunbook ]; then
+            mkdir -p "$HOME/.claude/skills"
+            cp -R .claude/skills/therunbook "$HOME/.claude/skills/"
+          fi
+
+      # The agent runs with the stored execution pair only: RUNBOOK_TOKEN is
+      # not in its environment, so it can act on this one execution and
+      # nothing else. Its tools are the runbook CLI and reads inside the
+      # workspace, so it cannot read the credential store under
+      # $RUNNER_TEMP: Read(./**) stays in the workspace, and the CLI
+      # refuses file arguments inside its own store (`step report
+      # --log-file`, `spec validate`, `push`). It reads the resume brief
+      # and exits when no work is ready.
+      - name: Resume the agent
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_VERSION: ${{ vars.CLAUDE_CODE_VERSION }}
+        run: |
+          [ -n "$CLAUDE_CODE_VERSION" ] || { echo "set vars.CLAUDE_CODE_VERSION" >&2; exit 1; }
+          npm install -g "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
+          claude -p \
+            "Resume Runbook execution $EXECUTION_ID. Run 'runbook step next $EXECUTION_ID' and follow the brief with the therunbook skill until no work is ready." \
+            --allowedTools "Bash(runbook:*)" "Read(./**)"

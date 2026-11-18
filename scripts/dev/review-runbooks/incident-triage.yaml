@@ -1,0 +1,33 @@
+apiVersion: therunbook.app/v1
+kind: Runbook
+metadata:
+  id: incident-triage
+  title: Incident triage
+  description: The first fifteen minutes of an incident; an agent gathers context and on-call confirms severity and opens comms.
+  owners: [team:oncall]
+  tags: [incident, oncall]
+spec:
+  execution:
+    title: "Triage: ${{ inputs.summary }}"
+  inputs:
+    summary: { type: string, required: true }
+    service: { type: enum, options: [api, web, worker, billing], required: true }
+  defaults: { actor: agent }
+  steps:
+    - id: gather
+      title: Gather alerts, recent deploys and error spikes
+      instructions: |
+        List the alerts firing for ${{ inputs.service }}, the deploys of the last two hours and the top
+        error signatures since the first alert. Name the most likely suspect deploy, if any.
+      outputs:
+        alerts: { type: integer, required: true }
+        suspect_deploy: { type: string }
+    - id: confirm_severity
+      title: Confirm severity and incident commander
+      actor: human
+      assignee: team:oncall
+      instructions: Read the agent's summary, set the severity and name the incident commander.
+      checklist: [Severity set, Incident commander named, Customer impact described]
+    - id: comms
+      title: Draft the status page update
+      instructions: Draft a status page update from the confirmed severity and impact; keep it under 60 words.

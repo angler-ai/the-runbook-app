@@ -1,0 +1,101 @@
+# One agent session for one Runbook execution, as a Kubernetes Job.
+# Your launcher (see README.md) fills EXECUTION_ID and EVENT_ID, names the Job
+# after the event so a redelivered event cannot start a second Job
+# (`kubectl create` fails with AlreadyExists), and creates it.
+#
+#   sed -e "s/__EXECUTION_ID__/$EXECUTION_ID/g" -e "s/__EVENT_ID__/$EVENT_ID/g" \
+#       -e "s/__EVENT_SLUG__/$(echo "$EVENT_ID" | tr 'A-Z_' 'a-z-')/g" \
+#       -e "s|__RUNBOOK_CLI_IMAGE__|$RUNBOOK_CLI_IMAGE|g" -e "s|__AGENT_IMAGE__|$AGENT_IMAGE|g" job.yaml \
+#     | kubectl create -f -
+#
+# Both images are pinned by digest (repository@sha256:...), never a tag:
+# the init container holds the service token, so a moved tag would hand it
+# to whatever the tag points at next.
+#
+# The service token lives in a Secret and is mounted only into the init
+# container that mints execution-scoped credentials; the agent container
+# never sees it.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: runbook-resume-__EVENT_SLUG__
+  labels:
+    app.kubernetes.io/name: runbook-resume
+    therunbook.app/execution: __EXECUTION_ID__
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 3600
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: runbook-resume
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+      volumes:
+        # The CLI's 0600 credential store, shared between the two containers
+        # and gone with the pod.
+        - name: runbook-config
+          emptyDir:
+            medium: Memory
+        - name: work
+          emptyDir: {}
+      initContainers:
+        - name: mint-credentials
+          # An image with the runbook CLI, pinned by digest.
+          image: __RUNBOOK_CLI_IMAGE__
+          command: ["sh", "-c", 'runbook run token "$EXECUTION_ID" > /dev/null']
+          env:
+            - name: EXECUTION_ID
+              value: __EXECUTION_ID__
+            - name: RUNBOOK_HOST
+              valueFrom:
+                configMapKeyRef: {name: runbook, key: host}
+            - name: XDG_CONFIG_HOME
+              value: /runbook
+            - name: RUNBOOK_TOKEN
+              valueFrom:
+                secretKeyRef: {name: runbook-service-token, key: token}
+          volumeMounts:
+            - {name: runbook-config, mountPath: /runbook}
+      containers:
+        - name: agent
+          # An image with the runbook CLI, your agent (pinned version) and
+          # The Runbook skill; pin it by digest. The agent's working
+          # directory is /work, so Read(./**) excludes the credential store,
+          # and the CLI refuses file arguments inside its own store
+          # (`step report --log-file`, `spec validate`, `push`), so
+          # Bash(runbook:*) cannot upload it either.
+          image: __AGENT_IMAGE__
+          workingDir: /work
+          command:
+            - sh
+            - -c
+            - >-
+              claude -p "Resume Runbook execution $EXECUTION_ID. Run 'runbook step next $EXECUTION_ID'
+              and follow the brief with the therunbook skill until no work is ready."
+              --allowedTools "Bash(runbook:*)" "Read(./**)"
+          env:
+            - name: EXECUTION_ID
+              value: __EXECUTION_ID__
+            - name: EVENT_ID
+              value: __EVENT_ID__
+            - name: RUNBOOK_HOST
+              valueFrom:
+                configMapKeyRef: {name: runbook, key: host}
+            - name: XDG_CONFIG_HOME
+              value: /runbook
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef: {name: agent-credentials, key: anthropic-api-key}
+          volumeMounts:
+            - {name: runbook-config, mountPath: /runbook}
+            - {name: work, mountPath: /work}
+          resources:
+            requests: {cpu: 250m, memory: 512Mi}
+            limits: {memory: 2Gi}

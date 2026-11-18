@@ -1,0 +1,58 @@
+[package]
+name = "runbook-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license = "AGPL-3.0-only"
+
+[dependencies]
+base64 = "0.22"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+runbook-engine = { path = "../runbook-engine" }
+runbook-spec = { path = "../runbook-spec" }
+runbook-api = { path = "../runbook-api" }
+runbook-core = { path = "../runbook-core" }
+runbook-model = { path = "../runbook-model" }
+# MCP1: `/mcp` runs the same tool handlers as `runbook mcp serve`.
+runbook-mcp = { path = "../runbook-mcp" }
+runbook-store-postgres = { path = "../runbook-store-postgres" }
+runbook-store-objects = { path = "../runbook-store-objects" }
+tokio = { version = "=1.54.1", features = ["rt", "macros", "signal", "sync", "time", "net", "io-util"] }
+# NOTIFY1: the built-in SMTP client; already locked through ureq.
+rustls = { version = "0.23", default-features = false, features = ["std", "ring", "tls12"] }
+tokio-rustls = "0.26"
+webpki-roots = "0.26"
+# HOST1: SIGTERM to the auth child on shutdown; already locked through tokio.
+libc = "=0.2.191"
+# HOST1: single-port mode hands each request to one of two routers;
+# already locked through axum.
+tower = { version = "0.5", features = ["util"] }
+getrandom = "=0.3.4"
+serde = "1"
+serde_json = "1"
+http = "1"
+axum = "=0.8.9"
+# F45: the connection loop sets a header read timeout; both come with axum.
+hyper = { version = "1", features = ["http1", "server"] }
+hyper-util = { version = "0.1", features = ["tokio", "service"] }
+serde_urlencoded = "0.7"
+url = "2"
+# C1 webhook delivery: both already locked through the CLI's ureq/rustls.
+ureq = { version = "2", default-features = false, features = ["tls"] }
+ring = { version = "0.17", default-features = false }
+# U25: Last-Modified/If-Modified-Since dates; already locked through hyper.
+httpdate = "1"
+# UP2 (D51): header-only dimensions, then decode and re-encode images
+# (PNG, JPEG, GIF, WebP only) to strip metadata and make thumbnails.
+imagesize = { version = "=0.15.0", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+# UP2 fixes: PNG is re-encoded row by row (`image`'s encoder holds the
+# filtered and compressed image in full); already locked through `image`.
+png = "=0.18.1"
+
+[dev-dependencies]
+runbook-contract = { path = "../runbook-contract" }
+# REP2: reads the PDF export back in route tests.
+runbook-report-pdf = { path = "../runbook-report-pdf" }
+jsonschema = { version = "0.61.0", default-features = false }

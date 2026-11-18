@@ -1,0 +1,37 @@
+// LOCAL ONLY. NEVER DEPLOY FROM HERE.
+//
+// CF7: the sign-in service (auth/src/worker.ts, Better Auth) for the local
+// multi-Worker `wrangler dev`. It shares the api Worker's D1 (the same
+// database_id), has no public route (the api Worker proxies /api/auth/*
+// through its AUTH binding), calls can-register back through `API`, and
+// sends email codes to the local mail stub (wrangler.mail.jsonc). Secrets
+// (RUNBOOK_AUTH_SECRET, RUNBOOK_AUTH_INTERNAL_SECRET) and RUNBOOK_ORIGIN are
+// written by scripts/dev-stack.mjs.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "runbook-auth-local",
+  "main": "../auth/dist/worker.mjs",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "runbook-local",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      // The auth tables, applied beside the api's (`wrangler d1 migrations
+      // apply --local`, done by the stack script).
+      "migrations_dir": "../auth/drizzle/sqlite"
+    }
+  ],
+  "services": [
+    { "binding": "API", "service": "runbook-api-local-cf1" },
+    { "binding": "EMAIL", "service": "runbook-mail-local", "entrypoint": "Mail" }
+  ],
+  "vars": {
+    "RUNBOOK_AUTH_METHODS": "email",
+    "RUNBOOK_AUTH_CAN_REGISTER_URL": "https://api.internal/internal/can-register",
+    "RUNBOOK_SMTP_FROM": "The Runbook <login@localhost>"
+  }
+}

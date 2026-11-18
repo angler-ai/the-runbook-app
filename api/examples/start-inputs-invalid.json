@@ -1,0 +1,20 @@
+{
+  "type": "urn:runbook:problem:execution.inputs_invalid",
+  "title": "execution.inputs_invalid",
+  "status": 422,
+  "detail": "execution.inputs_invalid",
+  "instance": "urn:request:req_01JABCDEFGHJKMNPQRSTVWXYZ0",
+  "code": "execution.inputs_invalid",
+  "errors": [
+    {
+      "path": "inputs.service",
+      "code": "data.enum",
+      "message": "This value is not one of the allowed options."
+    },
+    {
+      "path": "fields.note",
+      "code": "data.required",
+      "message": "This value is required."
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: runbook-migrate
+  namespace: runbook-upgrade
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 900
+  template:
+    metadata:
+      labels: { app: runbook-migrate }
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: runbook-migrate
+          image: __IMAGE__
+          imagePullPolicy: IfNotPresent
+          args: ["migrate"]
+          env:
+            - { name: RUNBOOK_ALLOW_NEWER_SCHEMA, value: "__ALLOW_NEWER_SCHEMA__" }
+          envFrom:
+            - secretRef: { name: runbook-secrets }
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: home, mountPath: /home/runbook }
+      volumes:
+        - { name: tmp, emptyDir: {} }
+        - { name: home, emptyDir: {} }

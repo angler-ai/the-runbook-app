@@ -1,0 +1,37 @@
+{
+  "schema_revision": 1,
+  "execution_id": "exe_01JABCDEFGHJKMNPQRSTVWXYZ0",
+  "completed_steps": [
+    {
+      "step_run_id": "sr_01JABCDEFGHJKMNPQRSTVWXYZ0",
+      "path": "health",
+      "status": "succeeded",
+      "verdict": "fail",
+      "outputs": {
+        "http_status": 503
+      },
+      "summary": "Endpoint returned HTTP 503.",
+      "amended": false,
+      "stale": false
+    }
+  ],
+  "decisions": [
+    {
+      "by": "human",
+      "user_id": "usr_01JABCDEFGHJKMNPQRSTVWXYZ0",
+      "membership_revision": 1,
+      "option": "rollback",
+      "comment": "Roll back this deploy."
+    }
+  ],
+  "comments": [],
+  "ready_work": [
+    {
+      "step_run_id": "sr_01JABCDEFGHJKMNPQRSTVWXYZ1",
+      "path": "rollback",
+      "title": "Roll back deployment",
+      "actor_kind": "agent"
+    }
+  ],
+  "next_action": "claim_ready_work"
+}

@@ -1,0 +1,37 @@
+[package]
+name = "runbook-api"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license = "AGPL-3.0-only"
+[dependencies]
+runbook-core = { path = "../runbook-core" }
+runbook-model = { path = "../runbook-model" }
+runbook-spec = { path = "../runbook-spec" }
+# CF0: actor errors name engine errors (moved routes).
+runbook-engine = { path = "../runbook-engine" }
+# CF0: `/mcp` runs the MCP tool handlers in process.
+runbook-mcp = { path = "../runbook-mcp" }
+# REP2: `?format=pdf` renders the Markdown export (D52, wasm-clean).
+runbook-report-pdf = { path = "../runbook-report-pdf" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = { version = "0.22", default-features = false, features = ["alloc"] }
+percent-encoding = "2"
+# CF0: the query string of a request (already locked through the server).
+serde_urlencoded = "0.7"
+# Size (cf-size): on wasm (the api Worker, the browser compiler) regex
+# runs without its `perf-*` engines (lazy DFA, one-pass, backtracker,
+# literal prefilters): the same matches, by the regex crate's guarantee, in
+# much less code. Native keeps `perf` (the target section below).
+regex = { version = "1", default-features = false, features = ["std", "unicode"] }
+sha2 = { version = "0.10", default-features = false }
+yaml-rust2 = { version = "0.10", default-features = false }
+similar = { version = "3.2", default-features = false, features = ["text"] }
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+regex = { version = "1", default-features = false, features = ["std", "perf", "unicode"] }
+
+[dev-dependencies]
+runbook-contract = { path = "../runbook-contract" }
+jsonschema = { version = "0.61.0", default-features = false }

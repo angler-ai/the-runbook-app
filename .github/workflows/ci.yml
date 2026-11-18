@@ -1,0 +1,74 @@
+name: Check
+
+# The full local check set (scripts/check.sh) on a clean runner, with a
+# throwaway Postgres 16 service for the Postgres suite. The suite creates
+# and drops only its own rb_test_* databases on this service.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# One run per workflow and branch: a newer push cancels the older run, so
+# the self-hosted runner doesn't queue stale work.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ${{ github.event.repository.private && 'self-hosted' || 'ubuntu-latest' }}
+    timeout-minutes: 90
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      # Third-party actions are still on major tags (actions/checkout v4,
+      # whose v4.2.2 the examples pin by SHA, and actions/setup-node v4):
+      # pin them to verified full commit SHAs before relying on this
+      # workflow for releases (review F83; no SHA is guessed here).
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      # The service publishes 5432 on a random host port, so jobs never
+      # collide with a Postgres already on the runner or with each other.
+      - name: Point DATABASE_URL at the service's host port
+        run: echo "DATABASE_URL=postgres://postgres@localhost:${{ job.services.postgres.ports['5432'] }}/postgres?sslmode=disable" >> "$GITHUB_ENV"
+      - name: Install Node for native/Wasm parity
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          # The web plan's pinned Node (core.yml uses the same).
+          node-version: '26.8.1'
+      # While the repo is private, jobs run on the default self-hosted runner,
+      # which may not have rustup yet; GitHub's images already do.
+      - name: Install rustup if the runner lacks it
+        if: ${{ github.event.repository.private }}
+        run: |
+          if ! command -v rustup >/dev/null 2>&1 && [ ! -x "$HOME/.cargo/bin/rustup" ]; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+          fi
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Install the pinned toolchain from rust-toolchain.toml
+        # With no argument, `rustup toolchain install` installs the toolchain
+        # (with its components and the wasm target) that rust-toolchain.toml
+        # names.
+        run: |
+          rustup toolchain install
+          rustup show
+      - name: Full check set
+        run: scripts/check.sh

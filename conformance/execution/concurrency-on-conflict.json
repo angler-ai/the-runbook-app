@@ -1,0 +1,90 @@
+{
+  "admissions": {
+    "exe_00000000000000000000000001": "Released",
+    "exe_00000000000000000000000002": "Released",
+    "exe_00000000000000000000000003": "Released",
+    "exe_00000000000000000000000004": "Admitted",
+    "exe_00000000000000000000000005": "Queued"
+  },
+  "events": {
+    "exe_00000000000000000000000001": [
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "event": {
+          "started_by": "user:usr_00000000000000000000000001",
+          "superseded_by": "exe_00000000000000000000000003",
+          "type": "CancellationRequested"
+        },
+        "seq": 5
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "event": {
+          "outputs": {
+            "reads": [],
+            "values": {}
+          },
+          "status": "cancelled",
+          "type": "ExecutionCompleted"
+        },
+        "seq": 6
+      }
+    ],
+    "exe_00000000000000000000000002": [
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "event": {
+          "started_by": "user:usr_00000000000000000000000001",
+          "superseded_by": "exe_00000000000000000000000003",
+          "type": "ExecutionCancelledBeforeStart"
+        },
+        "seq": 1
+      }
+    ],
+    "exe_00000000000000000000000003": [
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "event": {
+          "started_by": "user:usr_00000000000000000000000001",
+          "superseded_by": "exe_00000000000000000000000004",
+          "type": "CancellationRequested"
+        },
+        "seq": 4
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "event": {
+          "outputs": {
+            "reads": [],
+            "values": {}
+          },
+          "status": "cancelled",
+          "type": "ExecutionCompleted"
+        },
+        "seq": 10
+      }
+    ]
+  },
+  "format": "store-trace-v2",
+  "runbooks": {
+    "cancel_previous": "apiVersion: therunbook.app/v1\nkind: Runbook\nmetadata: {id: latest, title: latest}\nspec:\n  defaults: {actor: agent}\n  execution: {concurrency: {key: prod, limit: 1, on_conflict: cancel_previous}}\n  steps: [{id: work, title: Work}]\n  finally: [{id: cleanup, title: Clean up}]\n",
+    "queue": "apiVersion: therunbook.app/v1\nkind: Runbook\nmetadata: {id: deploy, title: deploy}\nspec:\n  defaults: {actor: agent}\n  execution: {concurrency: {key: prod, limit: 1, on_conflict: queue}}\n  steps: [{id: work, title: Work}]\n"
+  },
+  "steps": [
+    "exe_1 (queue) admitted, its step claimed; exe_2 (queue) queued",
+    "exe_3 (cancel_previous) cancels exe_1 and exe_2; exe_1 closes at once, so exe_3 is admitted",
+    "exe_4 (cancel_previous) cancels exe_3, which keeps its slot while its finally runs; exe_4 waits first in line",
+    "exe_5 (queue) queues behind exe_4",
+    "exe_3's finally ends: exe_4 is admitted, exe_5 still waits"
+  ]
+}

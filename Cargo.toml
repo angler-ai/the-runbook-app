@@ -1,0 +1,23 @@
+[workspace]
+members = ["crates/*"]
+exclude = ["vendor/cel-core"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+publish = false
+
+# CF5: the api Worker's build (`worker-build --profile worker`, see
+# cloudflare/scripts/build-worker.mjs). Size over speed: the compressed
+# upload has a 4 MB budget (D55). wasm32-unknown-unknown already aborts on
+# panic; `panic = "abort"` makes it explicit. `strip` drops the name
+# section (about 180 KB gzip): Worker stack traces show indices, not names.
+[profile.worker]
+inherits = "release"
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true

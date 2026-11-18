@@ -1,0 +1,22 @@
+apiVersion: therunbook.app/v1
+kind: Runbook
+metadata:
+  id: queue-backlog-check
+  title: Queue backlog check
+  description: An agent checks consumer lag on the job queues and scales workers when lag keeps growing.
+  owners: [team:oncall]
+  tags: [queues, worker, agentic]
+spec:
+  defaults: { actor: agent }
+  steps:
+    - id: lag
+      title: Consumer lag per queue
+      check: true
+      instructions: Read consumer lag for every queue over 15 minutes; warn when it grows for 10 minutes straight.
+      outputs:
+        worst_queue: { type: string, required: true }
+        lag_seconds: { type: integer, required: true }
+    - id: scale
+      if: "${{ steps.lag.verdict != 'pass' }}"
+      title: Scale the worker pool
+      instructions: Raise the worker pool's desired count by 50% (at most 40) and watch lag for 10 minutes.

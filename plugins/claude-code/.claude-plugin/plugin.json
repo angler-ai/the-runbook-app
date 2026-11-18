@@ -1,0 +1,11 @@
+{
+  "name": "therunbook",
+  "description": "The Runbook agent skill and CLI MCP server",
+  "version": "0.1.0",
+  "author": {
+    "name": "Angler AI"
+  },
+  "homepage": "https://github.com/angler-ai/the-runbook-app",
+  "repository": "https://github.com/angler-ai/the-runbook-app",
+  "license": "Apache-2.0"
+}

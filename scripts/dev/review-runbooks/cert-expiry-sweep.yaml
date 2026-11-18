@@ -1,0 +1,30 @@
+apiVersion: therunbook.app/v1
+kind: Runbook
+metadata:
+  id: cert-expiry-sweep
+  title: TLS certificate expiry sweep
+  description: Checks every public endpoint's certificate and flags any expiring within 21 days.
+  owners: [team:oncall]
+  tags: [security, tls, agentic]
+spec:
+  inputs:
+    domains:
+      type: list
+      items: { type: string }
+      default: [api.example.com, app.example.com, status.example.com, hooks.example.com]
+  defaults: { actor: agent }
+  steps:
+    - id: domains
+      title: Certificate per domain
+      foreach:
+        items: "${{ inputs.domains }}"
+        as: domain
+        concurrency: 4
+        max_items: 20
+        steps:
+          - id: expiry
+            title: "Certificate for ${{ domain }}"
+            check: true
+            instructions: Read the certificate served by ${{ domain }}; warn under 21 days, fail under 7.
+            outputs:
+              days_left: { type: integer, required: true }

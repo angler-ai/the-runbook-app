@@ -1,0 +1,27 @@
+apiVersion: therunbook.app/v1
+kind: Runbook
+metadata:
+  id: cost-anomaly-review
+  title: Cloud cost anomaly review
+  description: Weekly agent pass over cloud spend that explains anything more than 15% above its four-week average.
+  owners: [team:oncall]
+  tags: [cost, finops, agentic]
+spec:
+  execution:
+    title: "Cost review, week of ${{ inputs.week }}"
+  inputs:
+    week: { type: string, required: true }
+    threshold_pct: { type: integer, default: 15 }
+  defaults: { actor: agent }
+  steps:
+    - id: pull_costs
+      title: Pull last week's spend by service
+      instructions: Export last week's spend per service and account from the billing export.
+      outputs:
+        total_usd: { type: number, required: true }
+    - id: anomalies
+      title: Explain anomalies
+      check: true
+      instructions: For each service more than ${{ inputs.threshold_pct }}% above its four-week average, find the cause (new resources, traffic, pricing).
+      outputs:
+        anomalies: { type: integer, required: true }

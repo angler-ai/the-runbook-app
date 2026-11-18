@@ -1,0 +1,41 @@
+# platform.sh only (HOST1): run the image the way a container platform does.
+# No RUNBOOK_LISTEN_ADDR, so the server follows PORT (9000 here, as a
+# platform would set it); one published port, with user content routed by
+# host on it; JSON logs; and a second replica on the same database.
+x-platform-env: &platform-env
+  RUNBOOK_LISTEN_ADDR: ""
+  PORT: "9000"
+  RUNBOOK_USERCONTENT_LISTEN_ADDR: ""
+  RUNBOOK_USERCONTENT_ORIGIN: https://files.example.test
+  RUNBOOK_UPLOAD_SIGNING_KEY: ${RUNBOOK_UPLOAD_SIGNING_KEY:?set by platform.sh}
+  RUNBOOK_LOG_FORMAT: json
+  RUNBOOK_DATABASE_POOL_SIZE: "4"
+  RUNBOOK_AUTH_DATABASE_POOL_SIZE: "2"
+services:
+  server:
+    environment: *platform-env
+    ports: !override
+      - "127.0.0.1:0:9000"
+  replica:
+    image: ${RUNBOOK_IMAGE}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      <<: *platform-env
+      DATABASE_URL: postgres://${RUNBOOK_DB_USER:-runbook_app}:${RUNBOOK_DB_PASSWORD}@postgres:5432/${POSTGRES_DB:-runbook}
+      RUNBOOK_ORIGIN: ${RUNBOOK_ORIGIN:-http://localhost:8080}
+      RUNBOOK_WEBHOOK_SECRET_KEY: ${RUNBOOK_WEBHOOK_SECRET_KEY}
+    ports:
+      - "127.0.0.1:0:9000"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+      - /home/runbook:size=16m,uid=10001,gid=10001,mode=0700
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 1g
+    pids_limit: 200
+    networks:
+      - internal
+      - edge

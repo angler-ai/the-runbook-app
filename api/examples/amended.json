@@ -1,0 +1,107 @@
+{
+  "schema_revision": 1,
+  "id": "exe_01JABCDEFGHJKMNPQRSTVWXYZ0",
+  "runbook_version_id": "rbv_01JABCDEFGHJKMNPQRSTVWXYZ0",
+  "runbook_version": 3,
+  "title": "Post-deploy verification",
+  "status": "succeeded",
+  "phase": "completed",
+  "result": "rolled_back",
+  "pending_terminal_status": null,
+  "inputs": {
+    "service": "api",
+    "version": "commit-a"
+  },
+  "fields": {
+    "severity": "major"
+  },
+  "tags": [],
+  "steps": [
+    {
+      "schema_revision": 1,
+      "id": "sr_01JABCDEFGHJKMNPQRSTVWXYZ0",
+      "path": "health",
+      "status": "succeeded",
+      "verdict": "fail",
+      "outputs": {
+        "http_status": 503
+      },
+      "summary": "Endpoint returned HTTP 503.",
+      "actor": {
+        "kind": "agent",
+        "principal_id": "deploy-checker",
+        "session_id": "check-session",
+        "name": "deploy-checker",
+        "model": null
+      },
+      "claim": null,
+      "attempt": 1,
+      "satisfied": false,
+      "exhausted": false,
+      "checklist": [],
+      "amended": true,
+      "amendments": [
+        {
+          "step_run_id": "sr_01JABCDEFGHJKMNPQRSTVWXYZ0",
+          "from": {
+            "status": "succeeded",
+            "verdict": "fail",
+            "outputs": {
+              "http_status": 503
+            },
+            "summary": "Endpoint returned HTTP 503."
+          },
+          "to": {
+            "status": "succeeded",
+            "verdict": "warn",
+            "outputs": {
+              "http_status": 503,
+              "cause": "planned-maintenance"
+            },
+            "summary": "503 was expected during maintenance."
+          },
+          "reason": "Incident review corrected the finding.",
+          "by": {
+            "kind": "human",
+            "user_id": "usr_01JABCDEFGHJKMNPQRSTVWXYZ0"
+          }
+        }
+      ],
+      "stale": false,
+      "eligible_recipients": []
+    }
+  ],
+  "amended": true,
+  "amendments": [
+    {
+      "step_run_id": "sr_01JABCDEFGHJKMNPQRSTVWXYZ0",
+      "from": {
+        "status": "succeeded",
+        "verdict": "fail",
+        "outputs": {
+          "http_status": 503
+        },
+        "summary": "Endpoint returned HTTP 503."
+      },
+      "to": {
+        "status": "succeeded",
+        "verdict": "warn",
+        "outputs": {
+          "http_status": 503,
+          "cause": "planned-maintenance"
+        },
+        "summary": "503 was expected during maintenance."
+      },
+      "reason": "Incident review corrected the finding.",
+      "by": {
+        "kind": "human",
+        "user_id": "usr_01JABCDEFGHJKMNPQRSTVWXYZ0"
+      }
+    }
+  ],
+  "stale_step_ids": [
+    "sr_01JABCDEFGHJKMNPQRSTVWXYZ1"
+  ],
+  "rerun_of": null,
+  "resume_brief": null
+}

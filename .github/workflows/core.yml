@@ -1,0 +1,58 @@
+name: Core
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# One run per workflow and branch: a newer push cancels the older run, so
+# the self-hosted runner doesn't queue stale work.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    runs-on: ${{ github.event.repository.private && 'self-hosted' || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Install Node for native/Wasm parity
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '26.8.1'
+          package-manager-cache: false
+      # While the repo is private, jobs run on the default self-hosted runner,
+      # which may not have rustup yet; GitHub's images already do.
+      - name: Install rustup if the runner lacks it
+        if: ${{ github.event.repository.private }}
+        run: |
+          if ! command -v rustup >/dev/null 2>&1 && [ ! -x "$HOME/.cargo/bin/rustup" ]; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+          fi
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Install pinned toolchain
+        run: |
+          rustup toolchain install
+          rustup show active-toolchain
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Lint
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Test
+        run: cargo test --workspace --locked
+      - name: Check WebAssembly compatibility
+        run: cargo check --workspace --exclude runbook-store-postgres --exclude runbook-server --exclude runbook-cli --exclude runbook-store-objects --locked --target wasm32-unknown-unknown
+      - name: Check transactional store fake on WebAssembly
+        run: cargo check -p runbook-core --tests --locked --target wasm32-unknown-unknown
+      - name: Test maintained CEL fork
+        run: cargo test --manifest-path vendor/cel-core/Cargo.toml --locked
+      - name: Check maintained CEL formatting
+        run: cargo fmt --manifest-path vendor/cel-core/Cargo.toml -- --check
+      - name: Verify maintained CEL provenance
+        run: |
+          curl --fail --location --retry 3 https://static.crates.io/crates/cel-core/cel-core-0.5.1.crate -o "$RUNNER_TEMP/cel-core-0.5.1.crate"
+          python3 vendor/cel-core-provenance/verify.py --archive "$RUNNER_TEMP/cel-core-0.5.1.crate"

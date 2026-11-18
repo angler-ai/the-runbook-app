@@ -1,0 +1,40 @@
+# UPD1 upgrade smoke: two locally built releases in kind, with data kept
+# across upgrade, rollback, and re-upgrade. This is manual until the first
+# published release gives CI a real N-1; then schedule or gate releases on it.
+name: Kubernetes upgrade smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      from_ref:
+        description: Git ref for the older release
+        required: true
+      to_ref:
+        description: Git ref for the newer release
+        required: true
+        default: HEAD
+
+permissions: {}
+
+concurrency:
+  group: k8s-upgrade-smoke
+  cancel-in-progress: false
+
+jobs:
+  upgrade:
+    # The harness needs Docker, kind and kubectl on one machine. Until the
+    # repository is public this is the same self-hosted runner as release.
+    runs-on: ${{ github.event.repository.private && 'self-hosted' || 'ubuntu-latest' }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Upgrade, roll back, and upgrade again in kind
+        env:
+          FROM_REF: ${{ inputs.from_ref }}
+          TO_REF: ${{ inputs.to_ref }}
+        run: scripts/dev/k8s-upgrade-smoke.sh

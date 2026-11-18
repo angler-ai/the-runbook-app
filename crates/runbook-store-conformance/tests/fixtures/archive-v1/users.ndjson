@@ -1,0 +1,3 @@
+{"id":"usr_00000000000000000000000001","name":"alice","active":true,"role":"member"}
+{"id":"usr_00000000000000000000000003","name":"carol","active":true,"role":"owner"}
+{"id":"usr_00000000000000000000000004","name":"dave","active":true,"role":"member"}

@@ -1,0 +1,229 @@
+{
+  "description": "Verify a production deploy and decide whether to keep it.",
+  "finally": [
+    {
+      "actor": "agent",
+      "hint": "Agent",
+      "id": "notify",
+      "instructions": "Post the execution report link and the final decision.",
+      "kind": "task",
+      "onFailure": "handoff",
+      "path": "/spec/finally/0",
+      "timeout": "15m",
+      "title": "Post the report to the deploys channel"
+    }
+  ],
+  "id": "post-deploy",
+  "stepBudget": 20,
+  "steps": [
+    {
+      "children": [
+        {
+          "actor": "agent",
+          "check": true,
+          "hint": "Agent · check",
+          "id": "api_health",
+          "instructions": "Call /healthz on ${{ inputs.service }} and record the status code.",
+          "kind": "task",
+          "onFailure": "handoff",
+          "outputs": [
+            {
+              "name": "status_code",
+              "required": true,
+              "type": "integer"
+            }
+          ],
+          "path": "/spec/steps/0/parallel/0",
+          "timeout": "15m",
+          "title": "Health endpoint returns 200"
+        },
+        {
+          "actor": "human",
+          "check": true,
+          "checklist": [
+            "Login page loads",
+            "Dashboard shows data"
+          ],
+          "hint": "Human · check",
+          "id": "login_flow",
+          "kind": "task",
+          "onFailure": "handoff",
+          "path": "/spec/steps/0/parallel/1",
+          "timeout": "15m",
+          "title": "Log in as the test user"
+        }
+      ],
+      "hint": "Run in parallel",
+      "id": "smoke",
+      "join": {
+        "kind": "all"
+      },
+      "kind": "parallel",
+      "path": "/spec/steps/0",
+      "title": "Smoke tests"
+    },
+    {
+      "children": [
+        {
+          "actor": "agent",
+          "check": true,
+          "hint": "Agent · check",
+          "id": "error_rate",
+          "kind": "task",
+          "onFailure": "handoff",
+          "outputs": [
+            {
+              "name": "rate",
+              "required": true,
+              "type": "number"
+            }
+          ],
+          "path": "/spec/steps/1/foreach/steps/0",
+          "skill": "error_rates",
+          "timeout": "15m",
+          "title": "Error rate in ${{ region }}"
+        }
+      ],
+      "foreach": {
+        "as": "region",
+        "concurrency": 3,
+        "items": "${{ inputs.regions }}",
+        "maxItems": 12
+      },
+      "hint": "For each item",
+      "id": "regions",
+      "kind": "foreach",
+      "path": "/spec/steps/1",
+      "title": "Error rate per region"
+    },
+    {
+      "children": [
+        {
+          "actor": "agent",
+          "check": true,
+          "hint": "Agent · check",
+          "id": "recheck",
+          "kind": "task",
+          "onFailure": "handoff",
+          "outputs": [
+            {
+              "name": "rate",
+              "required": true,
+              "type": "number"
+            }
+          ],
+          "path": "/spec/steps/2/loop/steps/0",
+          "skill": "error_rates",
+          "timeout": "15m",
+          "title": "Re-check the global error rate"
+        }
+      ],
+      "guard": "${{ steps.regions.items.exists(i, i.error_rate.outputs.rate > 0.01) }}",
+      "hint": "Repeat up to 3 times",
+      "id": "stabilize",
+      "kind": "loop",
+      "loop": {
+        "delay": "5m",
+        "maxIterations": 3,
+        "until": "${{ steps.recheck.outputs.rate <= 0.01 }}"
+      },
+      "path": "/spec/steps/2",
+      "title": "Wait for errors to settle"
+    },
+    {
+      "branches": [
+        {
+          "children": [
+            {
+              "actor": "human",
+              "approval": {
+                "approvers": [
+                  "team:oncall"
+                ],
+                "escalateTo": [
+                  "team:eng-leads"
+                ],
+                "escalationTimeout": "30m",
+                "min": 1,
+                "onTimeout": "escalate",
+                "options": [
+                  {
+                    "id": "rollback",
+                    "title": "rollback"
+                  },
+                  {
+                    "id": "keep",
+                    "title": "keep"
+                  }
+                ],
+                "prompt": "Checks failed for ${{ inputs.version }}. Choose an action.",
+                "timeout": "30m"
+              },
+              "hint": "Approval",
+              "id": "signoff",
+              "kind": "approval",
+              "path": "/spec/steps/3/switch/cases/0/steps/0",
+              "title": "Roll back or keep?"
+            },
+            {
+              "actor": "agent",
+              "destructive": true,
+              "guard": "${{ steps.signoff.outputs.decision == 'rollback' }}",
+              "hint": "Agent · destructive",
+              "id": "rollback",
+              "kind": "task",
+              "onFailure": "handoff",
+              "path": "/spec/steps/3/switch/cases/0/steps/1",
+              "skill": "rollback",
+              "timeout": "15m",
+              "title": "Roll back ${{ inputs.service }}"
+            },
+            {
+              "hint": "Set fields and vars",
+              "id": "mark_major",
+              "kind": "set",
+              "path": "/spec/steps/3/switch/cases/0/steps/2",
+              "set": {
+                "fields": [
+                  "severity"
+                ],
+                "vars": [
+                  "result"
+                ]
+              }
+            }
+          ],
+          "kind": "case",
+          "label": "steps.smoke.verdict == 'fail' || steps.regions.verdict == 'fail' || steps.stabilize.verdict == 'fail'",
+          "when": "${{ steps.smoke.verdict == 'fail' || steps.regions.verdict == 'fail' || steps.stabilize.verdict == 'fail' }}"
+        },
+        {
+          "children": [
+            {
+              "hint": "Set fields and vars",
+              "id": "mark_healthy",
+              "kind": "set",
+              "path": "/spec/steps/3/switch/default/steps/0",
+              "set": {
+                "fields": [
+                  "severity"
+                ],
+                "vars": [
+                  "result"
+                ]
+              }
+            }
+          ],
+          "kind": "default",
+          "label": "default"
+        }
+      ],
+      "hint": "Decision",
+      "id": "decide",
+      "kind": "switch",
+      "path": "/spec/steps/3",
+      "title": "Keep or roll back"
+    }
+  ],
+  "title": "Post-deploy verification"
+}

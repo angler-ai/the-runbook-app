@@ -1,0 +1,36 @@
+[package]
+name = "runbook-store-d1"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license = "AGPL-3.0-only"
+description = "CF3: the cross-execution stores on D1 (directory, credentials, catalog, admission, inbox, webhooks, memory, auth tables, uploads and archives) over a small async D1 trait; Workers and native backends."
+
+[features]
+# The native backend over rusqlite (in-memory SQLite) for tests on any
+# native crate. Never enabled in a Worker build.
+native = ["dep:rusqlite"]
+
+[dependencies]
+runbook-core = { path = "../runbook-core" }
+runbook-engine = { path = "../runbook-engine" }
+runbook-model = { path = "../runbook-model" }
+runbook-spec = { path = "../runbook-spec" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["arbitrary_precision"] }
+sha2 = { version = "0.10", default-features = false }
+
+# rusqlite 0.41.1 (MIT), pinned as in runbook-worker-conformance (CF2).
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rusqlite = { version = "=0.41.1", default-features = false, features = ["bundled", "limits"], optional = true }
+
+# The D1 binding exists only on wasm32, pinned with runbook-worker (D55).
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+worker = { version = "=0.8.7", features = ["d1"] }
+wasm-bindgen = "0.2.129"
+js-sys = "0.3.106"
+serde-wasm-bindgen = "0.6"
+
+[dev-dependencies]
+runbook-store-conformance = { path = "../runbook-store-conformance" }

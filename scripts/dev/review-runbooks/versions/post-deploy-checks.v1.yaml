@@ -1,0 +1,57 @@
+apiVersion: therunbook.app/v1
+kind: Runbook
+metadata:
+  id: post-deploy-checks
+  title: Post-deploy checks
+  description: An agent checks health and per-region error rates after every production deploy.
+  owners: [team:oncall]
+  tags: [deploy, production, agentic]
+spec:
+  execution:
+    title: "Post-deploy checks: ${{ inputs.service }} ${{ inputs.version }}"
+  inputs:
+    service: { type: enum, options: [api, web, worker, billing], required: true }
+    version: { type: string, required: true }
+    regions: { type: list, items: { type: string }, default: [us-east, us-west, eu-west] }
+  defaults: { actor: agent }
+  steps:
+    - id: health
+      title: Health endpoint answers 200
+      check: true
+      instructions: |
+        Call `GET https://${{ inputs.service }}.internal/healthz` three times, 10 seconds apart.
+        Pass when every call answers 200 within 500 ms; record the status code and the slowest latency.
+      outputs:
+        status_code: { type: integer, required: true }
+        latency_ms: { type: integer }
+    - id: error_rates
+      title: Error rate per region
+      foreach:
+        items: "${{ inputs.regions }}"
+        as: region
+        concurrency: 3
+        max_items: 8
+        steps:
+          - id: error_rate
+            title: "Error rate in ${{ region }}"
+            check: true
+            instructions: |
+              Query `error_rate{service="${{ inputs.service }}", region="${{ region }}"}` over the last 10 minutes.
+              Pass below 0.5%, warn up to 1%, fail above 1%. Link the dashboard panel you read.
+            outputs:
+              rate: { type: number, required: true }
+            evidence: { required: [link] }
+    - id: gate
+      title: Stop on a failed check
+      switch:
+        cases:
+          - when: "${{ steps.health.verdict == 'fail' || steps.error_rates.verdict == 'fail' }}"
+            steps:
+              - id: checks_failed
+                end: { status: failed, message: A post-deploy check failed; see the summary. }
+  finally:
+    - id: summary
+      title: Summarize the deploy
+      instructions: |
+        Write a short summary for #deploys: the version, each check's verdict and the numbers behind it,
+        and what a person should look at next if anything failed.

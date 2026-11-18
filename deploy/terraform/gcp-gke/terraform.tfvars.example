@@ -1,0 +1,48 @@
+# Example terraform.tfvars for The Runbook on GKE and Cloud SQL
+
+project_id = "my-gcp-project"
+region     = "us-central1"
+
+# Network
+network    = "default"
+subnetwork = "default"
+
+# Cluster: set create_cluster = true to provision a GKE Autopilot cluster,
+# or false to deploy into an existing cluster named cluster_name.
+create_cluster   = false
+cluster_name     = "runbook-cluster"
+cluster_location = "us-central1"
+
+# Cloud SQL
+sql_instance_name             = "runbook-db"
+sql_tier                      = "db-custom-1-3840"
+sql_edition                   = "ENTERPRISE"
+sql_availability_type         = "ZONAL" # Set to "REGIONAL" for high availability
+sql_deletion_protection       = true
+create_private_service_access = true
+
+# Application Workload
+image             = "us-central1-docker.pkg.dev/my-gcp-project/runbook/server:0.1.0"
+replicas          = 2
+app_domain        = "runbooks.example.com"
+usercontent_domain = "files.example-usercontent.com" # Leave empty ("") if uploads are not enabled
+
+# Authentication
+auth_methods         = "email"
+auth_allowed_domains = "example.com,getangler.ai"
+smtp_from            = "The Runbook <login@example.com>"
+smtp_url             = "smtps://login-user:SECRET_PASSWORD@smtp.example.com:465"
+
+# Optional: the most step runs one run may open ("off", the default, is no cap)
+# step_runs_limit = "500"
+
+# Optional Cloud Armor security policy name
+# cloud_armor_policy = "runbook-security-policy"
+
+# Blob Storage: "postgres" (default, all blobs in PostgreSQL) or "gcs" (Google Cloud Storage)
+blob_store                              = "postgres"
+# gcs_bucket_name                       = "my-company-runbook-blobs"
+# gcs_bucket_location                   = "us-central1"
+# gcs_noncurrent_version_retention_days = 30
+# blob_prefix                           = "runbook/"
+

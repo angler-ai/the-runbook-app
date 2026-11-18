@@ -1,0 +1,48 @@
+apiVersion: therunbook.app/v1
+kind: Runbook
+metadata:
+  id: every-kind
+  title: Every outline kind
+  owners: [user:Alice]
+spec:
+  inputs:
+    deadline: { type: string, required: true }
+  fields:
+    outcome: { type: enum, options: [open, done], default: open }
+  vars: { note: none }
+  steps:
+    - id: prepare
+      title: Prepare
+      steps:
+        - id: anyone
+          title: Anyone may do this
+          actor: any
+        - id: pause
+          wait: { for: 90m }
+      catch:
+        - id: recover
+          title: Recover
+          actor: human
+      finally:
+        - id: tidy
+          set: { vars: { note: tidied } }
+    - id: hold
+      wait: { signal: release }
+    - id: until
+      wait: { until: "2030-01-01T00:00:00Z" }
+    - id: gate
+      approval:
+        prompt: Proceed?
+        options: [{ id: go, title: Go, auto: true }, stop]
+        approvers: { users: [Alice] }
+        min: 1
+        allow_agents: true
+    - id: record
+      set: { fields: { outcome: done } }
+    - id: once
+      loop:
+        until: "${{ iteration == 1 }}"
+        max_iterations: 1
+        steps:
+          - id: stop
+            end: { status: cancelled, message: Stopped early }

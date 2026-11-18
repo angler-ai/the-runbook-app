@@ -1,0 +1,74 @@
+// LOCAL ONLY. NEVER DEPLOY FROM HERE.
+//
+// CF7: the api Worker as one origin serves it, for the local multi-Worker
+// `wrangler dev` (`npm run dev`, `npm run e2e:workers` in web/, and
+// tests/local-origin.test.mjs). It is wrangler.jsonc (the single-Worker
+// test config; tests/config.test.mjs keeps the two in step) plus:
+// - the web UI as static assets (`assets`): `scripts/dev-stack.mjs` copies
+//   web/dist with a `_headers` file into the directory it points to;
+// - the auth Worker (wrangler.auth.jsonc) behind the `AUTH` binding.
+// The stack script writes a copy with absolute paths and the secrets
+// (`.dev.vars`) into its state directory and runs that copy.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "runbook-api-local-cf1",
+  "main": "build/index.js",
+  "compatibility_date": "2026-09-18",
+  "workers_dev": false,
+  "preview_urls": false,
+  // Only the hashed bundles skip the Worker: HTML goes through it, so the
+  // user-content origin never serves the app and client routes fall back
+  // to index.html as natively (B2, src/web.rs).
+  "assets": {
+    "directory": "build-assets",
+    "binding": "ASSETS",
+    "html_handling": "none",
+    "not_found_handling": "none",
+    "run_worker_first": ["/*", "!/assets/*", "!/manifest.webmanifest"]
+  },
+  "services": [{ "binding": "AUTH", "service": "runbook-auth-local" }],
+  "durable_objects": {
+    "bindings": [
+      { "name": "EXECUTIONS", "class_name": "ExecutionDO" },
+      { "name": "ORGS", "class_name": "OrgDO" },
+      // CF11: one WebhookDO per webhook subscription holds its delivery log.
+      { "name": "WEBHOOKS", "class_name": "WebhookDO" },
+      { "name": "LIMITS", "class_name": "LimitsDO" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["ExecutionDO"] },
+    { "tag": "v2", "new_sqlite_classes": ["OrgDO"] },
+    { "tag": "v3", "new_sqlite_classes": ["WebhookDO"] },
+    { "tag": "v4", "new_sqlite_classes": ["LimitsDO"] }
+  ],
+  // CF11: `DB` is the control database and, by default, every
+  // organization's shard. More shards are more D1 bindings here plus
+  // RUNBOOK_D1_SHARDS (a JSON string var), e.g.
+  // {"control": "DB", "default": "DB", "orgs": {"org_…": "DB_2"}};
+  // unset, everything is `DB` (crates/runbook-worker/src/shards.rs).
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "runbook-local",
+      "database_id": "00000000-0000-0000-0000-000000000000"
+    }
+  ],
+  "r2_buckets": [
+    { "binding": "BLOBS", "bucket_name": "runbook-local-blobs" },
+    { "binding": "USER_CONTENT", "bucket_name": "runbook-local-user-content" }
+  ],
+  "triggers": { "crons": ["* * * * *", "17 0 * * *"] },
+  "queues": {
+    "producers": [{ "binding": "NOTIFICATIONS", "queue": "runbook-local-notifications" }],
+    "consumers": [
+      {
+        "queue": "runbook-local-notifications",
+        "max_batch_size": 10,
+        "max_batch_timeout": 1,
+        "max_retries": 100,
+        "dead_letter_queue": "runbook-local-notifications-dlq"
+      }
+    ]
+  }
+}

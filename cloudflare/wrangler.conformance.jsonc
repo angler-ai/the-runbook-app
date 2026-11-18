@@ -1,0 +1,32 @@
+// LOCAL ONLY. NEVER DEPLOY FROM HERE.
+//
+// The CF2 test Worker (crates/runbook-worker-conformance): it runs the
+// execution-scoped store conformance cases inside workerd, one Durable
+// Object per case, for `npm test` (Miniflare) only. Never run
+// `wrangler deploy`, `wrangler login` or any `--remote` command with it.
+// No route, custom domain or workers.dev subdomain is configured. Its two
+// R2 buckets (the CF4 blob cases) and its D1 database (the CF3 D1 cases)
+// are Miniflare's local simulators with placeholder names and IDs.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "runbook-conformance-local-cf2",
+  "main": "build-conformance/index.js",
+  "compatibility_date": "2026-09-18",
+  "workers_dev": false,
+  "preview_urls": false,
+  "durable_objects": {
+    "bindings": [{ "name": "CASES", "class_name": "ConformanceDO" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ConformanceDO"] }],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "runbook-local-conformance",
+      "database_id": "00000000-0000-0000-0000-000000000001"
+    }
+  ],
+  "r2_buckets": [
+    { "binding": "BLOBS", "bucket_name": "runbook-local-conformance-blobs" },
+    { "binding": "USER_CONTENT", "bucket_name": "runbook-local-conformance-user-content" }
+  ]
+}

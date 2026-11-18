@@ -1,0 +1,113 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: runbook-upgrade
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: runbook-secrets
+  namespace: runbook-upgrade
+type: Opaque
+stringData:
+  DATABASE_URL: postgres://runbook:runbook-test-only@postgres:5432/runbook?sslmode=disable
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: runbook-upgrade
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: postgres }
+  template:
+    metadata:
+      labels: { app: postgres }
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          env:
+            - { name: POSTGRES_USER, value: runbook }
+            - { name: POSTGRES_PASSWORD, value: runbook-test-only }
+            - { name: POSTGRES_DB, value: runbook }
+          ports: [{ containerPort: 5432 }]
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "runbook", "-d", "runbook"] }
+            periodSeconds: 2
+            failureThreshold: 30
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/postgresql/data }
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: runbook-upgrade
+spec:
+  selector: { app: postgres }
+  ports: [{ port: 5432, targetPort: 5432 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: runbook
+  namespace: runbook-upgrade
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+  selector:
+    matchLabels: { app: runbook }
+  template:
+    metadata:
+      labels: { app: runbook }
+    spec:
+      containers:
+        - name: runbook
+          image: __IMAGE__
+          imagePullPolicy: IfNotPresent
+          args: ["serve"]
+          ports: [{ containerPort: 8080 }]
+          env:
+            - { name: RUNBOOK_ORIGIN, value: "http://127.0.0.1:8080" }
+            - { name: RUNBOOK_LISTEN_ADDR, value: "0.0.0.0:8080" }
+            - { name: RUNBOOK_MIGRATE_ON_START, value: "__MIGRATE_ON_START__" }
+            - { name: RUNBOOK_ALLOW_NEWER_SCHEMA, value: "__ALLOW_NEWER_SCHEMA__" }
+          envFrom:
+            - secretRef: { name: runbook-secrets }
+          readinessProbe:
+            httpGet: { path: /health/ready, port: 8080 }
+            periodSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            httpGet: { path: /health/live, port: 8080 }
+            periodSeconds: 5
+            failureThreshold: 6
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: home, mountPath: /home/runbook }
+      volumes:
+        - { name: tmp, emptyDir: {} }
+        - { name: home, emptyDir: {} }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: runbook
+  namespace: runbook-upgrade
+spec:
+  selector: { app: runbook }
+  ports: [{ port: 8080, targetPort: 8080 }]

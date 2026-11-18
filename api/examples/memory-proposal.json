@@ -1,0 +1,28 @@
+{
+  "id": "mem_01JABCDEFGHJKMNPQRSTVWXYZ1",
+  "scope": {
+    "kind": "project"
+  },
+  "step_id": "error_rate",
+  "title": "EU metrics access",
+  "body_markdown": "Use the VPN dashboard to read eu-west metrics.",
+  "tags": [
+    "baseline",
+    "metrics"
+  ],
+  "status": "proposed",
+  "source": {
+    "kind": "step_run",
+    "execution_id": "exe_01JABCDEFGHJKMNPQRSTVWXYZ0",
+    "step_run_id": "sr_01JABCDEFGHJKMNPQRSTVWXYZ1",
+    "actor": {
+      "kind": "agent",
+      "principal_id": "deploy-checker",
+      "session_id": "check-session",
+      "name": "deploy-checker",
+      "model": null
+    }
+  },
+  "revision": 1,
+  "expires_at": null
+}

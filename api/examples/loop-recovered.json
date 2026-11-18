@@ -1,0 +1,19 @@
+{
+  "actor": null,
+  "amended": false,
+  "amendments": [],
+  "attempt": 1,
+  "checklist": [],
+  "claim": null,
+  "eligible_recipients": [],
+  "exhausted": false,
+  "id": "sr_00000000000000000000000019",
+  "outputs": {},
+  "path": "stabilize",
+  "satisfied": true,
+  "schema_revision": 1,
+  "stale": false,
+  "status": "succeeded",
+  "summary": null,
+  "verdict": "fail"
+}

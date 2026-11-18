@@ -1,0 +1,16 @@
+The Runbook
+Copyright 2026 Angler AI, Inc.
+
+The Runbook is licensed in two parts (see LICENSING.md):
+
+- The server, web app, CLI, MCP server, Cloudflare edition and everything
+  else not listed below: GNU Affero General Public License v3.0 only
+  (LICENSE).
+- The runbook language and API definitions and the agent integrations,
+  so anyone can build on them under any license: Apache License 2.0, in
+  crates/runbook-spec, crates/runbook-expr, crates/runbook-model,
+  crates/runbook-contract, schemas/, api/, plugins/, skills/ and
+  examples/ (each with its own LICENSE).
+
+vendor/cel-core is a modified copy of cel-core (MIT OR Apache-2.0); its
+licenses and provenance are in that directory.

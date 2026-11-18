@@ -1,0 +1,18 @@
+# Bounded expression runtime audit — T7 boundary
+
+This is reviewed source evidence for shared evaluation budgets, not adoption approval. A4 remains blocked until observer, reads, outputs, templates and actual native/Wasm parity are complete.
+
+- `EvaluationBudget` stores the first terminal reason and shared interior counters. Child evaluators borrow it; failed charges leave usage unchanged. Terminal checks precede dispatch, callbacks, activation/registry access and overload retries, and follow error-suppression paths. Bounded cleanup hooks will be added in T8.
+- Every AST dispatch and loop entry costs one. Each activation lookup (including lexical aliases and the exists accumulator), field and index lookup costs one. Literal string copying charges bytes; scalar string comparison charges both operand lengths before traversal. Ordinary numeric/boolean comparison uses dispatch charges. Generic fork callbacks are not a universal cost guarantee; the sealed wrapper admits only bounded repository-owned callbacks.
+- Bindings construction validates borrowed data before copying, then prepares CEL values in its bounded iterative postorder pass. Strings/lists share Arc storage. Prepared records clone bounded metadata and shared descendants; no backreference cycle exists. A retained CEL-list identity index is built once, including empty allocations. Evaluation never rebuilds or scans the full activation.
+- A borrowed fixed runtime context supplies the pure record registry, event time and immutable call-ID timestamp cache. Context assembly is fixed-size. No ambient time, I/O, parsing or mutable registry construction occurs per call.
+- `EvalSession` caps fuel at100,000 and preserves state across calls; cancellation cannot replace an earlier terminal cause. Raw CEL evaluation stays private until bounded JSON output is implemented. Record-vs-null comparison is constant work; structural record/list equality stays outside the profile.
+- Native regressions cover100,000-item exists,65,536-byte public strings,1,000,000-byte fork-only comparison operands, zero callbacks after exhaustion/cancellation, index precharge, repeated session use and shared allocation identity. Before read charges, three-item exists first/middle/last/no-match costs are19/30/37/39, with2/3/3/3 loop entries. The upstream extra entry recognizing an already-true accumulator is preserved.
+
+Independent T7 review found no blocking issues. Integrated verification passed109 workspace tests, strict workspace Clippy, formatting and workspace Wasm compilation. The upstream fork passed342 unit,13 integration and27 doc tests (two pre-existing ignored docs). The checksum-pinned cumulative patch independently reconstructs the maintained source. These checks do not substitute for the required T13 actual Wasm execution corpus.
+
+## Remaining source obligations
+
+ProtoRegistry is Send+Sync; the borrowed observer must track reads without putting Cell-based budgets behind that trait. T8/T9 need field/index/range/alias hooks and bounded expression-result provenance for null record projections, including chosen ternary branches. A binding-derived null has a real Origin; a literal-null branch must never inherit stale provenance or fabricate an absence read. Scope cleanup must remain bounded and infallible after terminal failure.
+
+T9 must meter and retain exact ordered reads, missing-value identity and duplicate suppression. T10 must precharge bounded materialization, encoded output bytes and returned collection reads. T11 shares those limits across all template segments. T13 must audit those final paths and execute the same nonempty corpus natively and in fresh Wasm.

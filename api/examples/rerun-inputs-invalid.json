@@ -1,0 +1,20 @@
+{
+  "type": "about:blank",
+  "title": "Rerun inputs are invalid",
+  "status": 422,
+  "detail": "Original inputs do not match the selected runbook version.",
+  "instance": "/v1/executions/exe_01JABCDEFGHJKMNPQRSTVWXYZ0/rerun",
+  "code": "execution.inputs_invalid",
+  "errors": [
+    {
+      "path": "inputs.region",
+      "code": "data.required",
+      "message": "Required input region is missing."
+    },
+    {
+      "path": "inputs.version",
+      "code": "data.type_error",
+      "message": "Input version must match the target version schema."
+    }
+  ]
+}

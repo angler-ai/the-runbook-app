@@ -1,0 +1,334 @@
+{
+  "engine_version": 2,
+  "outputs": {
+    "result": "classified"
+  },
+  "phase": "Cleanup",
+  "result": "classified",
+  "sequence": 53,
+  "status": "succeeded",
+  "steps": [
+    {
+      "actor": {
+        "kind": "agent",
+        "model": "model-a",
+        "name": "ops",
+        "principal_id": "svc_ops",
+        "session_id": "s1"
+      },
+      "amended": false,
+      "attempt": 2,
+      "attempts": [
+        {
+          "attempt": 1,
+          "status": "failed",
+          "timed_out": true
+        },
+        {
+          "attempt": 2,
+          "status": "succeeded",
+          "timed_out": false
+        }
+      ],
+      "deadline_at_ms": 1200000,
+      "finished_at_ms": 700000,
+      "id": "sr_00000000000000000000000001",
+      "outputs": {
+        "rate": 0.9
+      },
+      "stale": false,
+      "status": "succeeded",
+      "step_id": "probe",
+      "summary": "probe done",
+      "verdict": null
+    },
+    {
+      "actor": null,
+      "amended": false,
+      "attempt": 1,
+      "attempts": [],
+      "deadline_at_ms": null,
+      "finished_at_ms": 700000,
+      "id": "sr_00000000000000000000000007",
+      "outputs": {},
+      "stale": false,
+      "status": "succeeded",
+      "step_id": "classify",
+      "summary": null,
+      "verdict": null
+    },
+    {
+      "actor": null,
+      "amended": false,
+      "attempt": 1,
+      "attempts": [],
+      "deadline_at_ms": null,
+      "finished_at_ms": 710000,
+      "id": "sr_00000000000000000000000009",
+      "outputs": {},
+      "stale": false,
+      "status": "succeeded",
+      "step_id": "route",
+      "summary": null,
+      "verdict": null
+    },
+    {
+      "actor": {
+        "kind": "human",
+        "user_id": "usr_00000000000000000000000001"
+      },
+      "amended": false,
+      "attempt": 1,
+      "attempts": [
+        {
+          "attempt": 1,
+          "status": "succeeded",
+          "timed_out": false
+        }
+      ],
+      "deadline_at_ms": null,
+      "finished_at_ms": 710000,
+      "id": "sr_00000000000000000000000011",
+      "outputs": {},
+      "stale": false,
+      "status": "succeeded",
+      "step_id": "escalate",
+      "summary": "escalate done",
+      "verdict": null
+    },
+    {
+      "actor": null,
+      "amended": false,
+      "attempt": 1,
+      "attempts": [],
+      "deadline_at_ms": null,
+      "finished_at_ms": null,
+      "id": null,
+      "outputs": {},
+      "stale": false,
+      "status": "pending",
+      "step_id": "note",
+      "summary": null,
+      "verdict": null
+    },
+    {
+      "actor": null,
+      "amended": false,
+      "attempt": 1,
+      "attempts": [],
+      "deadline_at_ms": null,
+      "finished_at_ms": 730000,
+      "id": "sr_00000000000000000000000015",
+      "outputs": {},
+      "stale": false,
+      "status": "succeeded",
+      "step_id": "regions",
+      "summary": null,
+      "verdict": "warn"
+    },
+    {
+      "actor": null,
+      "amended": false,
+      "attempt": 1,
+      "attempts": [],
+      "deadline_at_ms": null,
+      "finished_at_ms": 1030000,
+      "id": "sr_00000000000000000000000025",
+      "outputs": {},
+      "stale": false,
+      "status": "succeeded",
+      "step_id": "settle",
+      "summary": null,
+      "verdict": null
+    },
+    {
+      "actor": {
+        "kind": "human",
+        "user_id": "usr_00000000000000000000000001"
+      },
+      "amended": false,
+      "attempt": 1,
+      "attempts": [],
+      "deadline_at_ms": null,
+      "finished_at_ms": 1040000,
+      "id": "sr_00000000000000000000000028",
+      "outputs": {
+        "comment": "ship",
+        "decided_by": "usr_00000000000000000000000001",
+        "decision": "go"
+      },
+      "stale": false,
+      "status": "succeeded",
+      "step_id": "gate",
+      "summary": null,
+      "verdict": null
+    },
+    {
+      "actor": null,
+      "amended": false,
+      "attempt": 1,
+      "attempts": [],
+      "deadline_at_ms": null,
+      "finished_at_ms": 1050000,
+      "id": "sr_00000000000000000000000032",
+      "outputs": {},
+      "stale": false,
+      "status": "succeeded",
+      "step_id": "fan",
+      "summary": null,
+      "verdict": null
+    },
+    {
+      "actor": {
+        "kind": "human",
+        "user_id": "usr_00000000000000000000000001"
+      },
+      "amended": false,
+      "attempt": 1,
+      "attempts": [
+        {
+          "attempt": 1,
+          "status": "succeeded",
+          "timed_out": false
+        }
+      ],
+      "deadline_at_ms": null,
+      "finished_at_ms": 1050000,
+      "id": "sr_00000000000000000000000033",
+      "outputs": {},
+      "stale": false,
+      "status": "succeeded",
+      "step_id": "left",
+      "summary": "left done",
+      "verdict": null
+    },
+    {
+      "actor": null,
+      "amended": false,
+      "attempt": 1,
+      "attempts": [],
+      "deadline_at_ms": null,
+      "finished_at_ms": 1040000,
+      "id": "sr_00000000000000000000000034",
+      "outputs": {},
+      "stale": false,
+      "status": "succeeded",
+      "step_id": "repeat",
+      "summary": null,
+      "verdict": null
+    },
+    {
+      "actor": {
+        "kind": "human",
+        "user_id": "usr_00000000000000000000000001"
+      },
+      "amended": false,
+      "attempt": 1,
+      "attempts": [
+        {
+          "attempt": 1,
+          "status": "succeeded",
+          "timed_out": false
+        }
+      ],
+      "deadline_at_ms": null,
+      "finished_at_ms": 1060000,
+      "id": "sr_00000000000000000000000048",
+      "outputs": {},
+      "stale": false,
+      "status": "succeeded",
+      "step_id": "report",
+      "summary": "report done",
+      "verdict": null
+    },
+    {
+      "actor": {
+        "kind": "agent",
+        "model": "model-a",
+        "name": "ops",
+        "principal_id": "svc_ops",
+        "session_id": "s1"
+      },
+      "amended": false,
+      "attempt": 1,
+      "attempts": [
+        {
+          "attempt": 1,
+          "status": "succeeded",
+          "timed_out": false
+        }
+      ],
+      "deadline_at_ms": null,
+      "finished_at_ms": 720000,
+      "id": "sr_00000000000000000000000018",
+      "outputs": {},
+      "stale": false,
+      "status": "succeeded",
+      "step_id": "regions[east].check",
+      "summary": "regions[east].check done",
+      "verdict": "pass"
+    },
+    {
+      "actor": {
+        "kind": "agent",
+        "model": "model-a",
+        "name": "ops",
+        "principal_id": "svc_ops",
+        "session_id": "s1"
+      },
+      "amended": false,
+      "attempt": 1,
+      "attempts": [
+        {
+          "attempt": 1,
+          "status": "succeeded",
+          "timed_out": false
+        }
+      ],
+      "deadline_at_ms": null,
+      "finished_at_ms": 730000,
+      "id": "sr_00000000000000000000000019",
+      "outputs": {},
+      "stale": false,
+      "status": "succeeded",
+      "step_id": "regions[west].check",
+      "summary": "regions[west].check done",
+      "verdict": "warn"
+    },
+    {
+      "actor": null,
+      "amended": false,
+      "attempt": 1,
+      "attempts": [],
+      "deadline_at_ms": null,
+      "finished_at_ms": 1040000,
+      "id": "sr_00000000000000000000000037",
+      "outputs": {},
+      "stale": false,
+      "status": "succeeded",
+      "step_id": "repeat#1.tick",
+      "summary": null,
+      "verdict": null
+    },
+    {
+      "actor": null,
+      "amended": false,
+      "attempt": 1,
+      "attempts": [],
+      "deadline_at_ms": null,
+      "finished_at_ms": 1040000,
+      "id": "sr_00000000000000000000000041",
+      "outputs": {},
+      "stale": false,
+      "status": "succeeded",
+      "step_id": "repeat#2.tick",
+      "summary": null,
+      "verdict": null
+    }
+  ],
+  "terminal_reason": null,
+  "vars": {
+    "last": "go",
+    "mode": "classified"
+  }
+}

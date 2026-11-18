@@ -1,0 +1,47 @@
+/target/
+**/target/
+.superpowers/
+.DS_Store
+# Operator secrets (deploy/.env.example says never commit it).
+/deploy/.env
+# UPD1: deploy/update.sh backups (database dumps) and its update record.
+/deploy/backups/
+# Web UI (web/): dependencies, build output, the wasm module built by
+# `npm run wasm:build` (B3), e2e artifacts and the e2e one-time token file (M6).
+/web/node_modules/
+/web/dist/
+/web/src/wasm/*.wasm
+/web/test-results/
+/web/playwright-report/
+/web/e2e/.tokens.json
+/web/e2e/.tokens/
+/web/e2e/.run/
+/web/e2e/.auth/
+
+# Sign-in service (auth/): dependencies and esbuild bundles.
+/auth/node_modules/
+/auth/dist/
+
+# Cloudflare local harness (cloudflare/, CF1): dependencies, the worker-build
+# output and wrangler dev's local state. Nothing here is ever deployed.
+/cloudflare/node_modules/
+/cloudflare/build/
+/cloudflare/build-test/
+/cloudflare/build-conformance/
+/cloudflare/.wrangler/
+# Gate fix B5: local secrets and the operator's deploy config never get
+# committed.
+/cloudflare/.dev.vars
+/cloudflare/wrangler.prod.jsonc
+/cloudflare/wrangler.auth.prod.jsonc
+/cloudflare/contract/.out/
+/cloudflare/build-assets/
+
+# UPD1: cloudflare/scripts/update.mjs saves D1 Time Travel bookmarks here.
+/cloudflare/.update/
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+

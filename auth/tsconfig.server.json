@@ -1,0 +1,6 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": { "types": ["node"], "lib": ["ES2022", "DOM"] },
+  "include": ["src/**/*.ts", "auth.config.ts", "drizzle.*.config.ts"],
+  "exclude": ["src/worker.ts"]
+}

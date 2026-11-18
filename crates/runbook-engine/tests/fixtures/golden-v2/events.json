@@ -1,0 +1,1171 @@
+[
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 1,
+    "at_ms": 0,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "ExecutionStarted",
+      "data": {
+        "context": {
+          "limits": {
+            "max_step_runs": null,
+            "hard_deadline_at_ms": null
+          },
+          "inputs": {
+            "regions": {
+              "Array": [
+                {
+                  "String": "east"
+                },
+                {
+                  "String": "west"
+                }
+              ]
+            }
+          },
+          "fields": {},
+          "project_vars": {},
+          "title": "Golden",
+          "tags": [],
+          "url": "",
+          "created_by": ""
+        },
+        "vars": {
+          "last": {
+            "String": "none"
+          },
+          "mode": {
+            "String": "none"
+          }
+        },
+        "reads": []
+      },
+      "engine_version": 2
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 2,
+    "at_ms": 0,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "StepReady",
+      "step_id": "probe",
+      "step_run_id": "sr_00000000000000000000000001",
+      "reads": []
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 3,
+    "at_ms": 0,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "AgentWorkAvailable",
+      "work": {
+        "base_sequence": 2,
+        "reason": "initial",
+        "ready_steps": [
+          {
+            "step_run_id": "sr_00000000000000000000000001",
+            "path": "probe",
+            "title": "Probe",
+            "actor_kind": "agent"
+          }
+        ],
+        "params": null,
+        "reads": []
+      }
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 4,
+    "at_ms": 600000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "TaskDeadlineElapsed",
+      "step_run_id": "sr_00000000000000000000000001",
+      "deadline_at_ms": 600000
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 5,
+    "at_ms": 600000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "RetryScheduled",
+      "step_run_id": "sr_00000000000000000000000001",
+      "attempt": 1,
+      "due_at_ms": 600000
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 6,
+    "at_ms": 600000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "AgentWorkAvailable",
+      "work": {
+        "base_sequence": 5,
+        "reason": "initial",
+        "ready_steps": [
+          {
+            "step_run_id": "sr_00000000000000000000000001",
+            "path": "probe",
+            "title": "Probe",
+            "actor_kind": "agent"
+          }
+        ],
+        "params": null,
+        "reads": []
+      }
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 7,
+    "at_ms": 700000,
+    "actor": {
+      "kind": "agent",
+      "principal_id": "svc_ops",
+      "session_id": "s1",
+      "name": "ops",
+      "model": "model-a"
+    },
+    "event": {
+      "type": "StepReported",
+      "step_run_id": "sr_00000000000000000000000001",
+      "report": {
+        "status": "succeeded",
+        "verdict": null,
+        "outputs": {
+          "rate": {
+            "Number": 0.9
+          }
+        },
+        "summary": "probe done",
+        "evidence": [],
+        "logs": []
+      }
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 8,
+    "at_ms": 700000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "StepReady",
+      "step_id": "classify",
+      "step_run_id": "sr_00000000000000000000000007",
+      "reads": []
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 9,
+    "at_ms": 700000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "DataChanged",
+      "change": {
+        "step_run_id": "sr_00000000000000000000000007",
+        "base_sequence": 8,
+        "fields": {},
+        "vars": {
+          "mode": {
+            "String": "classified"
+          }
+        },
+        "reads": []
+      }
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 10,
+    "at_ms": 700000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "StepReady",
+      "step_id": "route",
+      "step_run_id": "sr_00000000000000000000000009",
+      "reads": []
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 11,
+    "at_ms": 700000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "BranchSelected",
+      "selection": {
+        "step_run_id": "sr_00000000000000000000000009",
+        "base_sequence": 10,
+        "choice": {
+          "kind": "case",
+          "index": 0
+        },
+        "reads": [
+          {
+            "origin": {
+              "path": "steps.probe.outputs.rate",
+              "record": {
+                "execution_id": "exe_00000000000000000000000001",
+                "step_run_id": "sr_00000000000000000000000001",
+                "iteration_path": [],
+                "revision": 7
+              }
+            },
+            "kind": "Value"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 12,
+    "at_ms": 700000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "StepReady",
+      "step_id": "escalate",
+      "step_run_id": "sr_00000000000000000000000011",
+      "reads": []
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 13,
+    "at_ms": 700000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "AgentWorkAvailable",
+      "work": {
+        "base_sequence": 12,
+        "reason": "initial",
+        "ready_steps": [
+          {
+            "step_run_id": "sr_00000000000000000000000011",
+            "path": "escalate",
+            "title": "Escalate",
+            "actor_kind": "agent"
+          }
+        ],
+        "params": null,
+        "reads": []
+      }
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 14,
+    "at_ms": 710000,
+    "actor": {
+      "kind": "human",
+      "user_id": "usr_00000000000000000000000001"
+    },
+    "event": {
+      "type": "StepReported",
+      "step_run_id": "sr_00000000000000000000000011",
+      "report": {
+        "status": "succeeded",
+        "verdict": null,
+        "outputs": {},
+        "summary": "escalate done",
+        "evidence": [],
+        "logs": []
+      }
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 15,
+    "at_ms": 710000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "StepCompleted",
+      "step_run_id": "sr_00000000000000000000000009",
+      "status": "succeeded",
+      "verdict": null
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 16,
+    "at_ms": 710000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "ForeachStarted",
+      "step_id": "regions",
+      "step_run_id": "sr_00000000000000000000000015",
+      "snapshot": {
+        "base_sequence": 15,
+        "items": {
+          "Array": [
+            {
+              "String": "east"
+            },
+            {
+              "String": "west"
+            }
+          ]
+        },
+        "keys": [
+          "east",
+          "west"
+        ],
+        "reads": [
+          {
+            "origin": {
+              "path": "inputs.regions",
+              "record": {
+                "execution_id": "exe_00000000000000000000000001",
+                "step_run_id": null,
+                "iteration_path": [],
+                "revision": 1
+              }
+            },
+            "kind": "Membership"
+          },
+          {
+            "origin": {
+              "path": "inputs.regions[0]",
+              "record": {
+                "execution_id": "exe_00000000000000000000000001",
+                "step_run_id": null,
+                "iteration_path": [],
+                "revision": 1
+              }
+            },
+            "kind": "Value"
+          },
+          {
+            "origin": {
+              "path": "inputs.regions[1]",
+              "record": {
+                "execution_id": "exe_00000000000000000000000001",
+                "step_run_id": null,
+                "iteration_path": [],
+                "revision": 1
+              }
+            },
+            "kind": "Value"
+          },
+          {
+            "origin": {
+              "path": "region",
+              "record": {
+                "execution_id": "exe_00000000000000000000000001",
+                "step_run_id": null,
+                "iteration_path": [
+                  {
+                    "node_id": "regions",
+                    "instance_id": "regions",
+                    "ordinal": 0
+                  }
+                ],
+                "revision": 15
+              }
+            },
+            "kind": "Value"
+          },
+          {
+            "origin": {
+              "path": "region",
+              "record": {
+                "execution_id": "exe_00000000000000000000000001",
+                "step_run_id": null,
+                "iteration_path": [
+                  {
+                    "node_id": "regions",
+                    "instance_id": "regions",
+                    "ordinal": 1
+                  }
+                ],
+                "revision": 15
+              }
+            },
+            "kind": "Value"
+          }
+        ],
+        "admitted": 0
+      }
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 17,
+    "at_ms": 710000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "IterationAdmitted",
+      "foreach_run_id": "sr_00000000000000000000000015",
+      "index": 0
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 18,
+    "at_ms": 710000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "IterationAdmitted",
+      "foreach_run_id": "sr_00000000000000000000000015",
+      "index": 1
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 19,
+    "at_ms": 710000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "StepReady",
+      "step_id": "regions[east].check",
+      "step_run_id": "sr_00000000000000000000000018",
+      "reads": []
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 20,
+    "at_ms": 710000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "StepReady",
+      "step_id": "regions[west].check",
+      "step_run_id": "sr_00000000000000000000000019",
+      "reads": []
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 21,
+    "at_ms": 710000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "AgentWorkAvailable",
+      "work": {
+        "base_sequence": 20,
+        "reason": "initial",
+        "ready_steps": [
+          {
+            "step_run_id": "sr_00000000000000000000000018",
+            "path": "regions[east].check",
+            "title": "Check",
+            "actor_kind": "agent"
+          }
+        ],
+        "params": null,
+        "reads": []
+      }
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 22,
+    "at_ms": 710000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "AgentWorkAvailable",
+      "work": {
+        "base_sequence": 21,
+        "reason": "initial",
+        "ready_steps": [
+          {
+            "step_run_id": "sr_00000000000000000000000019",
+            "path": "regions[west].check",
+            "title": "Check",
+            "actor_kind": "agent"
+          }
+        ],
+        "params": null,
+        "reads": []
+      }
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 23,
+    "at_ms": 720000,
+    "actor": {
+      "kind": "agent",
+      "principal_id": "svc_ops",
+      "session_id": "s1",
+      "name": "ops",
+      "model": "model-a"
+    },
+    "event": {
+      "type": "StepReported",
+      "step_run_id": "sr_00000000000000000000000018",
+      "report": {
+        "status": "succeeded",
+        "verdict": "pass",
+        "outputs": {},
+        "summary": "regions[east].check done",
+        "evidence": [],
+        "logs": []
+      }
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 24,
+    "at_ms": 730000,
+    "actor": {
+      "kind": "agent",
+      "principal_id": "svc_ops",
+      "session_id": "s1",
+      "name": "ops",
+      "model": "model-a"
+    },
+    "event": {
+      "type": "StepReported",
+      "step_run_id": "sr_00000000000000000000000019",
+      "report": {
+        "status": "succeeded",
+        "verdict": "warn",
+        "outputs": {},
+        "summary": "regions[west].check done",
+        "evidence": [],
+        "logs": []
+      }
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 25,
+    "at_ms": 730000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "StepCompleted",
+      "step_run_id": "sr_00000000000000000000000015",
+      "status": "succeeded",
+      "verdict": "warn"
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 26,
+    "at_ms": 730000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "StepReady",
+      "step_id": "settle",
+      "step_run_id": "sr_00000000000000000000000025",
+      "reads": []
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 27,
+    "at_ms": 730000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "WaitStarted",
+      "start": {
+        "base_sequence": 26,
+        "step_run_id": "sr_00000000000000000000000025",
+        "until_at_ms": null,
+        "reads": []
+      }
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 28,
+    "at_ms": 1030000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "TimerFired",
+      "step_run_id": "sr_00000000000000000000000025",
+      "generation": 1
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 29,
+    "at_ms": 1030000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "StepReady",
+      "step_id": "gate",
+      "step_run_id": "sr_00000000000000000000000028",
+      "reads": []
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 30,
+    "at_ms": 1030000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "ApprovalRequested",
+      "snapshot": {
+        "request": {
+          "base_sequence": 29,
+          "step_run_id": "sr_00000000000000000000000028",
+          "targets": [
+            {
+              "kind": "user",
+              "reference": "usr_00000000000000000000000001"
+            }
+          ]
+        },
+        "recipients": [
+          {
+            "kind": "user",
+            "reference": "usr_00000000000000000000000001"
+          }
+        ],
+        "directory_revision": 1
+      }
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 31,
+    "at_ms": 1040000,
+    "actor": {
+      "kind": "human",
+      "user_id": "usr_00000000000000000000000001"
+    },
+    "event": {
+      "type": "ApprovalVoted",
+      "vote": {
+        "at_ms": 1040000,
+        "base_sequence": 30,
+        "step_run_id": "sr_00000000000000000000000028",
+        "actor": {
+          "kind": "human",
+          "user_id": "usr_00000000000000000000000001"
+        },
+        "credential_ref": "pat_alice",
+        "option": "go",
+        "comment": "ship",
+        "eligibility": {
+          "eligible": true,
+          "directory_revision": 1,
+          "matched_recipients": [
+            {
+              "kind": "user",
+              "reference": "usr_00000000000000000000000001"
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 32,
+    "at_ms": 1040000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "ApprovalDecided",
+      "decision": {
+        "base_sequence": 31,
+        "step_run_id": "sr_00000000000000000000000028",
+        "option": "go",
+        "decided_by": "usr_00000000000000000000000001",
+        "comment": "ship",
+        "signers": [
+          "usr_00000000000000000000000001"
+        ]
+      }
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 33,
+    "at_ms": 1040000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "StepReady",
+      "step_id": "fan",
+      "step_run_id": "sr_00000000000000000000000032",
+      "reads": []
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 34,
+    "at_ms": 1040000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "StepReady",
+      "step_id": "left",
+      "step_run_id": "sr_00000000000000000000000033",
+      "reads": []
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 35,
+    "at_ms": 1040000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "StepReady",
+      "step_id": "repeat",
+      "step_run_id": "sr_00000000000000000000000034",
+      "reads": []
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 36,
+    "at_ms": 1040000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "AgentWorkAvailable",
+      "work": {
+        "base_sequence": 35,
+        "reason": "approval_decided",
+        "ready_steps": [
+          {
+            "step_run_id": "sr_00000000000000000000000033",
+            "path": "left",
+            "title": "Left",
+            "actor_kind": "agent"
+          }
+        ],
+        "params": null,
+        "reads": []
+      }
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 37,
+    "at_ms": 1040000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "LoopIterationStarted",
+      "loop_run_id": "sr_00000000000000000000000034",
+      "index": 0
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 38,
+    "at_ms": 1040000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "StepReady",
+      "step_id": "repeat#1.tick",
+      "step_run_id": "sr_00000000000000000000000037",
+      "reads": []
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 39,
+    "at_ms": 1040000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "DataChanged",
+      "change": {
+        "step_run_id": "sr_00000000000000000000000037",
+        "base_sequence": 38,
+        "fields": {},
+        "vars": {
+          "last": {
+            "String": "go"
+          }
+        },
+        "reads": [
+          {
+            "origin": {
+              "path": "steps.gate.outputs.decision",
+              "record": {
+                "execution_id": "exe_00000000000000000000000001",
+                "step_run_id": "sr_00000000000000000000000028",
+                "iteration_path": [],
+                "revision": 32
+              }
+            },
+            "kind": "Value"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 40,
+    "at_ms": 1040000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "LoopChecked",
+      "step_run_id": "sr_00000000000000000000000034",
+      "check": {
+        "base_sequence": 39,
+        "iteration": 1,
+        "satisfied": false,
+        "reads": [
+          {
+            "origin": {
+              "path": "iteration",
+              "record": {
+                "execution_id": "exe_00000000000000000000000001",
+                "step_run_id": null,
+                "iteration_path": [
+                  {
+                    "node_id": "repeat",
+                    "instance_id": "sr_00000000000000000000000034",
+                    "ordinal": 0
+                  }
+                ],
+                "revision": 37
+              }
+            },
+            "kind": "Value"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 41,
+    "at_ms": 1040000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "LoopIterationStarted",
+      "loop_run_id": "sr_00000000000000000000000034",
+      "index": 1
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 42,
+    "at_ms": 1040000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "StepReady",
+      "step_id": "repeat#2.tick",
+      "step_run_id": "sr_00000000000000000000000041",
+      "reads": []
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 43,
+    "at_ms": 1040000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "DataChanged",
+      "change": {
+        "step_run_id": "sr_00000000000000000000000041",
+        "base_sequence": 42,
+        "fields": {},
+        "vars": {
+          "last": {
+            "String": "go"
+          }
+        },
+        "reads": [
+          {
+            "origin": {
+              "path": "steps.gate.outputs.decision",
+              "record": {
+                "execution_id": "exe_00000000000000000000000001",
+                "step_run_id": "sr_00000000000000000000000028",
+                "iteration_path": [],
+                "revision": 32
+              }
+            },
+            "kind": "Value"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 44,
+    "at_ms": 1040000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "LoopChecked",
+      "step_run_id": "sr_00000000000000000000000034",
+      "check": {
+        "base_sequence": 43,
+        "iteration": 2,
+        "satisfied": true,
+        "reads": [
+          {
+            "origin": {
+              "path": "iteration",
+              "record": {
+                "execution_id": "exe_00000000000000000000000001",
+                "step_run_id": null,
+                "iteration_path": [
+                  {
+                    "node_id": "repeat",
+                    "instance_id": "sr_00000000000000000000000034",
+                    "ordinal": 1
+                  }
+                ],
+                "revision": 41
+              }
+            },
+            "kind": "Value"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 45,
+    "at_ms": 1040000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "StepCompleted",
+      "step_run_id": "sr_00000000000000000000000034",
+      "status": "succeeded",
+      "verdict": null
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 46,
+    "at_ms": 1050000,
+    "actor": {
+      "kind": "human",
+      "user_id": "usr_00000000000000000000000001"
+    },
+    "event": {
+      "type": "StepReported",
+      "step_run_id": "sr_00000000000000000000000033",
+      "report": {
+        "status": "succeeded",
+        "verdict": null,
+        "outputs": {},
+        "summary": "left done",
+        "evidence": [],
+        "logs": []
+      }
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 47,
+    "at_ms": 1050000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "StepCompleted",
+      "step_run_id": "sr_00000000000000000000000032",
+      "status": "succeeded",
+      "verdict": null
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 48,
+    "at_ms": 1050000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "CleanupStarted",
+      "cause": "Succeeded",
+      "reason": null
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 49,
+    "at_ms": 1050000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "StepReady",
+      "step_id": "report",
+      "step_run_id": "sr_00000000000000000000000048",
+      "reads": []
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 50,
+    "at_ms": 1050000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "AgentWorkAvailable",
+      "work": {
+        "base_sequence": 49,
+        "reason": "cleanup",
+        "ready_steps": [
+          {
+            "step_run_id": "sr_00000000000000000000000048",
+            "path": "report",
+            "title": "Report",
+            "actor_kind": "agent"
+          }
+        ],
+        "params": null,
+        "reads": []
+      }
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 51,
+    "at_ms": 1060000,
+    "actor": {
+      "kind": "human",
+      "user_id": "usr_00000000000000000000000001"
+    },
+    "event": {
+      "type": "StepReported",
+      "step_run_id": "sr_00000000000000000000000048",
+      "report": {
+        "status": "succeeded",
+        "verdict": null,
+        "outputs": {},
+        "summary": "report done",
+        "evidence": [],
+        "logs": []
+      }
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 52,
+    "at_ms": 1060000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "CleanupRootCompleted",
+      "root": "Top"
+    }
+  },
+  {
+    "execution_id": "exe_00000000000000000000000001",
+    "seq": 53,
+    "at_ms": 1060000,
+    "actor": {
+      "kind": "system"
+    },
+    "event": {
+      "type": "ExecutionCompleted",
+      "status": "succeeded",
+      "outputs": {
+        "values": {
+          "result": {
+            "String": "classified"
+          }
+        },
+        "reads": [
+          {
+            "origin": {
+              "path": "vars.mode",
+              "record": {
+                "execution_id": "exe_00000000000000000000000001",
+                "step_run_id": null,
+                "iteration_path": [],
+                "revision": 9
+              }
+            },
+            "kind": "Value"
+          }
+        ]
+      }
+    }
+  }
+]

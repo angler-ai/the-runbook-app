@@ -1,0 +1,73 @@
+[package]
+name = "runbook-worker"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license = "AGPL-3.0-only"
+description = "CF1/CF2: the portable core inside a Rust Worker, with the ExecutionDO on runbook-store-do (local workerd only)."
+
+[lib]
+# cdylib is the Worker module built by worker-build; rlib lets native tests
+# and clippy reach the portable spike logic.
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["edge"]
+# The api Worker's entry points and ExecutionDO (see src/lib.rs).
+edge = []
+# Gate fix B1: the local test seams (src/seams.rs), in the test build only.
+test-seams = []
+
+[dependencies]
+runbook-core = { path = "../runbook-core" }
+runbook-engine = { path = "../runbook-engine" }
+runbook-model = { path = "../runbook-model" }
+runbook-spec = { path = "../runbook-spec" }
+runbook-store-do = { path = "../runbook-store-do" }
+runbook-store-d1 = { path = "../runbook-store-d1" }
+runbook-store-r2 = { path = "../runbook-store-r2" }
+runbook-api = { path = "../runbook-api" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["arbitrary_precision"] }
+# CF3: the webhook secret sealer on Workers (approved: RustCrypto aes-gcm,
+# MIT OR Apache-2.0). Pure Rust; no default features, so no getrandom: the
+# host supplies each nonce.
+aes-gcm = { version = "=0.10.3", default-features = false, features = ["aes", "alloc"] }
+base64 = "0.22"
+sha2 = { version = "0.10", default-features = false }
+# Already in worker's tree: the capped request-body reader (CF12, `body.rs`),
+# which is native-tested.
+futures-util = { version = "0.3", default-features = false }
+
+# The Workers runtime binding exists only on wasm32. worker 0.8.7 is pinned
+# exactly (D55, the CF1 spike results): a newer one changed the bindings we use.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+worker = { version = "=0.8.7", features = ["d1", "queue"] }
+wasm-bindgen = "0.2.129"
+js-sys = "0.3.106"
+# Already in worker's tree (no new crates): the SSE bridge (CF4).
+web-sys = { version = "0.3.106", features = ["WebSocket", "MessageEvent", "CloseEvent"] }
+futures-channel = { version = "0.3", default-features = false, features = ["alloc"] }
+
+# The native sealer (ring) the Workers sealer must interoperate with (CF3).
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+runbook-server = { path = "../runbook-server" }
+getrandom = "0.3"
+serde_urlencoded = "0.7"
+
+[dev-dependencies]
+# The native DO host (in-memory SQLite) for the alarm handler's tests.
+runbook-worker-conformance = { path = "../runbook-worker-conformance" }
+# Seeded finished runs for the cron pass's tests (CF4).
+runbook-store-conformance = { path = "../runbook-store-conformance" }
+# The native D1 (rusqlite) for the composed store's tests (CF3).
+runbook-store-d1 = { path = "../runbook-store-d1", features = ["native"] }
+
+[package.metadata.wasm-pack.profile.release]
+# worker-build runs wasm-opt when this is on; the size gate records both.
+wasm-opt = true
+
+# CF5: the size-tuned build (`--profile worker`, the root `[profile.worker]`).
+[package.metadata.wasm-pack.profile.custom]
+wasm-opt = ["-Oz"]

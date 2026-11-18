@@ -1,0 +1,3403 @@
+{
+  "format": "pure-engine-trace-v1",
+  "integration_seams": {
+    "claims_and_credentials": "B6/B7",
+    "directory_authorization": "B1/B6",
+    "indexed_search": "B3/B8",
+    "queueing": "B5",
+    "webhook_delivery": "C1"
+  },
+  "manual_rollback": {
+    "commands": [
+      {
+        "reads": [],
+        "step_id": "smoke",
+        "type": "MakeStepReady"
+      },
+      {
+        "reads": [],
+        "step_id": "api_health",
+        "type": "MakeStepReady"
+      },
+      {
+        "reads": [],
+        "step_id": "login_flow",
+        "type": "MakeStepReady"
+      },
+      {
+        "type": "NotifyAgentWork",
+        "work": {
+          "base_sequence": 4,
+          "params": {
+            "Object": {
+              "repo": {
+                "String": "acme/api"
+              },
+              "workflow": {
+                "String": "runbook-resume.yml"
+              }
+            }
+          },
+          "reads": [],
+          "ready_steps": [
+            {
+              "actor_kind": "agent",
+              "path": "api_health",
+              "step_run_id": "sr_00000000000000000000000002",
+              "title": "Health endpoint returns 200"
+            }
+          ],
+          "reason": "initial"
+        }
+      },
+      {
+        "status": "succeeded",
+        "step_run_id": "sr_00000000000000000000000001",
+        "type": "CompleteStep",
+        "verdict": "fail"
+      },
+      {
+        "snapshot": {
+          "admitted": 0,
+          "base_sequence": 9,
+          "items": {
+            "Array": [
+              {
+                "String": "east"
+              },
+              {
+                "String": "west"
+              }
+            ]
+          },
+          "keys": [
+            "0",
+            "1"
+          ],
+          "reads": [
+            {
+              "kind": "Membership",
+              "origin": {
+                "path": "inputs.regions",
+                "record": {
+                  "execution_id": "exe_00000000000000000000000001",
+                  "iteration_path": [],
+                  "revision": 1,
+                  "step_run_id": null
+                }
+              }
+            },
+            {
+              "kind": "Value",
+              "origin": {
+                "path": "inputs.regions[0]",
+                "record": {
+                  "execution_id": "exe_00000000000000000000000001",
+                  "iteration_path": [],
+                  "revision": 1,
+                  "step_run_id": null
+                }
+              }
+            },
+            {
+              "kind": "Value",
+              "origin": {
+                "path": "inputs.regions[1]",
+                "record": {
+                  "execution_id": "exe_00000000000000000000000001",
+                  "iteration_path": [],
+                  "revision": 1,
+                  "step_run_id": null
+                }
+              }
+            }
+          ]
+        },
+        "step_id": "regions",
+        "type": "StartForeach"
+      },
+      {
+        "foreach_run_id": "sr_00000000000000000000000009",
+        "index": 0,
+        "type": "AdmitIteration"
+      },
+      {
+        "foreach_run_id": "sr_00000000000000000000000009",
+        "index": 1,
+        "type": "AdmitIteration"
+      },
+      {
+        "reads": [],
+        "step_id": "regions[0].error_rate",
+        "type": "MakeStepReady"
+      },
+      {
+        "reads": [],
+        "step_id": "regions[1].error_rate",
+        "type": "MakeStepReady"
+      },
+      {
+        "type": "NotifyAgentWork",
+        "work": {
+          "base_sequence": 14,
+          "params": {
+            "Object": {
+              "repo": {
+                "String": "acme/api"
+              },
+              "workflow": {
+                "String": "runbook-resume.yml"
+              }
+            }
+          },
+          "reads": [
+            {
+              "kind": "Value",
+              "origin": {
+                "path": "region",
+                "record": {
+                  "execution_id": "exe_00000000000000000000000001",
+                  "iteration_path": [
+                    {
+                      "instance_id": "sr_00000000000000000000000009",
+                      "node_id": "regions",
+                      "ordinal": 0
+                    }
+                  ],
+                  "revision": 10,
+                  "step_run_id": null
+                }
+              }
+            }
+          ],
+          "ready_steps": [
+            {
+              "actor_kind": "agent",
+              "path": "regions[0].error_rate",
+              "step_run_id": "sr_00000000000000000000000012",
+              "title": "Error rate in east"
+            }
+          ],
+          "reason": "initial"
+        }
+      },
+      {
+        "type": "NotifyAgentWork",
+        "work": {
+          "base_sequence": 15,
+          "params": {
+            "Object": {
+              "repo": {
+                "String": "acme/api"
+              },
+              "workflow": {
+                "String": "runbook-resume.yml"
+              }
+            }
+          },
+          "reads": [
+            {
+              "kind": "Value",
+              "origin": {
+                "path": "region",
+                "record": {
+                  "execution_id": "exe_00000000000000000000000001",
+                  "iteration_path": [
+                    {
+                      "instance_id": "sr_00000000000000000000000009",
+                      "node_id": "regions",
+                      "ordinal": 1
+                    }
+                  ],
+                  "revision": 10,
+                  "step_run_id": null
+                }
+              }
+            }
+          ],
+          "ready_steps": [
+            {
+              "actor_kind": "agent",
+              "path": "regions[1].error_rate",
+              "step_run_id": "sr_00000000000000000000000013",
+              "title": "Error rate in west"
+            }
+          ],
+          "reason": "initial"
+        }
+      },
+      {
+        "status": "succeeded",
+        "step_run_id": "sr_00000000000000000000000009",
+        "type": "CompleteStep",
+        "verdict": "pass"
+      },
+      {
+        "reads": [
+          {
+            "kind": "Membership",
+            "origin": {
+              "path": "steps.regions.items",
+              "record": {
+                "execution_id": "exe_00000000000000000000000001",
+                "iteration_path": [],
+                "revision": 19,
+                "step_run_id": "sr_00000000000000000000000009"
+              }
+            }
+          },
+          {
+            "kind": "Value",
+            "origin": {
+              "path": "steps.regions.items[0].error_rate.outputs.rate",
+              "record": {
+                "execution_id": "exe_00000000000000000000000001",
+                "iteration_path": [
+                  {
+                    "instance_id": "sr_00000000000000000000000009",
+                    "node_id": "regions",
+                    "ordinal": 0
+                  }
+                ],
+                "revision": 17,
+                "step_run_id": "sr_00000000000000000000000012"
+              }
+            }
+          },
+          {
+            "kind": "Value",
+            "origin": {
+              "path": "steps.regions.items[1].error_rate.outputs.rate",
+              "record": {
+                "execution_id": "exe_00000000000000000000000001",
+                "iteration_path": [
+                  {
+                    "instance_id": "sr_00000000000000000000000009",
+                    "node_id": "regions",
+                    "ordinal": 1
+                  }
+                ],
+                "revision": 18,
+                "step_run_id": "sr_00000000000000000000000013"
+              }
+            }
+          }
+        ],
+        "reason": "condition",
+        "step_id": "stabilize",
+        "type": "SkipStep"
+      },
+      {
+        "reads": [],
+        "step_id": "decide",
+        "type": "MakeStepReady"
+      },
+      {
+        "selection": {
+          "base_sequence": 21,
+          "choice": {
+            "index": 0,
+            "kind": "case"
+          },
+          "reads": [
+            {
+              "kind": "Value",
+              "origin": {
+                "path": "steps.smoke.verdict",
+                "record": {
+                  "execution_id": "exe_00000000000000000000000001",
+                  "iteration_path": [],
+                  "revision": 9,
+                  "step_run_id": "sr_00000000000000000000000001"
+                }
+              }
+            }
+          ],
+          "step_run_id": "sr_00000000000000000000000020"
+        },
+        "type": "SelectBranch"
+      },
+      {
+        "reads": [],
+        "step_id": "signoff",
+        "type": "MakeStepReady"
+      },
+      {
+        "request": {
+          "base_sequence": 23,
+          "step_run_id": "sr_00000000000000000000000022",
+          "targets": [
+            {
+              "kind": "team",
+              "reference": "team_00000000000000000000000001"
+            }
+          ]
+        },
+        "type": "ResolveApprovalRequest"
+      },
+      {
+        "decision": {
+          "base_sequence": 25,
+          "comment": "Reviewed the evidence.",
+          "decided_by": "usr_00000000000000000000000001",
+          "option": "rollback",
+          "signers": [
+            "usr_00000000000000000000000001"
+          ],
+          "step_run_id": "sr_00000000000000000000000022"
+        },
+        "type": "DecideApproval"
+      },
+      {
+        "reads": [
+          {
+            "kind": "Value",
+            "origin": {
+              "path": "steps.signoff.outputs.decision",
+              "record": {
+                "execution_id": "exe_00000000000000000000000001",
+                "iteration_path": [],
+                "revision": 26,
+                "step_run_id": "sr_00000000000000000000000022"
+              }
+            }
+          }
+        ],
+        "step_id": "rollback",
+        "type": "MakeStepReady"
+      },
+      {
+        "type": "NotifyAgentWork",
+        "work": {
+          "base_sequence": 27,
+          "params": {
+            "Object": {
+              "repo": {
+                "String": "acme/api"
+              },
+              "workflow": {
+                "String": "runbook-resume.yml"
+              }
+            }
+          },
+          "reads": [
+            {
+              "kind": "Value",
+              "origin": {
+                "path": "inputs.service",
+                "record": {
+                  "execution_id": "exe_00000000000000000000000001",
+                  "iteration_path": [],
+                  "revision": 1,
+                  "step_run_id": null
+                }
+              }
+            }
+          ],
+          "ready_steps": [
+            {
+              "actor_kind": "agent",
+              "path": "rollback",
+              "step_run_id": "sr_00000000000000000000000026",
+              "title": "Roll back api"
+            }
+          ],
+          "reason": "approval_decided"
+        }
+      },
+      {
+        "reads": [],
+        "step_id": "mark_major",
+        "type": "MakeStepReady"
+      },
+      {
+        "change": {
+          "base_sequence": 30,
+          "fields": {
+            "severity": {
+              "String": "major"
+            }
+          },
+          "reads": [
+            {
+              "kind": "Value",
+              "origin": {
+                "path": "steps.signoff.outputs.decision",
+                "record": {
+                  "execution_id": "exe_00000000000000000000000001",
+                  "iteration_path": [],
+                  "revision": 26,
+                  "step_run_id": "sr_00000000000000000000000022"
+                }
+              }
+            }
+          ],
+          "step_run_id": "sr_00000000000000000000000029",
+          "vars": {
+            "result": {
+              "String": "rolled_back"
+            }
+          }
+        },
+        "type": "ApplyData"
+      },
+      {
+        "status": "succeeded",
+        "step_run_id": "sr_00000000000000000000000020",
+        "type": "CompleteStep",
+        "verdict": null
+      },
+      {
+        "cause": "Succeeded",
+        "reason": null,
+        "type": "BeginCleanup"
+      },
+      {
+        "reads": [],
+        "step_id": "notify",
+        "type": "MakeStepReady"
+      },
+      {
+        "type": "NotifyAgentWork",
+        "work": {
+          "base_sequence": 34,
+          "params": {
+            "Object": {
+              "repo": {
+                "String": "acme/api"
+              },
+              "workflow": {
+                "String": "runbook-resume.yml"
+              }
+            }
+          },
+          "reads": [],
+          "ready_steps": [
+            {
+              "actor_kind": "agent",
+              "path": "notify",
+              "step_run_id": "sr_00000000000000000000000033",
+              "title": "Post the report to the deploys channel"
+            }
+          ],
+          "reason": "cleanup"
+        }
+      },
+      {
+        "root": "Top",
+        "type": "CompleteCleanupRoot"
+      },
+      {
+        "outputs": {
+          "reads": [
+            {
+              "kind": "Value",
+              "origin": {
+                "path": "vars.result",
+                "record": {
+                  "execution_id": "exe_00000000000000000000000001",
+                  "iteration_path": [],
+                  "revision": 31,
+                  "step_run_id": null
+                }
+              }
+            }
+          ],
+          "values": {
+            "result": {
+              "String": "rolled_back"
+            }
+          }
+        },
+        "status": "succeeded",
+        "type": "CompleteExecution"
+      }
+    ],
+    "events": [
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 0,
+        "event": {
+          "data": {
+            "context": {
+              "created_by": "",
+              "fields": {
+                "severity": {
+                  "String": "none"
+                }
+              },
+              "inputs": {
+                "regions": {
+                  "Array": [
+                    {
+                      "String": "east"
+                    },
+                    {
+                      "String": "west"
+                    }
+                  ]
+                },
+                "service": {
+                  "String": "api"
+                },
+                "version": {
+                  "String": "commit-a"
+                }
+              },
+              "limits": {
+                "hard_deadline_at_ms": null,
+                "max_step_runs": null
+              },
+              "project_vars": {},
+              "tags": [],
+              "title": "Post-deploy verification",
+              "url": "https://example.test/executions/exe_00000000000000000000000001"
+            },
+            "reads": [],
+            "vars": {
+              "result": {
+                "String": "undetermined"
+              }
+            }
+          },
+          "engine_version": 6,
+          "type": "ExecutionStarted"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 1
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 0,
+        "event": {
+          "reads": [],
+          "step_id": "smoke",
+          "step_run_id": "sr_00000000000000000000000001",
+          "type": "StepReady"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 2
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 0,
+        "event": {
+          "reads": [],
+          "step_id": "api_health",
+          "step_run_id": "sr_00000000000000000000000002",
+          "type": "StepReady"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 3
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 0,
+        "event": {
+          "reads": [],
+          "step_id": "login_flow",
+          "step_run_id": "sr_00000000000000000000000003",
+          "type": "StepReady"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 4
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 0,
+        "event": {
+          "type": "AgentWorkAvailable",
+          "work": {
+            "base_sequence": 4,
+            "params": {
+              "Object": {
+                "repo": {
+                  "String": "acme/api"
+                },
+                "workflow": {
+                  "String": "runbook-resume.yml"
+                }
+              }
+            },
+            "reads": [],
+            "ready_steps": [
+              {
+                "actor_kind": "agent",
+                "path": "api_health",
+                "step_run_id": "sr_00000000000000000000000002",
+                "title": "Health endpoint returns 200"
+              }
+            ],
+            "reason": "initial"
+          }
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 5
+      },
+      {
+        "actor": {
+          "kind": "agent",
+          "model": null,
+          "name": "fixture-agent",
+          "principal_id": "service-checker",
+          "session_id": "session-current"
+        },
+        "at_ms": 1,
+        "event": {
+          "report": {
+            "evidence": [],
+            "logs": [],
+            "outputs": {
+              "status_code": {
+                "Number": 503
+              }
+            },
+            "status": "succeeded",
+            "summary": "Fixture work completed.",
+            "verdict": "fail"
+          },
+          "step_run_id": "sr_00000000000000000000000002",
+          "type": "StepReported"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 6
+      },
+      {
+        "actor": {
+          "kind": "human",
+          "user_id": "usr_00000000000000000000000001"
+        },
+        "at_ms": 2,
+        "event": {
+          "step_run_id": "sr_00000000000000000000000003",
+          "ticks": [
+            {
+              "completed": true,
+              "title": "Login page loads"
+            },
+            {
+              "completed": true,
+              "title": "Dashboard shows data"
+            }
+          ],
+          "type": "ChecklistUpdated"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 7
+      },
+      {
+        "actor": {
+          "kind": "human",
+          "user_id": "usr_00000000000000000000000001"
+        },
+        "at_ms": 3,
+        "event": {
+          "report": {
+            "evidence": [],
+            "logs": [],
+            "outputs": {},
+            "status": "succeeded",
+            "summary": "Fixture work completed.",
+            "verdict": "pass"
+          },
+          "step_run_id": "sr_00000000000000000000000003",
+          "type": "StepReported"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 8
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 3,
+        "event": {
+          "status": "succeeded",
+          "step_run_id": "sr_00000000000000000000000001",
+          "type": "StepCompleted",
+          "verdict": "fail"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 9
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 3,
+        "event": {
+          "snapshot": {
+            "admitted": 0,
+            "base_sequence": 9,
+            "items": {
+              "Array": [
+                {
+                  "String": "east"
+                },
+                {
+                  "String": "west"
+                }
+              ]
+            },
+            "keys": [
+              "0",
+              "1"
+            ],
+            "reads": [
+              {
+                "kind": "Membership",
+                "origin": {
+                  "path": "inputs.regions",
+                  "record": {
+                    "execution_id": "exe_00000000000000000000000001",
+                    "iteration_path": [],
+                    "revision": 1,
+                    "step_run_id": null
+                  }
+                }
+              },
+              {
+                "kind": "Value",
+                "origin": {
+                  "path": "inputs.regions[0]",
+                  "record": {
+                    "execution_id": "exe_00000000000000000000000001",
+                    "iteration_path": [],
+                    "revision": 1,
+                    "step_run_id": null
+                  }
+                }
+              },
+              {
+                "kind": "Value",
+                "origin": {
+                  "path": "inputs.regions[1]",
+                  "record": {
+                    "execution_id": "exe_00000000000000000000000001",
+                    "iteration_path": [],
+                    "revision": 1,
+                    "step_run_id": null
+                  }
+                }
+              }
+            ]
+          },
+          "step_id": "regions",
+          "step_run_id": "sr_00000000000000000000000009",
+          "type": "ForeachStarted"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 10
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 3,
+        "event": {
+          "foreach_run_id": "sr_00000000000000000000000009",
+          "index": 0,
+          "type": "IterationAdmitted"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 11
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 3,
+        "event": {
+          "foreach_run_id": "sr_00000000000000000000000009",
+          "index": 1,
+          "type": "IterationAdmitted"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 12
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 3,
+        "event": {
+          "reads": [],
+          "step_id": "regions[0].error_rate",
+          "step_run_id": "sr_00000000000000000000000012",
+          "type": "StepReady"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 13
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 3,
+        "event": {
+          "reads": [],
+          "step_id": "regions[1].error_rate",
+          "step_run_id": "sr_00000000000000000000000013",
+          "type": "StepReady"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 14
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 3,
+        "event": {
+          "type": "AgentWorkAvailable",
+          "work": {
+            "base_sequence": 14,
+            "params": {
+              "Object": {
+                "repo": {
+                  "String": "acme/api"
+                },
+                "workflow": {
+                  "String": "runbook-resume.yml"
+                }
+              }
+            },
+            "reads": [
+              {
+                "kind": "Value",
+                "origin": {
+                  "path": "region",
+                  "record": {
+                    "execution_id": "exe_00000000000000000000000001",
+                    "iteration_path": [
+                      {
+                        "instance_id": "sr_00000000000000000000000009",
+                        "node_id": "regions",
+                        "ordinal": 0
+                      }
+                    ],
+                    "revision": 10,
+                    "step_run_id": null
+                  }
+                }
+              }
+            ],
+            "ready_steps": [
+              {
+                "actor_kind": "agent",
+                "path": "regions[0].error_rate",
+                "step_run_id": "sr_00000000000000000000000012",
+                "title": "Error rate in east"
+              }
+            ],
+            "reason": "initial"
+          }
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 15
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 3,
+        "event": {
+          "type": "AgentWorkAvailable",
+          "work": {
+            "base_sequence": 15,
+            "params": {
+              "Object": {
+                "repo": {
+                  "String": "acme/api"
+                },
+                "workflow": {
+                  "String": "runbook-resume.yml"
+                }
+              }
+            },
+            "reads": [
+              {
+                "kind": "Value",
+                "origin": {
+                  "path": "region",
+                  "record": {
+                    "execution_id": "exe_00000000000000000000000001",
+                    "iteration_path": [
+                      {
+                        "instance_id": "sr_00000000000000000000000009",
+                        "node_id": "regions",
+                        "ordinal": 1
+                      }
+                    ],
+                    "revision": 10,
+                    "step_run_id": null
+                  }
+                }
+              }
+            ],
+            "ready_steps": [
+              {
+                "actor_kind": "agent",
+                "path": "regions[1].error_rate",
+                "step_run_id": "sr_00000000000000000000000013",
+                "title": "Error rate in west"
+              }
+            ],
+            "reason": "initial"
+          }
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 16
+      },
+      {
+        "actor": {
+          "kind": "agent",
+          "model": null,
+          "name": "fixture-agent",
+          "principal_id": "service-checker",
+          "session_id": "session-current"
+        },
+        "at_ms": 4,
+        "event": {
+          "report": {
+            "evidence": [
+              "https://metrics.example.test/evidence"
+            ],
+            "logs": [],
+            "outputs": {
+              "rate": {
+                "Number": 0.001
+              }
+            },
+            "status": "succeeded",
+            "summary": "Fixture work completed.",
+            "verdict": "pass"
+          },
+          "step_run_id": "sr_00000000000000000000000012",
+          "type": "StepReported"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 17
+      },
+      {
+        "actor": {
+          "kind": "agent",
+          "model": null,
+          "name": "fixture-agent",
+          "principal_id": "service-checker",
+          "session_id": "session-current"
+        },
+        "at_ms": 5,
+        "event": {
+          "report": {
+            "evidence": [
+              "https://metrics.example.test/evidence"
+            ],
+            "logs": [],
+            "outputs": {
+              "rate": {
+                "Number": 0.001
+              }
+            },
+            "status": "succeeded",
+            "summary": "Fixture work completed.",
+            "verdict": "pass"
+          },
+          "step_run_id": "sr_00000000000000000000000013",
+          "type": "StepReported"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 18
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 5,
+        "event": {
+          "status": "succeeded",
+          "step_run_id": "sr_00000000000000000000000009",
+          "type": "StepCompleted",
+          "verdict": "pass"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 19
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 5,
+        "event": {
+          "reads": [
+            {
+              "kind": "Membership",
+              "origin": {
+                "path": "steps.regions.items",
+                "record": {
+                  "execution_id": "exe_00000000000000000000000001",
+                  "iteration_path": [],
+                  "revision": 19,
+                  "step_run_id": "sr_00000000000000000000000009"
+                }
+              }
+            },
+            {
+              "kind": "Value",
+              "origin": {
+                "path": "steps.regions.items[0].error_rate.outputs.rate",
+                "record": {
+                  "execution_id": "exe_00000000000000000000000001",
+                  "iteration_path": [
+                    {
+                      "instance_id": "sr_00000000000000000000000009",
+                      "node_id": "regions",
+                      "ordinal": 0
+                    }
+                  ],
+                  "revision": 17,
+                  "step_run_id": "sr_00000000000000000000000012"
+                }
+              }
+            },
+            {
+              "kind": "Value",
+              "origin": {
+                "path": "steps.regions.items[1].error_rate.outputs.rate",
+                "record": {
+                  "execution_id": "exe_00000000000000000000000001",
+                  "iteration_path": [
+                    {
+                      "instance_id": "sr_00000000000000000000000009",
+                      "node_id": "regions",
+                      "ordinal": 1
+                    }
+                  ],
+                  "revision": 18,
+                  "step_run_id": "sr_00000000000000000000000013"
+                }
+              }
+            }
+          ],
+          "reason": "condition",
+          "step_id": "stabilize",
+          "step_run_id": "sr_00000000000000000000000019",
+          "type": "StepSkipped"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 20
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 5,
+        "event": {
+          "reads": [],
+          "step_id": "decide",
+          "step_run_id": "sr_00000000000000000000000020",
+          "type": "StepReady"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 21
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 5,
+        "event": {
+          "selection": {
+            "base_sequence": 21,
+            "choice": {
+              "index": 0,
+              "kind": "case"
+            },
+            "reads": [
+              {
+                "kind": "Value",
+                "origin": {
+                  "path": "steps.smoke.verdict",
+                  "record": {
+                    "execution_id": "exe_00000000000000000000000001",
+                    "iteration_path": [],
+                    "revision": 9,
+                    "step_run_id": "sr_00000000000000000000000001"
+                  }
+                }
+              }
+            ],
+            "step_run_id": "sr_00000000000000000000000020"
+          },
+          "type": "BranchSelected"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 22
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 5,
+        "event": {
+          "reads": [],
+          "step_id": "signoff",
+          "step_run_id": "sr_00000000000000000000000022",
+          "type": "StepReady"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 23
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 5,
+        "event": {
+          "snapshot": {
+            "directory_revision": 1,
+            "recipients": [
+              {
+                "kind": "user",
+                "reference": "usr_00000000000000000000000001"
+              },
+              {
+                "kind": "user",
+                "reference": "usr_00000000000000000000000002"
+              }
+            ],
+            "request": {
+              "base_sequence": 23,
+              "step_run_id": "sr_00000000000000000000000022",
+              "targets": [
+                {
+                  "kind": "team",
+                  "reference": "team_00000000000000000000000001"
+                }
+              ]
+            }
+          },
+          "type": "ApprovalRequested"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 24
+      },
+      {
+        "actor": {
+          "kind": "human",
+          "user_id": "usr_00000000000000000000000001"
+        },
+        "at_ms": 6,
+        "event": {
+          "type": "ApprovalVoted",
+          "vote": {
+            "actor": {
+              "kind": "human",
+              "user_id": "usr_00000000000000000000000001"
+            },
+            "at_ms": 6,
+            "base_sequence": 24,
+            "comment": "Reviewed the evidence.",
+            "credential_ref": "tok_fixture_public_id",
+            "eligibility": {
+              "directory_revision": 1,
+              "eligible": true,
+              "matched_recipients": [
+                {
+                  "kind": "team",
+                  "reference": "team_00000000000000000000000001"
+                }
+              ]
+            },
+            "option": "rollback",
+            "step_run_id": "sr_00000000000000000000000022"
+          }
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 25
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 6,
+        "event": {
+          "decision": {
+            "base_sequence": 25,
+            "comment": "Reviewed the evidence.",
+            "decided_by": "usr_00000000000000000000000001",
+            "option": "rollback",
+            "signers": [
+              "usr_00000000000000000000000001"
+            ],
+            "step_run_id": "sr_00000000000000000000000022"
+          },
+          "type": "ApprovalDecided"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 26
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 6,
+        "event": {
+          "reads": [
+            {
+              "kind": "Value",
+              "origin": {
+                "path": "steps.signoff.outputs.decision",
+                "record": {
+                  "execution_id": "exe_00000000000000000000000001",
+                  "iteration_path": [],
+                  "revision": 26,
+                  "step_run_id": "sr_00000000000000000000000022"
+                }
+              }
+            }
+          ],
+          "step_id": "rollback",
+          "step_run_id": "sr_00000000000000000000000026",
+          "type": "StepReady"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 27
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 6,
+        "event": {
+          "type": "AgentWorkAvailable",
+          "work": {
+            "base_sequence": 27,
+            "params": {
+              "Object": {
+                "repo": {
+                  "String": "acme/api"
+                },
+                "workflow": {
+                  "String": "runbook-resume.yml"
+                }
+              }
+            },
+            "reads": [
+              {
+                "kind": "Value",
+                "origin": {
+                  "path": "inputs.service",
+                  "record": {
+                    "execution_id": "exe_00000000000000000000000001",
+                    "iteration_path": [],
+                    "revision": 1,
+                    "step_run_id": null
+                  }
+                }
+              }
+            ],
+            "ready_steps": [
+              {
+                "actor_kind": "agent",
+                "path": "rollback",
+                "step_run_id": "sr_00000000000000000000000026",
+                "title": "Roll back api"
+              }
+            ],
+            "reason": "approval_decided"
+          }
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 28
+      },
+      {
+        "actor": {
+          "kind": "agent",
+          "model": null,
+          "name": "fixture-agent",
+          "principal_id": "service-checker",
+          "session_id": "session-current"
+        },
+        "at_ms": 7,
+        "event": {
+          "report": {
+            "evidence": [],
+            "logs": [],
+            "outputs": {},
+            "status": "succeeded",
+            "summary": "Fixture work completed.",
+            "verdict": null
+          },
+          "step_run_id": "sr_00000000000000000000000026",
+          "type": "StepReported"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 29
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 7,
+        "event": {
+          "reads": [],
+          "step_id": "mark_major",
+          "step_run_id": "sr_00000000000000000000000029",
+          "type": "StepReady"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 30
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 7,
+        "event": {
+          "change": {
+            "base_sequence": 30,
+            "fields": {
+              "severity": {
+                "String": "major"
+              }
+            },
+            "reads": [
+              {
+                "kind": "Value",
+                "origin": {
+                  "path": "steps.signoff.outputs.decision",
+                  "record": {
+                    "execution_id": "exe_00000000000000000000000001",
+                    "iteration_path": [],
+                    "revision": 26,
+                    "step_run_id": "sr_00000000000000000000000022"
+                  }
+                }
+              }
+            ],
+            "step_run_id": "sr_00000000000000000000000029",
+            "vars": {
+              "result": {
+                "String": "rolled_back"
+              }
+            }
+          },
+          "type": "DataChanged"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 31
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 7,
+        "event": {
+          "status": "succeeded",
+          "step_run_id": "sr_00000000000000000000000020",
+          "type": "StepCompleted",
+          "verdict": null
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 32
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 7,
+        "event": {
+          "cause": "Succeeded",
+          "reason": null,
+          "type": "CleanupStarted"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 33
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 7,
+        "event": {
+          "reads": [],
+          "step_id": "notify",
+          "step_run_id": "sr_00000000000000000000000033",
+          "type": "StepReady"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 34
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 7,
+        "event": {
+          "type": "AgentWorkAvailable",
+          "work": {
+            "base_sequence": 34,
+            "params": {
+              "Object": {
+                "repo": {
+                  "String": "acme/api"
+                },
+                "workflow": {
+                  "String": "runbook-resume.yml"
+                }
+              }
+            },
+            "reads": [],
+            "ready_steps": [
+              {
+                "actor_kind": "agent",
+                "path": "notify",
+                "step_run_id": "sr_00000000000000000000000033",
+                "title": "Post the report to the deploys channel"
+              }
+            ],
+            "reason": "cleanup"
+          }
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 35
+      },
+      {
+        "actor": {
+          "kind": "agent",
+          "model": null,
+          "name": "fixture-agent",
+          "principal_id": "service-checker",
+          "session_id": "session-current"
+        },
+        "at_ms": 8,
+        "event": {
+          "report": {
+            "evidence": [],
+            "logs": [],
+            "outputs": {},
+            "status": "succeeded",
+            "summary": "Fixture work completed.",
+            "verdict": null
+          },
+          "step_run_id": "sr_00000000000000000000000033",
+          "type": "StepReported"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 36
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 8,
+        "event": {
+          "root": "Top",
+          "type": "CleanupRootCompleted"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 37
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 8,
+        "event": {
+          "outputs": {
+            "reads": [
+              {
+                "kind": "Value",
+                "origin": {
+                  "path": "vars.result",
+                  "record": {
+                    "execution_id": "exe_00000000000000000000000001",
+                    "iteration_path": [],
+                    "revision": 31,
+                    "step_run_id": null
+                  }
+                }
+              }
+            ],
+            "values": {
+              "result": {
+                "String": "rolled_back"
+              }
+            }
+          },
+          "status": "succeeded",
+          "type": "ExecutionCompleted"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 38
+      }
+    ],
+    "fields": {
+      "severity": "major"
+    },
+    "loop": {
+      "exhausted": false,
+      "satisfied": false,
+      "verdict": null
+    },
+    "result": "rolled_back",
+    "status": "succeeded"
+  },
+  "pending_language_decisions": [],
+  "recovered_loop": {
+    "commands": [
+      {
+        "reads": [],
+        "step_id": "smoke",
+        "type": "MakeStepReady"
+      },
+      {
+        "reads": [],
+        "step_id": "api_health",
+        "type": "MakeStepReady"
+      },
+      {
+        "reads": [],
+        "step_id": "login_flow",
+        "type": "MakeStepReady"
+      },
+      {
+        "type": "NotifyAgentWork",
+        "work": {
+          "base_sequence": 4,
+          "params": {
+            "Object": {
+              "repo": {
+                "String": "acme/api"
+              },
+              "workflow": {
+                "String": "runbook-resume.yml"
+              }
+            }
+          },
+          "reads": [],
+          "ready_steps": [
+            {
+              "actor_kind": "agent",
+              "path": "api_health",
+              "step_run_id": "sr_00000000000000000000000002",
+              "title": "Health endpoint returns 200"
+            }
+          ],
+          "reason": "initial"
+        }
+      },
+      {
+        "status": "succeeded",
+        "step_run_id": "sr_00000000000000000000000001",
+        "type": "CompleteStep",
+        "verdict": "pass"
+      },
+      {
+        "snapshot": {
+          "admitted": 0,
+          "base_sequence": 9,
+          "items": {
+            "Array": [
+              {
+                "String": "east"
+              },
+              {
+                "String": "west"
+              }
+            ]
+          },
+          "keys": [
+            "0",
+            "1"
+          ],
+          "reads": [
+            {
+              "kind": "Membership",
+              "origin": {
+                "path": "inputs.regions",
+                "record": {
+                  "execution_id": "exe_00000000000000000000000001",
+                  "iteration_path": [],
+                  "revision": 1,
+                  "step_run_id": null
+                }
+              }
+            },
+            {
+              "kind": "Value",
+              "origin": {
+                "path": "inputs.regions[0]",
+                "record": {
+                  "execution_id": "exe_00000000000000000000000001",
+                  "iteration_path": [],
+                  "revision": 1,
+                  "step_run_id": null
+                }
+              }
+            },
+            {
+              "kind": "Value",
+              "origin": {
+                "path": "inputs.regions[1]",
+                "record": {
+                  "execution_id": "exe_00000000000000000000000001",
+                  "iteration_path": [],
+                  "revision": 1,
+                  "step_run_id": null
+                }
+              }
+            }
+          ]
+        },
+        "step_id": "regions",
+        "type": "StartForeach"
+      },
+      {
+        "foreach_run_id": "sr_00000000000000000000000009",
+        "index": 0,
+        "type": "AdmitIteration"
+      },
+      {
+        "foreach_run_id": "sr_00000000000000000000000009",
+        "index": 1,
+        "type": "AdmitIteration"
+      },
+      {
+        "reads": [],
+        "step_id": "regions[0].error_rate",
+        "type": "MakeStepReady"
+      },
+      {
+        "reads": [],
+        "step_id": "regions[1].error_rate",
+        "type": "MakeStepReady"
+      },
+      {
+        "type": "NotifyAgentWork",
+        "work": {
+          "base_sequence": 14,
+          "params": {
+            "Object": {
+              "repo": {
+                "String": "acme/api"
+              },
+              "workflow": {
+                "String": "runbook-resume.yml"
+              }
+            }
+          },
+          "reads": [
+            {
+              "kind": "Value",
+              "origin": {
+                "path": "region",
+                "record": {
+                  "execution_id": "exe_00000000000000000000000001",
+                  "iteration_path": [
+                    {
+                      "instance_id": "sr_00000000000000000000000009",
+                      "node_id": "regions",
+                      "ordinal": 0
+                    }
+                  ],
+                  "revision": 10,
+                  "step_run_id": null
+                }
+              }
+            }
+          ],
+          "ready_steps": [
+            {
+              "actor_kind": "agent",
+              "path": "regions[0].error_rate",
+              "step_run_id": "sr_00000000000000000000000012",
+              "title": "Error rate in east"
+            }
+          ],
+          "reason": "initial"
+        }
+      },
+      {
+        "type": "NotifyAgentWork",
+        "work": {
+          "base_sequence": 15,
+          "params": {
+            "Object": {
+              "repo": {
+                "String": "acme/api"
+              },
+              "workflow": {
+                "String": "runbook-resume.yml"
+              }
+            }
+          },
+          "reads": [
+            {
+              "kind": "Value",
+              "origin": {
+                "path": "region",
+                "record": {
+                  "execution_id": "exe_00000000000000000000000001",
+                  "iteration_path": [
+                    {
+                      "instance_id": "sr_00000000000000000000000009",
+                      "node_id": "regions",
+                      "ordinal": 1
+                    }
+                  ],
+                  "revision": 10,
+                  "step_run_id": null
+                }
+              }
+            }
+          ],
+          "ready_steps": [
+            {
+              "actor_kind": "agent",
+              "path": "regions[1].error_rate",
+              "step_run_id": "sr_00000000000000000000000013",
+              "title": "Error rate in west"
+            }
+          ],
+          "reason": "initial"
+        }
+      },
+      {
+        "status": "succeeded",
+        "step_run_id": "sr_00000000000000000000000009",
+        "type": "CompleteStep",
+        "verdict": "fail"
+      },
+      {
+        "reads": [
+          {
+            "kind": "Membership",
+            "origin": {
+              "path": "steps.regions.items",
+              "record": {
+                "execution_id": "exe_00000000000000000000000001",
+                "iteration_path": [],
+                "revision": 19,
+                "step_run_id": "sr_00000000000000000000000009"
+              }
+            }
+          },
+          {
+            "kind": "Value",
+            "origin": {
+              "path": "steps.regions.items[0].error_rate.outputs.rate",
+              "record": {
+                "execution_id": "exe_00000000000000000000000001",
+                "iteration_path": [
+                  {
+                    "instance_id": "sr_00000000000000000000000009",
+                    "node_id": "regions",
+                    "ordinal": 0
+                  }
+                ],
+                "revision": 17,
+                "step_run_id": "sr_00000000000000000000000012"
+              }
+            }
+          }
+        ],
+        "step_id": "stabilize",
+        "type": "MakeStepReady"
+      },
+      {
+        "index": 0,
+        "loop_run_id": "sr_00000000000000000000000019",
+        "type": "StartLoopIteration"
+      },
+      {
+        "reads": [],
+        "step_id": "stabilize#1.recheck",
+        "type": "MakeStepReady"
+      },
+      {
+        "type": "NotifyAgentWork",
+        "work": {
+          "base_sequence": 22,
+          "params": {
+            "Object": {
+              "repo": {
+                "String": "acme/api"
+              },
+              "workflow": {
+                "String": "runbook-resume.yml"
+              }
+            }
+          },
+          "reads": [],
+          "ready_steps": [
+            {
+              "actor_kind": "agent",
+              "path": "stabilize#1.recheck",
+              "step_run_id": "sr_00000000000000000000000021",
+              "title": "Re-check the global error rate"
+            }
+          ],
+          "reason": "initial"
+        }
+      },
+      {
+        "check": {
+          "base_sequence": 24,
+          "iteration": 1,
+          "reads": [
+            {
+              "kind": "Value",
+              "origin": {
+                "path": "steps.recheck.outputs.rate",
+                "record": {
+                  "execution_id": "exe_00000000000000000000000001",
+                  "iteration_path": [
+                    {
+                      "instance_id": "sr_00000000000000000000000019",
+                      "node_id": "stabilize",
+                      "ordinal": 0
+                    }
+                  ],
+                  "revision": 24,
+                  "step_run_id": "sr_00000000000000000000000021"
+                }
+              }
+            }
+          ],
+          "satisfied": false
+        },
+        "step_run_id": "sr_00000000000000000000000019",
+        "type": "RecordLoopCheck"
+      },
+      {
+        "generation": 1,
+        "step_run_id": "sr_00000000000000000000000019",
+        "type": "FireWaitTimer"
+      },
+      {
+        "index": 1,
+        "loop_run_id": "sr_00000000000000000000000019",
+        "type": "StartLoopIteration"
+      },
+      {
+        "reads": [],
+        "step_id": "stabilize#2.recheck",
+        "type": "MakeStepReady"
+      },
+      {
+        "type": "NotifyAgentWork",
+        "work": {
+          "base_sequence": 28,
+          "params": {
+            "Object": {
+              "repo": {
+                "String": "acme/api"
+              },
+              "workflow": {
+                "String": "runbook-resume.yml"
+              }
+            }
+          },
+          "reads": [],
+          "ready_steps": [
+            {
+              "actor_kind": "agent",
+              "path": "stabilize#2.recheck",
+              "step_run_id": "sr_00000000000000000000000027",
+              "title": "Re-check the global error rate"
+            }
+          ],
+          "reason": "timer"
+        }
+      },
+      {
+        "check": {
+          "base_sequence": 30,
+          "iteration": 2,
+          "reads": [
+            {
+              "kind": "Value",
+              "origin": {
+                "path": "steps.recheck.outputs.rate",
+                "record": {
+                  "execution_id": "exe_00000000000000000000000001",
+                  "iteration_path": [
+                    {
+                      "instance_id": "sr_00000000000000000000000019",
+                      "node_id": "stabilize",
+                      "ordinal": 1
+                    }
+                  ],
+                  "revision": 30,
+                  "step_run_id": "sr_00000000000000000000000027"
+                }
+              }
+            }
+          ],
+          "satisfied": true
+        },
+        "step_run_id": "sr_00000000000000000000000019",
+        "type": "RecordLoopCheck"
+      },
+      {
+        "status": "succeeded",
+        "step_run_id": "sr_00000000000000000000000019",
+        "type": "CompleteStep",
+        "verdict": "fail"
+      },
+      {
+        "reads": [],
+        "step_id": "decide",
+        "type": "MakeStepReady"
+      },
+      {
+        "selection": {
+          "base_sequence": 33,
+          "choice": {
+            "index": 0,
+            "kind": "case"
+          },
+          "reads": [
+            {
+              "kind": "Value",
+              "origin": {
+                "path": "steps.smoke.verdict",
+                "record": {
+                  "execution_id": "exe_00000000000000000000000001",
+                  "iteration_path": [],
+                  "revision": 9,
+                  "step_run_id": "sr_00000000000000000000000001"
+                }
+              }
+            },
+            {
+              "kind": "Value",
+              "origin": {
+                "path": "steps.regions.verdict",
+                "record": {
+                  "execution_id": "exe_00000000000000000000000001",
+                  "iteration_path": [],
+                  "revision": 19,
+                  "step_run_id": "sr_00000000000000000000000009"
+                }
+              }
+            }
+          ],
+          "step_run_id": "sr_00000000000000000000000032"
+        },
+        "type": "SelectBranch"
+      },
+      {
+        "reads": [],
+        "step_id": "signoff",
+        "type": "MakeStepReady"
+      },
+      {
+        "request": {
+          "base_sequence": 35,
+          "step_run_id": "sr_00000000000000000000000034",
+          "targets": [
+            {
+              "kind": "team",
+              "reference": "team_00000000000000000000000001"
+            }
+          ]
+        },
+        "type": "ResolveApprovalRequest"
+      },
+      {
+        "decision": {
+          "base_sequence": 37,
+          "comment": "Reviewed the evidence.",
+          "decided_by": "usr_00000000000000000000000001",
+          "option": "keep",
+          "signers": [
+            "usr_00000000000000000000000001"
+          ],
+          "step_run_id": "sr_00000000000000000000000034"
+        },
+        "type": "DecideApproval"
+      },
+      {
+        "reads": [
+          {
+            "kind": "Value",
+            "origin": {
+              "path": "steps.signoff.outputs.decision",
+              "record": {
+                "execution_id": "exe_00000000000000000000000001",
+                "iteration_path": [],
+                "revision": 38,
+                "step_run_id": "sr_00000000000000000000000034"
+              }
+            }
+          }
+        ],
+        "reason": "condition",
+        "step_id": "rollback",
+        "type": "SkipStep"
+      },
+      {
+        "reads": [],
+        "step_id": "mark_major",
+        "type": "MakeStepReady"
+      },
+      {
+        "change": {
+          "base_sequence": 40,
+          "fields": {
+            "severity": {
+              "String": "major"
+            }
+          },
+          "reads": [
+            {
+              "kind": "Value",
+              "origin": {
+                "path": "steps.signoff.outputs.decision",
+                "record": {
+                  "execution_id": "exe_00000000000000000000000001",
+                  "iteration_path": [],
+                  "revision": 38,
+                  "step_run_id": "sr_00000000000000000000000034"
+                }
+              }
+            }
+          ],
+          "step_run_id": "sr_00000000000000000000000039",
+          "vars": {
+            "result": {
+              "String": "kept"
+            }
+          }
+        },
+        "type": "ApplyData"
+      },
+      {
+        "status": "succeeded",
+        "step_run_id": "sr_00000000000000000000000032",
+        "type": "CompleteStep",
+        "verdict": null
+      },
+      {
+        "cause": "Succeeded",
+        "reason": null,
+        "type": "BeginCleanup"
+      },
+      {
+        "reads": [],
+        "step_id": "notify",
+        "type": "MakeStepReady"
+      },
+      {
+        "type": "NotifyAgentWork",
+        "work": {
+          "base_sequence": 44,
+          "params": {
+            "Object": {
+              "repo": {
+                "String": "acme/api"
+              },
+              "workflow": {
+                "String": "runbook-resume.yml"
+              }
+            }
+          },
+          "reads": [],
+          "ready_steps": [
+            {
+              "actor_kind": "agent",
+              "path": "notify",
+              "step_run_id": "sr_00000000000000000000000043",
+              "title": "Post the report to the deploys channel"
+            }
+          ],
+          "reason": "cleanup"
+        }
+      },
+      {
+        "root": "Top",
+        "type": "CompleteCleanupRoot"
+      },
+      {
+        "outputs": {
+          "reads": [
+            {
+              "kind": "Value",
+              "origin": {
+                "path": "vars.result",
+                "record": {
+                  "execution_id": "exe_00000000000000000000000001",
+                  "iteration_path": [],
+                  "revision": 41,
+                  "step_run_id": null
+                }
+              }
+            }
+          ],
+          "values": {
+            "result": {
+              "String": "kept"
+            }
+          }
+        },
+        "status": "succeeded",
+        "type": "CompleteExecution"
+      }
+    ],
+    "events": [
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 0,
+        "event": {
+          "data": {
+            "context": {
+              "created_by": "",
+              "fields": {
+                "severity": {
+                  "String": "none"
+                }
+              },
+              "inputs": {
+                "regions": {
+                  "Array": [
+                    {
+                      "String": "east"
+                    },
+                    {
+                      "String": "west"
+                    }
+                  ]
+                },
+                "service": {
+                  "String": "api"
+                },
+                "version": {
+                  "String": "commit-a"
+                }
+              },
+              "limits": {
+                "hard_deadline_at_ms": null,
+                "max_step_runs": null
+              },
+              "project_vars": {},
+              "tags": [],
+              "title": "Post-deploy verification",
+              "url": "https://example.test/executions/exe_00000000000000000000000001"
+            },
+            "reads": [],
+            "vars": {
+              "result": {
+                "String": "undetermined"
+              }
+            }
+          },
+          "engine_version": 6,
+          "type": "ExecutionStarted"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 1
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 0,
+        "event": {
+          "reads": [],
+          "step_id": "smoke",
+          "step_run_id": "sr_00000000000000000000000001",
+          "type": "StepReady"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 2
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 0,
+        "event": {
+          "reads": [],
+          "step_id": "api_health",
+          "step_run_id": "sr_00000000000000000000000002",
+          "type": "StepReady"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 3
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 0,
+        "event": {
+          "reads": [],
+          "step_id": "login_flow",
+          "step_run_id": "sr_00000000000000000000000003",
+          "type": "StepReady"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 4
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 0,
+        "event": {
+          "type": "AgentWorkAvailable",
+          "work": {
+            "base_sequence": 4,
+            "params": {
+              "Object": {
+                "repo": {
+                  "String": "acme/api"
+                },
+                "workflow": {
+                  "String": "runbook-resume.yml"
+                }
+              }
+            },
+            "reads": [],
+            "ready_steps": [
+              {
+                "actor_kind": "agent",
+                "path": "api_health",
+                "step_run_id": "sr_00000000000000000000000002",
+                "title": "Health endpoint returns 200"
+              }
+            ],
+            "reason": "initial"
+          }
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 5
+      },
+      {
+        "actor": {
+          "kind": "agent",
+          "model": null,
+          "name": "fixture-agent",
+          "principal_id": "service-checker",
+          "session_id": "session-current"
+        },
+        "at_ms": 1,
+        "event": {
+          "report": {
+            "evidence": [],
+            "logs": [],
+            "outputs": {
+              "status_code": {
+                "Number": 200
+              }
+            },
+            "status": "succeeded",
+            "summary": "Fixture work completed.",
+            "verdict": "pass"
+          },
+          "step_run_id": "sr_00000000000000000000000002",
+          "type": "StepReported"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 6
+      },
+      {
+        "actor": {
+          "kind": "human",
+          "user_id": "usr_00000000000000000000000001"
+        },
+        "at_ms": 2,
+        "event": {
+          "step_run_id": "sr_00000000000000000000000003",
+          "ticks": [
+            {
+              "completed": true,
+              "title": "Login page loads"
+            },
+            {
+              "completed": true,
+              "title": "Dashboard shows data"
+            }
+          ],
+          "type": "ChecklistUpdated"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 7
+      },
+      {
+        "actor": {
+          "kind": "human",
+          "user_id": "usr_00000000000000000000000001"
+        },
+        "at_ms": 3,
+        "event": {
+          "report": {
+            "evidence": [],
+            "logs": [],
+            "outputs": {},
+            "status": "succeeded",
+            "summary": "Fixture work completed.",
+            "verdict": "pass"
+          },
+          "step_run_id": "sr_00000000000000000000000003",
+          "type": "StepReported"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 8
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 3,
+        "event": {
+          "status": "succeeded",
+          "step_run_id": "sr_00000000000000000000000001",
+          "type": "StepCompleted",
+          "verdict": "pass"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 9
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 3,
+        "event": {
+          "snapshot": {
+            "admitted": 0,
+            "base_sequence": 9,
+            "items": {
+              "Array": [
+                {
+                  "String": "east"
+                },
+                {
+                  "String": "west"
+                }
+              ]
+            },
+            "keys": [
+              "0",
+              "1"
+            ],
+            "reads": [
+              {
+                "kind": "Membership",
+                "origin": {
+                  "path": "inputs.regions",
+                  "record": {
+                    "execution_id": "exe_00000000000000000000000001",
+                    "iteration_path": [],
+                    "revision": 1,
+                    "step_run_id": null
+                  }
+                }
+              },
+              {
+                "kind": "Value",
+                "origin": {
+                  "path": "inputs.regions[0]",
+                  "record": {
+                    "execution_id": "exe_00000000000000000000000001",
+                    "iteration_path": [],
+                    "revision": 1,
+                    "step_run_id": null
+                  }
+                }
+              },
+              {
+                "kind": "Value",
+                "origin": {
+                  "path": "inputs.regions[1]",
+                  "record": {
+                    "execution_id": "exe_00000000000000000000000001",
+                    "iteration_path": [],
+                    "revision": 1,
+                    "step_run_id": null
+                  }
+                }
+              }
+            ]
+          },
+          "step_id": "regions",
+          "step_run_id": "sr_00000000000000000000000009",
+          "type": "ForeachStarted"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 10
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 3,
+        "event": {
+          "foreach_run_id": "sr_00000000000000000000000009",
+          "index": 0,
+          "type": "IterationAdmitted"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 11
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 3,
+        "event": {
+          "foreach_run_id": "sr_00000000000000000000000009",
+          "index": 1,
+          "type": "IterationAdmitted"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 12
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 3,
+        "event": {
+          "reads": [],
+          "step_id": "regions[0].error_rate",
+          "step_run_id": "sr_00000000000000000000000012",
+          "type": "StepReady"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 13
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 3,
+        "event": {
+          "reads": [],
+          "step_id": "regions[1].error_rate",
+          "step_run_id": "sr_00000000000000000000000013",
+          "type": "StepReady"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 14
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 3,
+        "event": {
+          "type": "AgentWorkAvailable",
+          "work": {
+            "base_sequence": 14,
+            "params": {
+              "Object": {
+                "repo": {
+                  "String": "acme/api"
+                },
+                "workflow": {
+                  "String": "runbook-resume.yml"
+                }
+              }
+            },
+            "reads": [
+              {
+                "kind": "Value",
+                "origin": {
+                  "path": "region",
+                  "record": {
+                    "execution_id": "exe_00000000000000000000000001",
+                    "iteration_path": [
+                      {
+                        "instance_id": "sr_00000000000000000000000009",
+                        "node_id": "regions",
+                        "ordinal": 0
+                      }
+                    ],
+                    "revision": 10,
+                    "step_run_id": null
+                  }
+                }
+              }
+            ],
+            "ready_steps": [
+              {
+                "actor_kind": "agent",
+                "path": "regions[0].error_rate",
+                "step_run_id": "sr_00000000000000000000000012",
+                "title": "Error rate in east"
+              }
+            ],
+            "reason": "initial"
+          }
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 15
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 3,
+        "event": {
+          "type": "AgentWorkAvailable",
+          "work": {
+            "base_sequence": 15,
+            "params": {
+              "Object": {
+                "repo": {
+                  "String": "acme/api"
+                },
+                "workflow": {
+                  "String": "runbook-resume.yml"
+                }
+              }
+            },
+            "reads": [
+              {
+                "kind": "Value",
+                "origin": {
+                  "path": "region",
+                  "record": {
+                    "execution_id": "exe_00000000000000000000000001",
+                    "iteration_path": [
+                      {
+                        "instance_id": "sr_00000000000000000000000009",
+                        "node_id": "regions",
+                        "ordinal": 1
+                      }
+                    ],
+                    "revision": 10,
+                    "step_run_id": null
+                  }
+                }
+              }
+            ],
+            "ready_steps": [
+              {
+                "actor_kind": "agent",
+                "path": "regions[1].error_rate",
+                "step_run_id": "sr_00000000000000000000000013",
+                "title": "Error rate in west"
+              }
+            ],
+            "reason": "initial"
+          }
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 16
+      },
+      {
+        "actor": {
+          "kind": "agent",
+          "model": null,
+          "name": "fixture-agent",
+          "principal_id": "service-checker",
+          "session_id": "session-current"
+        },
+        "at_ms": 4,
+        "event": {
+          "report": {
+            "evidence": [
+              "https://metrics.example.test/evidence"
+            ],
+            "logs": [],
+            "outputs": {
+              "rate": {
+                "Number": 0.02
+              }
+            },
+            "status": "succeeded",
+            "summary": "Fixture work completed.",
+            "verdict": "fail"
+          },
+          "step_run_id": "sr_00000000000000000000000012",
+          "type": "StepReported"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 17
+      },
+      {
+        "actor": {
+          "kind": "agent",
+          "model": null,
+          "name": "fixture-agent",
+          "principal_id": "service-checker",
+          "session_id": "session-current"
+        },
+        "at_ms": 5,
+        "event": {
+          "report": {
+            "evidence": [
+              "https://metrics.example.test/evidence"
+            ],
+            "logs": [],
+            "outputs": {
+              "rate": {
+                "Number": 0.02
+              }
+            },
+            "status": "succeeded",
+            "summary": "Fixture work completed.",
+            "verdict": "fail"
+          },
+          "step_run_id": "sr_00000000000000000000000013",
+          "type": "StepReported"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 18
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 5,
+        "event": {
+          "status": "succeeded",
+          "step_run_id": "sr_00000000000000000000000009",
+          "type": "StepCompleted",
+          "verdict": "fail"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 19
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 5,
+        "event": {
+          "reads": [
+            {
+              "kind": "Membership",
+              "origin": {
+                "path": "steps.regions.items",
+                "record": {
+                  "execution_id": "exe_00000000000000000000000001",
+                  "iteration_path": [],
+                  "revision": 19,
+                  "step_run_id": "sr_00000000000000000000000009"
+                }
+              }
+            },
+            {
+              "kind": "Value",
+              "origin": {
+                "path": "steps.regions.items[0].error_rate.outputs.rate",
+                "record": {
+                  "execution_id": "exe_00000000000000000000000001",
+                  "iteration_path": [
+                    {
+                      "instance_id": "sr_00000000000000000000000009",
+                      "node_id": "regions",
+                      "ordinal": 0
+                    }
+                  ],
+                  "revision": 17,
+                  "step_run_id": "sr_00000000000000000000000012"
+                }
+              }
+            }
+          ],
+          "step_id": "stabilize",
+          "step_run_id": "sr_00000000000000000000000019",
+          "type": "StepReady"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 20
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 5,
+        "event": {
+          "index": 0,
+          "loop_run_id": "sr_00000000000000000000000019",
+          "type": "LoopIterationStarted"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 21
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 5,
+        "event": {
+          "reads": [],
+          "step_id": "stabilize#1.recheck",
+          "step_run_id": "sr_00000000000000000000000021",
+          "type": "StepReady"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 22
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 5,
+        "event": {
+          "type": "AgentWorkAvailable",
+          "work": {
+            "base_sequence": 22,
+            "params": {
+              "Object": {
+                "repo": {
+                  "String": "acme/api"
+                },
+                "workflow": {
+                  "String": "runbook-resume.yml"
+                }
+              }
+            },
+            "reads": [],
+            "ready_steps": [
+              {
+                "actor_kind": "agent",
+                "path": "stabilize#1.recheck",
+                "step_run_id": "sr_00000000000000000000000021",
+                "title": "Re-check the global error rate"
+              }
+            ],
+            "reason": "initial"
+          }
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 23
+      },
+      {
+        "actor": {
+          "kind": "agent",
+          "model": null,
+          "name": "fixture-agent",
+          "principal_id": "service-checker",
+          "session_id": "session-current"
+        },
+        "at_ms": 6,
+        "event": {
+          "report": {
+            "evidence": [],
+            "logs": [],
+            "outputs": {
+              "rate": {
+                "Number": 0.02
+              }
+            },
+            "status": "succeeded",
+            "summary": "Fixture work completed.",
+            "verdict": "fail"
+          },
+          "step_run_id": "sr_00000000000000000000000021",
+          "type": "StepReported"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 24
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 6,
+        "event": {
+          "check": {
+            "base_sequence": 24,
+            "iteration": 1,
+            "reads": [
+              {
+                "kind": "Value",
+                "origin": {
+                  "path": "steps.recheck.outputs.rate",
+                  "record": {
+                    "execution_id": "exe_00000000000000000000000001",
+                    "iteration_path": [
+                      {
+                        "instance_id": "sr_00000000000000000000000019",
+                        "node_id": "stabilize",
+                        "ordinal": 0
+                      }
+                    ],
+                    "revision": 24,
+                    "step_run_id": "sr_00000000000000000000000021"
+                  }
+                }
+              }
+            ],
+            "satisfied": false
+          },
+          "step_run_id": "sr_00000000000000000000000019",
+          "type": "LoopChecked"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 25
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 300006,
+        "event": {
+          "generation": 1,
+          "step_run_id": "sr_00000000000000000000000019",
+          "type": "TimerFired"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 26
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 300006,
+        "event": {
+          "index": 1,
+          "loop_run_id": "sr_00000000000000000000000019",
+          "type": "LoopIterationStarted"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 27
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 300006,
+        "event": {
+          "reads": [],
+          "step_id": "stabilize#2.recheck",
+          "step_run_id": "sr_00000000000000000000000027",
+          "type": "StepReady"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 28
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 300006,
+        "event": {
+          "type": "AgentWorkAvailable",
+          "work": {
+            "base_sequence": 28,
+            "params": {
+              "Object": {
+                "repo": {
+                  "String": "acme/api"
+                },
+                "workflow": {
+                  "String": "runbook-resume.yml"
+                }
+              }
+            },
+            "reads": [],
+            "ready_steps": [
+              {
+                "actor_kind": "agent",
+                "path": "stabilize#2.recheck",
+                "step_run_id": "sr_00000000000000000000000027",
+                "title": "Re-check the global error rate"
+              }
+            ],
+            "reason": "timer"
+          }
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 29
+      },
+      {
+        "actor": {
+          "kind": "agent",
+          "model": null,
+          "name": "fixture-agent",
+          "principal_id": "service-checker",
+          "session_id": "session-current"
+        },
+        "at_ms": 300007,
+        "event": {
+          "report": {
+            "evidence": [],
+            "logs": [],
+            "outputs": {
+              "rate": {
+                "Number": 0.001
+              }
+            },
+            "status": "succeeded",
+            "summary": "Fixture work completed.",
+            "verdict": "pass"
+          },
+          "step_run_id": "sr_00000000000000000000000027",
+          "type": "StepReported"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 30
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 300007,
+        "event": {
+          "check": {
+            "base_sequence": 30,
+            "iteration": 2,
+            "reads": [
+              {
+                "kind": "Value",
+                "origin": {
+                  "path": "steps.recheck.outputs.rate",
+                  "record": {
+                    "execution_id": "exe_00000000000000000000000001",
+                    "iteration_path": [
+                      {
+                        "instance_id": "sr_00000000000000000000000019",
+                        "node_id": "stabilize",
+                        "ordinal": 1
+                      }
+                    ],
+                    "revision": 30,
+                    "step_run_id": "sr_00000000000000000000000027"
+                  }
+                }
+              }
+            ],
+            "satisfied": true
+          },
+          "step_run_id": "sr_00000000000000000000000019",
+          "type": "LoopChecked"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 31
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 300007,
+        "event": {
+          "status": "succeeded",
+          "step_run_id": "sr_00000000000000000000000019",
+          "type": "StepCompleted",
+          "verdict": "fail"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 32
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 300007,
+        "event": {
+          "reads": [],
+          "step_id": "decide",
+          "step_run_id": "sr_00000000000000000000000032",
+          "type": "StepReady"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 33
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 300007,
+        "event": {
+          "selection": {
+            "base_sequence": 33,
+            "choice": {
+              "index": 0,
+              "kind": "case"
+            },
+            "reads": [
+              {
+                "kind": "Value",
+                "origin": {
+                  "path": "steps.smoke.verdict",
+                  "record": {
+                    "execution_id": "exe_00000000000000000000000001",
+                    "iteration_path": [],
+                    "revision": 9,
+                    "step_run_id": "sr_00000000000000000000000001"
+                  }
+                }
+              },
+              {
+                "kind": "Value",
+                "origin": {
+                  "path": "steps.regions.verdict",
+                  "record": {
+                    "execution_id": "exe_00000000000000000000000001",
+                    "iteration_path": [],
+                    "revision": 19,
+                    "step_run_id": "sr_00000000000000000000000009"
+                  }
+                }
+              }
+            ],
+            "step_run_id": "sr_00000000000000000000000032"
+          },
+          "type": "BranchSelected"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 34
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 300007,
+        "event": {
+          "reads": [],
+          "step_id": "signoff",
+          "step_run_id": "sr_00000000000000000000000034",
+          "type": "StepReady"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 35
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 300007,
+        "event": {
+          "snapshot": {
+            "directory_revision": 1,
+            "recipients": [
+              {
+                "kind": "user",
+                "reference": "usr_00000000000000000000000001"
+              },
+              {
+                "kind": "user",
+                "reference": "usr_00000000000000000000000002"
+              }
+            ],
+            "request": {
+              "base_sequence": 35,
+              "step_run_id": "sr_00000000000000000000000034",
+              "targets": [
+                {
+                  "kind": "team",
+                  "reference": "team_00000000000000000000000001"
+                }
+              ]
+            }
+          },
+          "type": "ApprovalRequested"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 36
+      },
+      {
+        "actor": {
+          "kind": "human",
+          "user_id": "usr_00000000000000000000000001"
+        },
+        "at_ms": 300008,
+        "event": {
+          "type": "ApprovalVoted",
+          "vote": {
+            "actor": {
+              "kind": "human",
+              "user_id": "usr_00000000000000000000000001"
+            },
+            "at_ms": 300008,
+            "base_sequence": 36,
+            "comment": "Reviewed the evidence.",
+            "credential_ref": "tok_fixture_public_id",
+            "eligibility": {
+              "directory_revision": 1,
+              "eligible": true,
+              "matched_recipients": [
+                {
+                  "kind": "team",
+                  "reference": "team_00000000000000000000000001"
+                }
+              ]
+            },
+            "option": "keep",
+            "step_run_id": "sr_00000000000000000000000034"
+          }
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 37
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 300008,
+        "event": {
+          "decision": {
+            "base_sequence": 37,
+            "comment": "Reviewed the evidence.",
+            "decided_by": "usr_00000000000000000000000001",
+            "option": "keep",
+            "signers": [
+              "usr_00000000000000000000000001"
+            ],
+            "step_run_id": "sr_00000000000000000000000034"
+          },
+          "type": "ApprovalDecided"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 38
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 300008,
+        "event": {
+          "reads": [
+            {
+              "kind": "Value",
+              "origin": {
+                "path": "steps.signoff.outputs.decision",
+                "record": {
+                  "execution_id": "exe_00000000000000000000000001",
+                  "iteration_path": [],
+                  "revision": 38,
+                  "step_run_id": "sr_00000000000000000000000034"
+                }
+              }
+            }
+          ],
+          "reason": "condition",
+          "step_id": "rollback",
+          "step_run_id": "sr_00000000000000000000000038",
+          "type": "StepSkipped"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 39
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 300008,
+        "event": {
+          "reads": [],
+          "step_id": "mark_major",
+          "step_run_id": "sr_00000000000000000000000039",
+          "type": "StepReady"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 40
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 300008,
+        "event": {
+          "change": {
+            "base_sequence": 40,
+            "fields": {
+              "severity": {
+                "String": "major"
+              }
+            },
+            "reads": [
+              {
+                "kind": "Value",
+                "origin": {
+                  "path": "steps.signoff.outputs.decision",
+                  "record": {
+                    "execution_id": "exe_00000000000000000000000001",
+                    "iteration_path": [],
+                    "revision": 38,
+                    "step_run_id": "sr_00000000000000000000000034"
+                  }
+                }
+              }
+            ],
+            "step_run_id": "sr_00000000000000000000000039",
+            "vars": {
+              "result": {
+                "String": "kept"
+              }
+            }
+          },
+          "type": "DataChanged"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 41
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 300008,
+        "event": {
+          "status": "succeeded",
+          "step_run_id": "sr_00000000000000000000000032",
+          "type": "StepCompleted",
+          "verdict": null
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 42
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 300008,
+        "event": {
+          "cause": "Succeeded",
+          "reason": null,
+          "type": "CleanupStarted"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 43
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 300008,
+        "event": {
+          "reads": [],
+          "step_id": "notify",
+          "step_run_id": "sr_00000000000000000000000043",
+          "type": "StepReady"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 44
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 300008,
+        "event": {
+          "type": "AgentWorkAvailable",
+          "work": {
+            "base_sequence": 44,
+            "params": {
+              "Object": {
+                "repo": {
+                  "String": "acme/api"
+                },
+                "workflow": {
+                  "String": "runbook-resume.yml"
+                }
+              }
+            },
+            "reads": [],
+            "ready_steps": [
+              {
+                "actor_kind": "agent",
+                "path": "notify",
+                "step_run_id": "sr_00000000000000000000000043",
+                "title": "Post the report to the deploys channel"
+              }
+            ],
+            "reason": "cleanup"
+          }
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 45
+      },
+      {
+        "actor": {
+          "kind": "agent",
+          "model": null,
+          "name": "fixture-agent",
+          "principal_id": "service-checker",
+          "session_id": "session-current"
+        },
+        "at_ms": 300009,
+        "event": {
+          "report": {
+            "evidence": [],
+            "logs": [],
+            "outputs": {},
+            "status": "succeeded",
+            "summary": "Fixture work completed.",
+            "verdict": null
+          },
+          "step_run_id": "sr_00000000000000000000000043",
+          "type": "StepReported"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 46
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 300009,
+        "event": {
+          "root": "Top",
+          "type": "CleanupRootCompleted"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 47
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "at_ms": 300009,
+        "event": {
+          "outputs": {
+            "reads": [
+              {
+                "kind": "Value",
+                "origin": {
+                  "path": "vars.result",
+                  "record": {
+                    "execution_id": "exe_00000000000000000000000001",
+                    "iteration_path": [],
+                    "revision": 41,
+                    "step_run_id": null
+                  }
+                }
+              }
+            ],
+            "values": {
+              "result": {
+                "String": "kept"
+              }
+            }
+          },
+          "status": "succeeded",
+          "type": "ExecutionCompleted"
+        },
+        "execution_id": "exe_00000000000000000000000001",
+        "seq": 48
+      }
+    ],
+    "fields": {
+      "severity": "major"
+    },
+    "loop": {
+      "exhausted": false,
+      "satisfied": true,
+      "verdict": "fail"
+    },
+    "result": "kept",
+    "status": "succeeded"
+  }
+}

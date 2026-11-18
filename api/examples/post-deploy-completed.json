@@ -1,0 +1,313 @@
+{
+  "amended": false,
+  "amendments": [],
+  "fields": {
+    "severity": "major"
+  },
+  "id": "exe_00000000000000000000000001",
+  "inputs": {
+    "regions": [
+      "east",
+      "west"
+    ],
+    "service": "api",
+    "version": "commit-a"
+  },
+  "pending_terminal_status": null,
+  "phase": "completed",
+  "rerun_of": null,
+  "result": "rolled_back",
+  "resume_brief": null,
+  "runbook_version": 1,
+  "runbook_version_id": "rbv_00000000000000000000000001",
+  "schema_revision": 1,
+  "stale_step_ids": [],
+  "status": "succeeded",
+  "steps": [
+    {
+      "actor": null,
+      "amended": false,
+      "amendments": [],
+      "attempt": 1,
+      "checklist": [],
+      "claim": null,
+      "eligible_recipients": [],
+      "exhausted": false,
+      "id": "sr_00000000000000000000000001",
+      "outputs": {},
+      "path": "smoke",
+      "satisfied": false,
+      "schema_revision": 1,
+      "stale": false,
+      "status": "succeeded",
+      "summary": null,
+      "verdict": "fail"
+    },
+    {
+      "actor": {
+        "kind": "agent",
+        "model": null,
+        "name": "fixture-agent",
+        "principal_id": "service-checker",
+        "session_id": "session-current"
+      },
+      "amended": false,
+      "amendments": [],
+      "attempt": 1,
+      "checklist": [],
+      "claim": null,
+      "eligible_recipients": [],
+      "exhausted": false,
+      "id": "sr_00000000000000000000000002",
+      "outputs": {
+        "status_code": 503
+      },
+      "path": "api_health",
+      "satisfied": false,
+      "schema_revision": 1,
+      "stale": false,
+      "status": "succeeded",
+      "summary": "Fixture work completed.",
+      "verdict": "fail"
+    },
+    {
+      "actor": {
+        "kind": "human",
+        "user_id": "usr_00000000000000000000000001"
+      },
+      "amended": false,
+      "amendments": [],
+      "attempt": 1,
+      "checklist": [
+        {
+          "completed": true,
+          "title": "Login page loads"
+        },
+        {
+          "completed": true,
+          "title": "Dashboard shows data"
+        }
+      ],
+      "claim": null,
+      "eligible_recipients": [],
+      "exhausted": false,
+      "id": "sr_00000000000000000000000003",
+      "outputs": {},
+      "path": "login_flow",
+      "satisfied": false,
+      "schema_revision": 1,
+      "stale": false,
+      "status": "succeeded",
+      "summary": "Fixture work completed.",
+      "verdict": "pass"
+    },
+    {
+      "actor": null,
+      "amended": false,
+      "amendments": [],
+      "attempt": 1,
+      "checklist": [],
+      "claim": null,
+      "eligible_recipients": [],
+      "exhausted": false,
+      "id": "sr_00000000000000000000000009",
+      "outputs": {},
+      "path": "regions",
+      "satisfied": false,
+      "schema_revision": 1,
+      "stale": false,
+      "status": "succeeded",
+      "summary": null,
+      "verdict": "pass"
+    },
+    {
+      "actor": null,
+      "amended": false,
+      "amendments": [],
+      "attempt": 1,
+      "checklist": [],
+      "claim": null,
+      "eligible_recipients": [],
+      "exhausted": false,
+      "id": "sr_00000000000000000000000019",
+      "outputs": {},
+      "path": "stabilize",
+      "satisfied": false,
+      "schema_revision": 1,
+      "stale": false,
+      "status": "skipped",
+      "summary": null,
+      "verdict": null
+    },
+    {
+      "actor": null,
+      "amended": false,
+      "amendments": [],
+      "attempt": 1,
+      "checklist": [],
+      "claim": null,
+      "eligible_recipients": [],
+      "exhausted": false,
+      "id": "sr_00000000000000000000000020",
+      "outputs": {},
+      "path": "decide",
+      "satisfied": false,
+      "schema_revision": 1,
+      "stale": false,
+      "status": "succeeded",
+      "summary": null,
+      "verdict": null
+    },
+    {
+      "actor": {
+        "kind": "human",
+        "user_id": "usr_00000000000000000000000001"
+      },
+      "amended": false,
+      "amendments": [],
+      "attempt": 1,
+      "checklist": [],
+      "claim": null,
+      "eligible_recipients": [],
+      "exhausted": false,
+      "id": "sr_00000000000000000000000022",
+      "outputs": {
+        "comment": "Reviewed the evidence.",
+        "decided_by": "usr_00000000000000000000000001",
+        "decision": "rollback"
+      },
+      "path": "signoff",
+      "satisfied": false,
+      "schema_revision": 1,
+      "stale": false,
+      "status": "succeeded",
+      "summary": null,
+      "verdict": null
+    },
+    {
+      "actor": {
+        "kind": "agent",
+        "model": null,
+        "name": "fixture-agent",
+        "principal_id": "service-checker",
+        "session_id": "session-current"
+      },
+      "amended": false,
+      "amendments": [],
+      "attempt": 1,
+      "checklist": [],
+      "claim": null,
+      "eligible_recipients": [],
+      "exhausted": false,
+      "id": "sr_00000000000000000000000026",
+      "outputs": {},
+      "path": "rollback",
+      "satisfied": false,
+      "schema_revision": 1,
+      "stale": false,
+      "status": "succeeded",
+      "summary": "Fixture work completed.",
+      "verdict": null
+    },
+    {
+      "actor": null,
+      "amended": false,
+      "amendments": [],
+      "attempt": 1,
+      "checklist": [],
+      "claim": null,
+      "eligible_recipients": [],
+      "exhausted": false,
+      "id": "sr_00000000000000000000000029",
+      "outputs": {},
+      "path": "mark_major",
+      "satisfied": false,
+      "schema_revision": 1,
+      "stale": false,
+      "status": "succeeded",
+      "summary": null,
+      "verdict": null
+    },
+    {
+      "actor": {
+        "kind": "agent",
+        "model": null,
+        "name": "fixture-agent",
+        "principal_id": "service-checker",
+        "session_id": "session-current"
+      },
+      "amended": false,
+      "amendments": [],
+      "attempt": 1,
+      "checklist": [],
+      "claim": null,
+      "eligible_recipients": [],
+      "exhausted": false,
+      "id": "sr_00000000000000000000000033",
+      "outputs": {},
+      "path": "notify",
+      "satisfied": false,
+      "schema_revision": 1,
+      "stale": false,
+      "status": "succeeded",
+      "summary": "Fixture work completed.",
+      "verdict": null
+    },
+    {
+      "actor": {
+        "kind": "agent",
+        "model": null,
+        "name": "fixture-agent",
+        "principal_id": "service-checker",
+        "session_id": "session-current"
+      },
+      "amended": false,
+      "amendments": [],
+      "attempt": 1,
+      "checklist": [],
+      "claim": null,
+      "eligible_recipients": [],
+      "exhausted": false,
+      "id": "sr_00000000000000000000000012",
+      "outputs": {
+        "rate": 0.001
+      },
+      "path": "regions[0].error_rate",
+      "satisfied": false,
+      "schema_revision": 1,
+      "stale": false,
+      "status": "succeeded",
+      "summary": "Fixture work completed.",
+      "verdict": "pass"
+    },
+    {
+      "actor": {
+        "kind": "agent",
+        "model": null,
+        "name": "fixture-agent",
+        "principal_id": "service-checker",
+        "session_id": "session-current"
+      },
+      "amended": false,
+      "amendments": [],
+      "attempt": 1,
+      "checklist": [],
+      "claim": null,
+      "eligible_recipients": [],
+      "exhausted": false,
+      "id": "sr_00000000000000000000000013",
+      "outputs": {
+        "rate": 0.001
+      },
+      "path": "regions[1].error_rate",
+      "satisfied": false,
+      "schema_revision": 1,
+      "stale": false,
+      "status": "succeeded",
+      "summary": "Fixture work completed.",
+      "verdict": "pass"
+    }
+  ],
+  "tags": [],
+  "title": "Post-deploy verification"
+}

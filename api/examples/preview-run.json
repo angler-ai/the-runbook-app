@@ -1,0 +1,27 @@
+{
+  "schema_revision": 1,
+  "id": "exe_01JABCDEFGHJKMNPQRSTVWXYZ0",
+  "runbook_version_id": "rbv_01JABCDEFGHJKMNPQRSTVWXYZ0",
+  "runbook_version": null,
+  "title": "Preview post-deploy",
+  "status": "running",
+  "phase": "ordinary",
+  "result": null,
+  "pending_terminal_status": null,
+  "inputs": {
+    "service": "api",
+    "version": "commit-a"
+  },
+  "fields": {
+    "severity": "major"
+  },
+  "tags": [
+    "preview"
+  ],
+  "steps": [],
+  "amended": false,
+  "amendments": [],
+  "stale_step_ids": [],
+  "rerun_of": null,
+  "resume_brief": null
+}

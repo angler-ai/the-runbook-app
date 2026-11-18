@@ -1,0 +1,26 @@
+{
+  "name": "runbook-cloudflare",
+  "private": true,
+  "description": "LOCAL-ONLY Cloudflare Workers harness for The Runbook (CF1 spike). Never deploy from here.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "node scripts/build-worker.mjs",
+    "test": "node scripts/build-worker.mjs && node --test --test-concurrency=1 tests/*.test.mjs",
+    "test:only": "node --test --test-concurrency=1 tests/*.test.mjs",
+    "dev": "node scripts/build-worker.mjs && node scripts/dev-stack.mjs",
+    "contract": "node contract/run.mjs",
+    "assets": "node scripts/prepare-assets.mjs",
+    "update": "node scripts/update.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "miniflare": "5.20260918.0-alpha",
+    "workerd": "1.20260918.1",
+    "wrangler": "4.135.0"
+  },
+  "version": "0.1.0",
+  "license": "AGPL-3.0-only"
+}

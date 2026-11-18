@@ -1,0 +1,87 @@
+# The Runbook server against an existing PostgreSQL 14+ database (managed
+# Postgres, a host install, another stack). No bundled database; use it
+# instead of docker-compose.yml, not with it:
+#
+#   docker compose -f deploy/docker-compose.external-db.yml --env-file deploy/.env up -d --build
+#   docker compose -f deploy/docker-compose.external-db.yml --env-file deploy/.env exec server \
+#     runbook-server bootstrap --owner-email you@example.test
+#
+# DATABASE_URL must name a database the role may create a schema in; the
+# server creates and migrates the `runbook` schema on start. Add
+# `sslmode=verify-full` for anything beyond a private network (with
+# `sslrootcert=<CA file>` when the provider's CA is not a public one;
+# `require` encrypts without checking the certificate).
+#
+# A database on the Docker host: use host.docker.internal as the host name.
+# The extra_hosts entry below maps it to the host gateway on native Linux
+# (Docker Desktop provides it already). On Linux that address is the bridge
+# gateway, not loopback, so PostgreSQL must listen on an interface the
+# container can reach (listen_addresses including the docker0/bridge address,
+# and a pg_hba.conf rule for the bridge subnet); a database bound to
+# 127.0.0.1 only is reachable from Docker Desktop but not from Linux. A
+# database in another container: attach the server to that container's
+# network (an extra -f file adding the network) and use its name in the URL.
+name: runbook-external-db
+
+services:
+  server:
+    image: ${RUNBOOK_IMAGE:-runbook-pilot:local}
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        RUNBOOK_CACHE_ID: ${RUNBOOK_CACHE_ID:-default}
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL to your PostgreSQL 14+ database}
+      # Behind a transaction-mode pooler (PgBouncer), also set
+      # DATABASE_URL_DIRECT to a direct endpoint for LISTEN; it must not be
+      # set to an empty value.
+      RUNBOOK_ORIGIN: ${RUNBOOK_ORIGIN:-http://localhost:8080}
+      RUNBOOK_LISTEN_ADDR: 0.0.0.0:8080
+      RUNBOOK_WEBHOOK_SECRET_KEY: ${RUNBOOK_WEBHOOK_SECRET_KEY:?set RUNBOOK_WEBHOOK_SECRET_KEY (openssl rand -base64 32)}
+      RUNBOOK_ALLOW_PRIVATE_WEBHOOK_TARGETS: ${RUNBOOK_ALLOW_PRIVATE_WEBHOOK_TARGETS:-false}
+      RUNBOOK_ALLOW_LINK_LOCAL_WEBHOOK_TARGETS: ${RUNBOOK_ALLOW_LINK_LOCAL_WEBHOOK_TARGETS:-false}
+      # The web UI the image ships; set RUNBOOK_WEB_DIR= (empty) to turn it off.
+      RUNBOOK_WEB_DIR: ${RUNBOOK_WEB_DIR-/usr/share/runbook/web}
+      # Sign-in (D48). Off until RUNBOOK_AUTH_SECRET is set; email codes need
+      # RUNBOOK_SMTP_URL and RUNBOOK_SMTP_FROM, Google needs both client
+      # values. Unset values arrive empty, which means unset. See .env.example.
+      RUNBOOK_AUTH_SECRET: ${RUNBOOK_AUTH_SECRET:-}
+      RUNBOOK_AUTH_METHODS: ${RUNBOOK_AUTH_METHODS:-}
+      RUNBOOK_AUTH_ALLOWED_DOMAINS: ${RUNBOOK_AUTH_ALLOWED_DOMAINS:-}
+      # The TLS proxy in front, whose X-Forwarded-For names the client for
+      # per-IP limits. Empty trusts none. See .env.example.
+      RUNBOOK_TRUSTED_PROXIES: ${RUNBOOK_TRUSTED_PROXIES:-}
+      RUNBOOK_SMTP_URL: ${RUNBOOK_SMTP_URL:-}
+      RUNBOOK_SMTP_FROM: ${RUNBOOK_SMTP_FROM:-}
+      RUNBOOK_GOOGLE_CLIENT_ID: ${RUNBOOK_GOOGLE_CLIENT_ID:-}
+      RUNBOOK_GOOGLE_CLIENT_SECRET: ${RUNBOOK_GOOGLE_CLIENT_SECRET:-}
+      # Evidence uploads (D49–D51). Off until RUNBOOK_USERCONTENT_ORIGIN and
+      # RUNBOOK_UPLOAD_SIGNING_KEY are set. User files are served from their
+      # own origin by a second listener on 8081 (D50), published as
+      # RUNBOOK_USERCONTENT_HOST_PORT; it answers nothing else.
+      RUNBOOK_UPLOAD_SIGNING_KEY: ${RUNBOOK_UPLOAD_SIGNING_KEY:-}
+      RUNBOOK_USERCONTENT_ORIGIN: ${RUNBOOK_USERCONTENT_ORIGIN:-}
+      RUNBOOK_USERCONTENT_LISTEN_ADDR: 0.0.0.0:8081
+      # Theme colours (UI-1), each #rrggbb; empty means the web app's own.
+      # An invalid value refuses startup. See .env.example.
+      RUNBOOK_THEME_ACCENT: ${RUNBOOK_THEME_ACCENT:-}
+      RUNBOOK_THEME_ACCENT_SECONDARY: ${RUNBOOK_THEME_ACCENT_SECONDARY:-}
+      RUNBOOK_THEME_DARK_ACCENT: ${RUNBOOK_THEME_DARK_ACCENT:-}
+      RUNBOOK_THEME_DARK_ACCENT_SECONDARY: ${RUNBOOK_THEME_DARK_ACCENT_SECONDARY:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${RUNBOOK_BIND_ADDRESS:-127.0.0.1}:${RUNBOOK_HOST_PORT:-8080}:8080"
+      - "${RUNBOOK_BIND_ADDRESS:-127.0.0.1}:${RUNBOOK_USERCONTENT_HOST_PORT:-8081}:8081"
+    # Hardening (as in docker-compose.yml): read-only root, no capabilities,
+    # no privilege gain, bounded memory and processes.
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+      - /home/runbook:size=16m,uid=10001,gid=10001,mode=0700
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: ${RUNBOOK_MEMORY_LIMIT:-1g}
+    pids_limit: 200

@@ -1,0 +1,4 @@
+-- D1: 0019_execution_credentials.sql
+-- In the Cloudflare edition, execution credentials are owned by ExecutionDO (0001_execution.sql).
+-- This migration file is intentionally empty of D1 statements so D1 migration numbering
+-- remains 1:1 with Postgres migrations.

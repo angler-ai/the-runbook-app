@@ -1,0 +1,46 @@
+apiVersion: therunbook.app/v1
+kind: Runbook
+metadata: {id: golden, title: Golden, owners: [user:alice]}
+spec:
+  inputs:
+    regions: {type: list, items: {type: string}, default: [east, west]}
+  vars: {mode: none, last: none}
+  steps:
+    - id: probe
+      title: Probe
+      timeout: 10m
+      retry: {max_attempts: 2}
+      outputs: {rate: {type: number}}
+    - id: classify
+      set: {vars: {mode: classified}}
+    - id: route
+      switch:
+        cases:
+          - when: "${{ steps.probe.outputs.rate > 0.5 }}"
+            steps: [{id: escalate, title: Escalate}]
+        default:
+          steps: [{id: note, set: {vars: {last: noted}}}]
+    - id: regions
+      foreach:
+        items: "${{ inputs.regions }}"
+        as: region
+        key: "${{ region }}"
+        max_items: 2
+        concurrency: 2
+        steps:
+          - {id: check, title: Check, check: true}
+    - id: settle
+      wait: {for: 5m, timeout: 5m}
+    - id: gate
+      approval: {prompt: Proceed?, options: [go, stop], approvers: {users: [alice]}}
+    - id: fan
+      parallel:
+        - {id: left, title: Left}
+        - id: repeat
+          loop:
+            max_iterations: 2
+            until: "${{ iteration == 2 }}"
+            steps: [{id: tick, set: {vars: {last: "${{ steps.gate.outputs.decision }}"}}}]
+  finally:
+    - {id: report, title: Report}
+  outputs: {result: "${{ vars.mode }}"}

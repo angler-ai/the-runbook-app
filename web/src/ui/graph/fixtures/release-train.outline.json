@@ -1,0 +1,417 @@
+{
+  "description": "Ships a release across regions with canaries, agent checks, a risk-based approval path, a customer-facing go signal and cleanup.",
+  "finally": [
+    {
+      "actor": "agent",
+      "hint": "Agent",
+      "id": "retro_notes",
+      "instructions": "Summarize what shipped, any rollbacks and follow-ups, with the run link.",
+      "kind": "task",
+      "onFailure": "handoff",
+      "path": "/spec/finally/0",
+      "timeout": "20m",
+      "title": "Write the release notes summary"
+    }
+  ],
+  "id": "release-train",
+  "stepBudget": 42,
+  "steps": [
+    {
+      "branches": [
+        {
+          "children": [
+            {
+              "actor": "agent",
+              "hint": "Agent",
+              "id": "preflight_failed",
+              "instructions": "Post which preflight check failed and stop the train.",
+              "kind": "task",
+              "onFailure": "handoff",
+              "path": "/spec/steps/0/catch/0",
+              "timeout": "20m",
+              "title": "Tell the release channel preflight failed"
+            },
+            {
+              "hint": "Set fields",
+              "id": "halt_preflight",
+              "kind": "set",
+              "path": "/spec/steps/0/catch/1",
+              "set": {
+                "fields": [
+                  "outcome"
+                ]
+              }
+            },
+            {
+              "end": {
+                "message": "Preflight failed",
+                "status": "failed"
+              },
+              "hint": "End: failed",
+              "id": "stop_after_preflight",
+              "kind": "end",
+              "path": "/spec/steps/0/catch/2"
+            }
+          ],
+          "kind": "catch",
+          "label": "catch"
+        }
+      ],
+      "children": [
+        {
+          "children": [
+            {
+              "actor": "agent",
+              "check": true,
+              "hint": "Agent · check",
+              "id": "changelog",
+              "instructions": "Confirm the changelog for ${{ inputs.version }} lists every merged change and links the release notes.",
+              "kind": "task",
+              "onFailure": "handoff",
+              "path": "/spec/steps/0/steps/0/parallel/0",
+              "timeout": "20m",
+              "title": "Changelog and release notes are ready"
+            },
+            {
+              "actor": "agent",
+              "check": true,
+              "hint": "Agent · check",
+              "id": "migrations",
+              "instructions": "Dry-run pending migrations against a replica and check every one is additive.",
+              "kind": "task",
+              "onFailure": "handoff",
+              "outputs": [
+                {
+                  "name": "pending",
+                  "required": true,
+                  "type": "integer"
+                }
+              ],
+              "path": "/spec/steps/0/steps/0/parallel/1",
+              "timeout": "20m",
+              "title": "Database migrations are backward compatible"
+            },
+            {
+              "actor": "agent",
+              "check": true,
+              "hint": "Agent · check",
+              "id": "freeze",
+              "instructions": "Check the change calendar for a freeze or an open major incident.",
+              "kind": "task",
+              "onFailure": "handoff",
+              "path": "/spec/steps/0/steps/0/parallel/2",
+              "timeout": "20m",
+              "title": "No change freeze is active"
+            }
+          ],
+          "hint": "Run in parallel",
+          "id": "checks",
+          "join": {
+            "kind": "all"
+          },
+          "kind": "parallel",
+          "path": "/spec/steps/0/steps/0",
+          "title": "Preflight checks"
+        },
+        {
+          "actor": "agent",
+          "hint": "Agent",
+          "id": "build",
+          "instructions": "Build images for ${{ inputs.version }}, sign them and record the digest.",
+          "kind": "task",
+          "onFailure": "handoff",
+          "outputs": [
+            {
+              "name": "digest",
+              "required": true,
+              "type": "string"
+            }
+          ],
+          "path": "/spec/steps/0/steps/1",
+          "timeout": "20m",
+          "title": "Build and sign the release artifacts"
+        }
+      ],
+      "hint": "Group",
+      "id": "preflight",
+      "kind": "group",
+      "path": "/spec/steps/0",
+      "title": "Preflight"
+    },
+    {
+      "branches": [
+        {
+          "children": [
+            {
+              "actor": "human",
+              "approval": {
+                "approvers": [
+                  "team:oncall"
+                ],
+                "escalateTo": [
+                  "team:customer-success"
+                ],
+                "escalationTimeout": "1h",
+                "min": 1,
+                "onTimeout": "escalate",
+                "options": [
+                  {
+                    "id": "ship",
+                    "title": "ship"
+                  },
+                  {
+                    "id": "hold",
+                    "title": "hold"
+                  }
+                ],
+                "prompt": "Approve the high-risk release ${{ inputs.version }}?",
+                "timeout": "4h"
+              },
+              "hint": "Approval",
+              "id": "cab_review",
+              "kind": "approval",
+              "path": "/spec/steps/1/switch/cases/0/steps/0",
+              "title": "Change advisory review"
+            },
+            {
+              "end": {
+                "message": "Held by the change advisory review",
+                "status": "cancelled"
+              },
+              "guard": "${{ steps.cab_review.outputs.decision == 'hold' }}",
+              "hint": "End: cancelled",
+              "id": "hold_if_rejected",
+              "kind": "end",
+              "path": "/spec/steps/1/switch/cases/0/steps/1"
+            }
+          ],
+          "kind": "case",
+          "label": "inputs.risk == 'high'",
+          "when": "${{ inputs.risk == 'high' }}"
+        },
+        {
+          "children": [
+            {
+              "actor": "human",
+              "approval": {
+                "approvers": [
+                  "team:oncall"
+                ],
+                "min": 1,
+                "onTimeout": "escalate",
+                "options": [
+                  {
+                    "id": "ship",
+                    "title": "ship"
+                  },
+                  {
+                    "id": "hold",
+                    "title": "hold"
+                  }
+                ],
+                "prompt": "Ship ${{ inputs.version }}?",
+                "timeout": "1h"
+              },
+              "hint": "Approval",
+              "id": "lead_signoff",
+              "kind": "approval",
+              "path": "/spec/steps/1/switch/cases/1/steps/0",
+              "title": "Release lead signs off"
+            }
+          ],
+          "kind": "case",
+          "label": "inputs.risk == 'medium'",
+          "when": "${{ inputs.risk == 'medium' }}"
+        },
+        {
+          "children": [
+            {
+              "hint": "Set vars",
+              "id": "auto_ok",
+              "kind": "set",
+              "path": "/spec/steps/1/switch/default/steps/0",
+              "set": {
+                "vars": [
+                  "decision"
+                ]
+              }
+            }
+          ],
+          "kind": "default",
+          "label": "default"
+        }
+      ],
+      "hint": "Decision",
+      "id": "risk_gate",
+      "kind": "switch",
+      "path": "/spec/steps/1",
+      "title": "Risk gate"
+    },
+    {
+      "children": [
+        {
+          "actor": "agent",
+          "check": true,
+          "hint": "Agent · check",
+          "id": "canary_us",
+          "instructions": "Deploy to 5% of us-east and compare error rate and p95 latency with the baseline for 15 minutes.",
+          "kind": "task",
+          "onFailure": "handoff",
+          "path": "/spec/steps/2/parallel/0",
+          "timeout": "20m",
+          "title": "Canary in us-east"
+        },
+        {
+          "actor": "agent",
+          "check": true,
+          "hint": "Agent · check",
+          "id": "canary_eu",
+          "instructions": "Deploy to 5% of eu-west and compare error rate and p95 latency with the baseline for 15 minutes.",
+          "kind": "task",
+          "onFailure": "handoff",
+          "path": "/spec/steps/2/parallel/1",
+          "timeout": "20m",
+          "title": "Canary in eu-west"
+        }
+      ],
+      "hint": "Run in parallel until one succeeds",
+      "id": "canary",
+      "join": {
+        "kind": "any"
+      },
+      "kind": "parallel",
+      "path": "/spec/steps/2",
+      "title": "Canary"
+    },
+    {
+      "children": [
+        {
+          "actor": "agent",
+          "destructive": true,
+          "hint": "Agent · destructive",
+          "id": "deploy_region",
+          "instructions": "Roll ${{ inputs.version }} out to every instance in ${{ region }}.",
+          "kind": "task",
+          "onFailure": "handoff",
+          "path": "/spec/steps/3/foreach/steps/0",
+          "timeout": "20m",
+          "title": "Deploy to ${{ region }}"
+        },
+        {
+          "children": [
+            {
+              "actor": "agent",
+              "check": true,
+              "hint": "Agent · check",
+              "id": "region_health",
+              "instructions": "Read the 5xx rate in ${{ region }} over the last 5 minutes.",
+              "kind": "task",
+              "onFailure": "handoff",
+              "outputs": [
+                {
+                  "name": "error_rate",
+                  "required": true,
+                  "type": "number"
+                }
+              ],
+              "path": "/spec/steps/3/foreach/steps/1/loop/steps/0",
+              "timeout": "20m",
+              "title": "Error rate in ${{ region }}"
+            }
+          ],
+          "hint": "Repeat up to 4 times",
+          "id": "settle",
+          "kind": "loop",
+          "loop": {
+            "delay": "20s",
+            "maxIterations": 4,
+            "until": "${{ steps.region_health.outputs.error_rate <= 0.01 }}"
+          },
+          "path": "/spec/steps/3/foreach/steps/1",
+          "title": "Wait for ${{ region }} to settle"
+        }
+      ],
+      "foreach": {
+        "as": "region",
+        "concurrency": 1,
+        "items": "${{ inputs.regions }}",
+        "maxItems": 6
+      },
+      "hint": "For each item",
+      "id": "rollout",
+      "kind": "foreach",
+      "path": "/spec/steps/3",
+      "title": "Roll out per region"
+    },
+    {
+      "call": {
+        "runbook": "post-deploy-checks",
+        "with": [
+          "regions",
+          "service",
+          "version"
+        ]
+      },
+      "hint": "Run post-deploy-checks",
+      "id": "verify",
+      "kind": "call",
+      "path": "/spec/steps/4",
+      "title": "Post-deploy checks"
+    },
+    {
+      "children": [
+        {
+          "actor": "human",
+          "assignee": "team:oncall",
+          "checklist": [
+            "Maintenance closed",
+            "Release notes linked"
+          ],
+          "hint": "Human",
+          "id": "status_page",
+          "instructions": "Mark the maintenance window complete on the public status page.",
+          "kind": "task",
+          "onFailure": "handoff",
+          "path": "/spec/steps/5/parallel/0",
+          "timeout": "20m",
+          "title": "Update the status page"
+        },
+        {
+          "hint": "Wait for a signal",
+          "id": "customer_go",
+          "kind": "wait",
+          "path": "/spec/steps/5/parallel/1",
+          "title": "Customer success confirms the go-live email went out",
+          "wait": {
+            "kind": "signal",
+            "signal": "release_email_sent",
+            "timeout": "1d"
+          }
+        }
+      ],
+      "hint": "Run in parallel",
+      "id": "announce",
+      "join": {
+        "kind": "all"
+      },
+      "kind": "parallel",
+      "path": "/spec/steps/5",
+      "title": "Announce"
+    },
+    {
+      "hint": "Set fields and vars",
+      "id": "shipped",
+      "kind": "set",
+      "path": "/spec/steps/6",
+      "set": {
+        "fields": [
+          "outcome"
+        ],
+        "vars": [
+          "decision"
+        ]
+      }
+    }
+  ],
+  "title": "Production release train"
+}

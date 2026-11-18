@@ -1,0 +1,647 @@
+{
+  "header": {
+    "schema_revision": 1,
+    "id": "exe_01JABCDEFGHJKMNPQRSTVWXYZ0",
+    "runbook_version_id": "rbv_01JABCDEFGHJKMNPQRSTVWXYZ0",
+    "runbook_version": 3,
+    "title": "Post-deploy verification",
+    "status": "waiting",
+    "phase": "ordinary",
+    "result": null,
+    "pending_terminal_status": null,
+    "inputs": {
+      "service": "api",
+      "version": "commit-a",
+      "regions": [
+        "us-west",
+        "us-east",
+        "eu-west"
+      ]
+    },
+    "fields": {
+      "severity": "none"
+    },
+    "tags": [],
+    "steps": [
+      {
+        "schema_revision": 1,
+        "id": "sr_01JABCDEFGHJKMNPQRSTVWXYZ0",
+        "path": "smoke.api_health",
+        "status": "succeeded",
+        "verdict": "fail",
+        "outputs": {
+          "status_code": 503
+        },
+        "summary": "Endpoint returned HTTP 503.",
+        "actor": {
+          "kind": "agent",
+          "principal_id": "deploy-checker",
+          "session_id": "check-session",
+          "name": "deploy-checker",
+          "model": null
+        },
+        "claim": null,
+        "attempt": 1,
+        "satisfied": false,
+        "exhausted": false,
+        "checklist": [],
+        "amended": true,
+        "amendments": [
+          {
+            "step_run_id": "sr_01JABCDEFGHJKMNPQRSTVWXYZ0",
+            "from": {
+              "status": "succeeded",
+              "verdict": "fail",
+              "outputs": {
+                "status_code": 503
+              },
+              "summary": "Endpoint returned HTTP 503."
+            },
+            "to": {
+              "status": "succeeded",
+              "verdict": "warn",
+              "outputs": {
+                "cause": "planned-maintenance",
+                "status_code": 503
+              },
+              "summary": "503 was expected during maintenance."
+            },
+            "reason": "Operator review corrected the finding while the run was awaiting signoff.",
+            "by": {
+              "kind": "human",
+              "user_id": "usr_01JABCDEFGHJKMNPQRSTVWXYZ0"
+            }
+          }
+        ],
+        "stale": false,
+        "eligible_recipients": []
+      },
+      {
+        "schema_revision": 1,
+        "id": "sr_01JABCDEFGHJKMNPQRSTVWXYZ3",
+        "path": "smoke.login_flow",
+        "status": "succeeded",
+        "verdict": "pass",
+        "outputs": {},
+        "summary": "Login and dashboard checks passed.",
+        "actor": {
+          "kind": "human",
+          "user_id": "usr_01JABCDEFGHJKMNPQRSTVWXYZ0"
+        },
+        "claim": null,
+        "attempt": 1,
+        "satisfied": false,
+        "exhausted": false,
+        "checklist": [
+          {
+            "title": "Login page loads",
+            "completed": true
+          },
+          {
+            "title": "Dashboard shows data",
+            "completed": true
+          }
+        ],
+        "amended": false,
+        "amendments": [],
+        "stale": false,
+        "eligible_recipients": []
+      },
+      {
+        "schema_revision": 1,
+        "id": "sr_01JABCDEFGHJKMNPQRSTVWXYZ1",
+        "path": "regions[0].error_rate",
+        "status": "succeeded",
+        "verdict": "fail",
+        "outputs": {
+          "rate": 0.012
+        },
+        "summary": "us-west: 1.2% error rate exceeds the normal 0.5% baseline.",
+        "actor": {
+          "kind": "agent",
+          "principal_id": "deploy-checker",
+          "session_id": "check-session",
+          "name": "deploy-checker",
+          "model": null
+        },
+        "claim": null,
+        "attempt": 1,
+        "satisfied": false,
+        "exhausted": false,
+        "checklist": [],
+        "amended": false,
+        "amendments": [],
+        "stale": false,
+        "eligible_recipients": []
+      },
+      {
+        "schema_revision": 1,
+        "id": "sr_01JABCDEFGHJKMNPQRSTVWXYZ4",
+        "path": "regions[1].error_rate",
+        "status": "succeeded",
+        "verdict": "fail",
+        "outputs": {
+          "rate": 0.012
+        },
+        "summary": "us-east: 1.2% error rate exceeds the normal 0.5% baseline.",
+        "actor": {
+          "kind": "agent",
+          "principal_id": "deploy-checker",
+          "session_id": "check-session",
+          "name": "deploy-checker",
+          "model": null
+        },
+        "claim": null,
+        "attempt": 1,
+        "satisfied": false,
+        "exhausted": false,
+        "checklist": [],
+        "amended": false,
+        "amendments": [],
+        "stale": false,
+        "eligible_recipients": []
+      },
+      {
+        "schema_revision": 1,
+        "id": "sr_01JABCDEFGHJKMNPQRSTVWXYZ5",
+        "path": "regions[2].error_rate",
+        "status": "succeeded",
+        "verdict": "fail",
+        "outputs": {
+          "rate": 0.012
+        },
+        "summary": "eu-west: 1.2% error rate exceeds the normal 0.5% baseline.",
+        "actor": {
+          "kind": "agent",
+          "principal_id": "deploy-checker",
+          "session_id": "check-session",
+          "name": "deploy-checker",
+          "model": null
+        },
+        "claim": null,
+        "attempt": 1,
+        "satisfied": false,
+        "exhausted": false,
+        "checklist": [],
+        "amended": false,
+        "amendments": [],
+        "stale": false,
+        "eligible_recipients": []
+      },
+      {
+        "schema_revision": 1,
+        "id": "sr_01JABCDEFGHJKMNPQRSTVWXYZ6",
+        "path": "stabilize[0].recheck",
+        "status": "succeeded",
+        "verdict": "fail",
+        "outputs": {
+          "rate": 0.012
+        },
+        "summary": "Error rate remains at 1.2%.",
+        "actor": {
+          "kind": "agent",
+          "principal_id": "deploy-checker",
+          "session_id": "check-session",
+          "name": "deploy-checker",
+          "model": null
+        },
+        "claim": null,
+        "attempt": 1,
+        "satisfied": false,
+        "exhausted": false,
+        "checklist": [],
+        "amended": false,
+        "amendments": [],
+        "stale": false,
+        "eligible_recipients": []
+      },
+      {
+        "schema_revision": 1,
+        "id": "sr_01JABCDEFGHJKMNPQRSTVWXYZ7",
+        "path": "stabilize[1].recheck",
+        "status": "succeeded",
+        "verdict": "fail",
+        "outputs": {
+          "rate": 0.012
+        },
+        "summary": "Error rate remains at 1.2%.",
+        "actor": {
+          "kind": "agent",
+          "principal_id": "deploy-checker",
+          "session_id": "check-session",
+          "name": "deploy-checker",
+          "model": null
+        },
+        "claim": null,
+        "attempt": 1,
+        "satisfied": false,
+        "exhausted": false,
+        "checklist": [],
+        "amended": false,
+        "amendments": [],
+        "stale": false,
+        "eligible_recipients": []
+      },
+      {
+        "schema_revision": 1,
+        "id": "sr_01JABCDEFGHJKMNPQRSTVWXYZ8",
+        "path": "stabilize[2].recheck",
+        "status": "succeeded",
+        "verdict": "fail",
+        "outputs": {
+          "rate": 0.012
+        },
+        "summary": "Error rate remains at 1.2%.",
+        "actor": {
+          "kind": "agent",
+          "principal_id": "deploy-checker",
+          "session_id": "check-session",
+          "name": "deploy-checker",
+          "model": null
+        },
+        "claim": null,
+        "attempt": 1,
+        "satisfied": false,
+        "exhausted": false,
+        "checklist": [],
+        "amended": false,
+        "amendments": [],
+        "stale": false,
+        "eligible_recipients": []
+      },
+      {
+        "schema_revision": 1,
+        "id": "sr_01JABCDEFGHJKMNPQRSTVWXYZ2",
+        "path": "decide.signoff",
+        "status": "waiting",
+        "verdict": null,
+        "outputs": {},
+        "summary": null,
+        "actor": null,
+        "claim": null,
+        "attempt": 1,
+        "satisfied": false,
+        "exhausted": false,
+        "checklist": [],
+        "amended": false,
+        "amendments": [],
+        "stale": true,
+        "eligible_recipients": [
+          {
+            "kind": "team",
+            "reference": "oncall"
+          }
+        ]
+      }
+    ],
+    "amended": true,
+    "amendments": [
+      {
+        "step_run_id": "sr_01JABCDEFGHJKMNPQRSTVWXYZ0",
+        "from": {
+          "status": "succeeded",
+          "verdict": "fail",
+          "outputs": {
+            "status_code": 503
+          },
+          "summary": "Endpoint returned HTTP 503."
+        },
+        "to": {
+          "status": "succeeded",
+          "verdict": "warn",
+          "outputs": {
+            "cause": "planned-maintenance",
+            "status_code": 503
+          },
+          "summary": "503 was expected during maintenance."
+        },
+        "reason": "Operator review corrected the finding while the run was awaiting signoff.",
+        "by": {
+          "kind": "human",
+          "user_id": "usr_01JABCDEFGHJKMNPQRSTVWXYZ0"
+        }
+      }
+    ],
+    "stale_step_ids": [
+      "sr_01JABCDEFGHJKMNPQRSTVWXYZ2"
+    ],
+    "rerun_of": null,
+    "resume_brief": null
+  },
+  "sections": [
+    {
+      "path": "smoke.api_health",
+      "status": "succeeded",
+      "verdict": "fail",
+      "actor": {
+        "kind": "agent",
+        "principal_id": "deploy-checker",
+        "session_id": "check-session",
+        "name": "deploy-checker",
+        "model": null
+      },
+      "summary": "Endpoint returned HTTP 503.",
+      "outputs": {
+        "status_code": 503
+      },
+      "amended": true,
+      "amendments": [
+        {
+          "step_run_id": "sr_01JABCDEFGHJKMNPQRSTVWXYZ0",
+          "from": {
+            "status": "succeeded",
+            "verdict": "fail",
+            "outputs": {
+              "status_code": 503
+            },
+            "summary": "Endpoint returned HTTP 503."
+          },
+          "to": {
+            "status": "succeeded",
+            "verdict": "warn",
+            "outputs": {
+              "cause": "planned-maintenance",
+              "status_code": 503
+            },
+            "summary": "503 was expected during maintenance."
+          },
+          "reason": "Operator review corrected the finding while the run was awaiting signoff.",
+          "by": {
+            "kind": "human",
+            "user_id": "usr_01JABCDEFGHJKMNPQRSTVWXYZ0"
+          }
+        }
+      ],
+      "stale": false,
+      "step_run_id": "sr_01JABCDEFGHJKMNPQRSTVWXYZ0",
+      "title": "Health endpoint returns 200",
+      "evidence": [],
+      "approval": null,
+      "memory_read": [],
+      "logs": {
+        "href": "/v1/step-runs/sr_01JABCDEFGHJKMNPQRSTVWXYZ0/logs",
+        "next_cursor": null
+      }
+    },
+    {
+      "path": "smoke.login_flow",
+      "status": "succeeded",
+      "verdict": "pass",
+      "actor": {
+        "kind": "human",
+        "user_id": "usr_01JABCDEFGHJKMNPQRSTVWXYZ0"
+      },
+      "summary": "Login and dashboard checks passed.",
+      "outputs": {},
+      "amended": false,
+      "amendments": [],
+      "stale": false,
+      "step_run_id": "sr_01JABCDEFGHJKMNPQRSTVWXYZ3",
+      "title": "Log in as the test user",
+      "evidence": [],
+      "approval": null,
+      "memory_read": [],
+      "logs": {
+        "href": "/v1/step-runs/sr_01JABCDEFGHJKMNPQRSTVWXYZ3/logs",
+        "next_cursor": null
+      }
+    },
+    {
+      "path": "regions[0].error_rate",
+      "status": "succeeded",
+      "verdict": "fail",
+      "actor": {
+        "kind": "agent",
+        "principal_id": "deploy-checker",
+        "session_id": "check-session",
+        "name": "deploy-checker",
+        "model": null
+      },
+      "summary": "us-west: 1.2% error rate exceeds the normal 0.5% baseline.",
+      "outputs": {
+        "rate": 0.012
+      },
+      "amended": false,
+      "amendments": [],
+      "stale": false,
+      "step_run_id": "sr_01JABCDEFGHJKMNPQRSTVWXYZ1",
+      "title": "Error rate in us-west",
+      "evidence": [
+        "https://metrics.example.invalid/dashboards/error-rate"
+      ],
+      "approval": null,
+      "memory_read": [
+        {
+          "memory_id": "mem_01JABCDEFGHJKMNPQRSTVWXYZ0",
+          "revision": 2
+        }
+      ],
+      "logs": {
+        "href": "/v1/step-runs/sr_01JABCDEFGHJKMNPQRSTVWXYZ1/logs",
+        "next_cursor": null
+      }
+    },
+    {
+      "path": "regions[1].error_rate",
+      "status": "succeeded",
+      "verdict": "fail",
+      "actor": {
+        "kind": "agent",
+        "principal_id": "deploy-checker",
+        "session_id": "check-session",
+        "name": "deploy-checker",
+        "model": null
+      },
+      "summary": "us-east: 1.2% error rate exceeds the normal 0.5% baseline.",
+      "outputs": {
+        "rate": 0.012
+      },
+      "amended": false,
+      "amendments": [],
+      "stale": false,
+      "step_run_id": "sr_01JABCDEFGHJKMNPQRSTVWXYZ4",
+      "title": "Error rate in us-east",
+      "evidence": [
+        "https://metrics.example.invalid/dashboards/error-rate"
+      ],
+      "approval": null,
+      "memory_read": [],
+      "logs": {
+        "href": "/v1/step-runs/sr_01JABCDEFGHJKMNPQRSTVWXYZ4/logs",
+        "next_cursor": null
+      }
+    },
+    {
+      "path": "regions[2].error_rate",
+      "status": "succeeded",
+      "verdict": "fail",
+      "actor": {
+        "kind": "agent",
+        "principal_id": "deploy-checker",
+        "session_id": "check-session",
+        "name": "deploy-checker",
+        "model": null
+      },
+      "summary": "eu-west: 1.2% error rate exceeds the normal 0.5% baseline.",
+      "outputs": {
+        "rate": 0.012
+      },
+      "amended": false,
+      "amendments": [],
+      "stale": false,
+      "step_run_id": "sr_01JABCDEFGHJKMNPQRSTVWXYZ5",
+      "title": "Error rate in eu-west",
+      "evidence": [
+        "https://metrics.example.invalid/dashboards/error-rate"
+      ],
+      "approval": null,
+      "memory_read": [],
+      "logs": {
+        "href": "/v1/step-runs/sr_01JABCDEFGHJKMNPQRSTVWXYZ5/logs",
+        "next_cursor": null
+      }
+    },
+    {
+      "path": "stabilize[0].recheck",
+      "status": "succeeded",
+      "verdict": "fail",
+      "actor": {
+        "kind": "agent",
+        "principal_id": "deploy-checker",
+        "session_id": "check-session",
+        "name": "deploy-checker",
+        "model": null
+      },
+      "summary": "Error rate remains at 1.2%.",
+      "outputs": {
+        "rate": 0.012
+      },
+      "amended": false,
+      "amendments": [],
+      "stale": false,
+      "step_run_id": "sr_01JABCDEFGHJKMNPQRSTVWXYZ6",
+      "title": "Re-check the global error rate",
+      "evidence": [
+        "https://metrics.example.invalid/dashboards/error-rate"
+      ],
+      "approval": null,
+      "memory_read": [],
+      "logs": {
+        "href": "/v1/step-runs/sr_01JABCDEFGHJKMNPQRSTVWXYZ6/logs",
+        "next_cursor": null
+      }
+    },
+    {
+      "path": "stabilize[1].recheck",
+      "status": "succeeded",
+      "verdict": "fail",
+      "actor": {
+        "kind": "agent",
+        "principal_id": "deploy-checker",
+        "session_id": "check-session",
+        "name": "deploy-checker",
+        "model": null
+      },
+      "summary": "Error rate remains at 1.2%.",
+      "outputs": {
+        "rate": 0.012
+      },
+      "amended": false,
+      "amendments": [],
+      "stale": false,
+      "step_run_id": "sr_01JABCDEFGHJKMNPQRSTVWXYZ7",
+      "title": "Re-check the global error rate",
+      "evidence": [
+        "https://metrics.example.invalid/dashboards/error-rate"
+      ],
+      "approval": null,
+      "memory_read": [],
+      "logs": {
+        "href": "/v1/step-runs/sr_01JABCDEFGHJKMNPQRSTVWXYZ7/logs",
+        "next_cursor": null
+      }
+    },
+    {
+      "path": "stabilize[2].recheck",
+      "status": "succeeded",
+      "verdict": "fail",
+      "actor": {
+        "kind": "agent",
+        "principal_id": "deploy-checker",
+        "session_id": "check-session",
+        "name": "deploy-checker",
+        "model": null
+      },
+      "summary": "Error rate remains at 1.2%.",
+      "outputs": {
+        "rate": 0.012
+      },
+      "amended": false,
+      "amendments": [],
+      "stale": false,
+      "step_run_id": "sr_01JABCDEFGHJKMNPQRSTVWXYZ8",
+      "title": "Re-check the global error rate",
+      "evidence": [
+        "https://metrics.example.invalid/dashboards/error-rate"
+      ],
+      "approval": null,
+      "memory_read": [],
+      "logs": {
+        "href": "/v1/step-runs/sr_01JABCDEFGHJKMNPQRSTVWXYZ8/logs",
+        "next_cursor": null
+      }
+    },
+    {
+      "path": "decide.signoff",
+      "status": "waiting",
+      "verdict": null,
+      "actor": null,
+      "summary": null,
+      "outputs": {},
+      "amended": false,
+      "amendments": [],
+      "stale": true,
+      "step_run_id": "sr_01JABCDEFGHJKMNPQRSTVWXYZ2",
+      "title": "Roll back or keep?",
+      "evidence": [],
+      "approval": {
+        "schema_revision": 1,
+        "step_run_id": "sr_01JABCDEFGHJKMNPQRSTVWXYZ2",
+        "status": "waiting",
+        "prompt": "Checks failed. Choose an action.",
+        "options": [
+          {
+            "id": "keep",
+            "title": "Keep deployment",
+            "auto": false
+          },
+          {
+            "id": "rollback",
+            "title": "Roll back",
+            "auto": false
+          }
+        ],
+        "eligible_recipients": [
+          {
+            "kind": "team",
+            "reference": "oncall"
+          }
+        ],
+        "escalation_recipients": [
+          {
+            "kind": "team",
+            "reference": "eng-leads"
+          }
+        ],
+        "escalated": false,
+        "quorum": 2,
+        "decisions": []
+      },
+      "memory_read": [],
+      "logs": {
+        "href": "/v1/step-runs/sr_01JABCDEFGHJKMNPQRSTVWXYZ2/logs",
+        "next_cursor": null
+      }
+    }
+  ]
+}

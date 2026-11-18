@@ -1,0 +1,33 @@
+apiVersion: therunbook.app/v1
+kind: Runbook
+metadata:
+  id: rollback-deploy
+  title: Roll back a deploy
+  description: Rolls a service back to its previous release after an on-call engineer approves it.
+  owners: [team:oncall]
+  tags: [deploy, production, rollback]
+spec:
+  execution:
+    title: "Roll back ${{ inputs.service }} to ${{ inputs.to_version }}"
+  inputs:
+    service: { type: enum, options: [api, web, worker, billing], required: true }
+    to_version: { type: string, required: true }
+    reason: { type: string, required: true }
+  defaults: { actor: agent }
+  steps:
+    - id: confirm
+      title: Approve the rollback
+      approval:
+        prompt: "Roll ${{ inputs.service }} back to ${{ inputs.to_version }}? Reason: ${{ inputs.reason }}"
+        options: [rollback, cancel]
+        approvers: { teams: [oncall] }
+    - id: rollback
+      if: "${{ steps.confirm.outputs.decision == 'rollback' }}"
+      title: "Roll back ${{ inputs.service }}"
+      destructive: true
+      instructions: Redeploy ${{ inputs.to_version }} of ${{ inputs.service }} with the standard pipeline and wait for it to finish.
+    - id: verify
+      if: "${{ steps.confirm.outputs.decision == 'rollback' }}"
+      title: Health endpoint answers 200 after the rollback
+      check: true
+      instructions: Call the health endpoint and confirm the rolled-back version is serving.

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "runbook": {
+      "command": "runbook",
+      "args": [
+        "mcp",
+        "serve"
+      ]
+    }
+  }
+}

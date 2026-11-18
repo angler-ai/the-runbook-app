@@ -1,0 +1,265 @@
+{
+  "commands": [
+    {
+      "reads": [],
+      "step_id": "shot",
+      "type": "MakeStepReady"
+    },
+    {
+      "type": "NotifyAgentWork",
+      "work": {
+        "base_sequence": 2,
+        "params": null,
+        "reads": [],
+        "ready_steps": [
+          {
+            "actor_kind": "agent",
+            "path": "shot",
+            "step_run_id": "sr_00000000000000000000000001",
+            "title": "Capture the dashboard"
+          }
+        ],
+        "reason": "initial"
+      }
+    },
+    {
+      "reads": [],
+      "step_id": "record",
+      "type": "MakeStepReady"
+    },
+    {
+      "type": "NotifyAgentWork",
+      "work": {
+        "base_sequence": 5,
+        "params": null,
+        "reads": [],
+        "ready_steps": [
+          {
+            "actor_kind": "agent",
+            "path": "record",
+            "step_run_id": "sr_00000000000000000000000004",
+            "title": "Attach the change record"
+          }
+        ],
+        "reason": "initial"
+      }
+    },
+    {
+      "outputs": {
+        "reads": [],
+        "values": {}
+      },
+      "status": "succeeded",
+      "type": "CompleteExecution"
+    }
+  ],
+  "events": [
+    {
+      "actor": {
+        "kind": "system"
+      },
+      "at_ms": 0,
+      "event": {
+        "data": {
+          "context": {
+            "created_by": "",
+            "fields": {},
+            "inputs": {},
+            "limits": {
+              "hard_deadline_at_ms": null,
+              "max_step_runs": null
+            },
+            "project_vars": {},
+            "tags": [],
+            "title": "Test",
+            "url": ""
+          },
+          "reads": [],
+          "vars": {}
+        },
+        "engine_version": 6,
+        "type": "ExecutionStarted"
+      },
+      "execution_id": "exe_00000000000000000000000001",
+      "seq": 1
+    },
+    {
+      "actor": {
+        "kind": "system"
+      },
+      "at_ms": 0,
+      "event": {
+        "reads": [],
+        "step_id": "shot",
+        "step_run_id": "sr_00000000000000000000000001",
+        "type": "StepReady"
+      },
+      "execution_id": "exe_00000000000000000000000001",
+      "seq": 2
+    },
+    {
+      "actor": {
+        "kind": "system"
+      },
+      "at_ms": 0,
+      "event": {
+        "type": "AgentWorkAvailable",
+        "work": {
+          "base_sequence": 2,
+          "params": null,
+          "reads": [],
+          "ready_steps": [
+            {
+              "actor_kind": "agent",
+              "path": "shot",
+              "step_run_id": "sr_00000000000000000000000001",
+              "title": "Capture the dashboard"
+            }
+          ],
+          "reason": "initial"
+        }
+      },
+      "execution_id": "exe_00000000000000000000000001",
+      "seq": 3
+    },
+    {
+      "actor": {
+        "kind": "system"
+      },
+      "at_ms": 10,
+      "event": {
+        "report": {
+          "evidence": [
+            "https://example.test/dash",
+            "evd_00000000000000000000000001"
+          ],
+          "files": [
+            {
+              "id": "evd_00000000000000000000000001",
+              "type": "image/png"
+            }
+          ],
+          "logs": [],
+          "outputs": {},
+          "status": "succeeded",
+          "summary": null,
+          "verdict": null
+        },
+        "step_run_id": "sr_00000000000000000000000001",
+        "type": "StepReported"
+      },
+      "execution_id": "exe_00000000000000000000000001",
+      "seq": 4
+    },
+    {
+      "actor": {
+        "kind": "system"
+      },
+      "at_ms": 10,
+      "event": {
+        "reads": [],
+        "step_id": "record",
+        "step_run_id": "sr_00000000000000000000000004",
+        "type": "StepReady"
+      },
+      "execution_id": "exe_00000000000000000000000001",
+      "seq": 5
+    },
+    {
+      "actor": {
+        "kind": "system"
+      },
+      "at_ms": 10,
+      "event": {
+        "type": "AgentWorkAvailable",
+        "work": {
+          "base_sequence": 5,
+          "params": null,
+          "reads": [],
+          "ready_steps": [
+            {
+              "actor_kind": "agent",
+              "path": "record",
+              "step_run_id": "sr_00000000000000000000000004",
+              "title": "Attach the change record"
+            }
+          ],
+          "reason": "initial"
+        }
+      },
+      "execution_id": "exe_00000000000000000000000001",
+      "seq": 6
+    },
+    {
+      "actor": {
+        "kind": "system"
+      },
+      "at_ms": 20,
+      "event": {
+        "report": {
+          "evidence": [
+            "evd_00000000000000000000000003"
+          ],
+          "files": [
+            {
+              "id": "evd_00000000000000000000000003",
+              "type": "image/jpeg"
+            }
+          ],
+          "logs": [],
+          "outputs": {},
+          "status": "succeeded",
+          "summary": null,
+          "verdict": null
+        },
+        "step_run_id": "sr_00000000000000000000000004",
+        "type": "StepReported"
+      },
+      "execution_id": "exe_00000000000000000000000001",
+      "seq": 7
+    },
+    {
+      "actor": {
+        "kind": "system"
+      },
+      "at_ms": 20,
+      "event": {
+        "outputs": {
+          "reads": [],
+          "values": {}
+        },
+        "status": "succeeded",
+        "type": "ExecutionCompleted"
+      },
+      "execution_id": "exe_00000000000000000000000001",
+      "seq": 8
+    }
+  ],
+  "files": [
+    {
+      "files": [
+        {
+          "id": "evd_00000000000000000000000001",
+          "type": "image/png"
+        }
+      ],
+      "step": "shot"
+    },
+    {
+      "files": [
+        {
+          "id": "evd_00000000000000000000000003",
+          "type": "image/jpeg"
+        }
+      ],
+      "step": "record"
+    }
+  ],
+  "format": "pure-engine-trace-v1",
+  "integration_seams": {
+    "magic_bytes": "UP3",
+    "uploads_and_finalize": "UP1"
+  },
+  "runbook": "spec:\n  steps:\n    - id: shot\n      title: Capture the dashboard\n      evidence: {required: [screenshot], accepted: [screenshot, link]}\n    - id: record\n      title: Attach the change record\n      evidence: {required: [file]}\n",
+  "status": "succeeded"
+}

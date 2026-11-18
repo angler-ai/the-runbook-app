@@ -1,0 +1,38 @@
+# Build context: the Rust workspace (server, CLI, browser compiler), the web
+# UI's sources, and the API contract and schemas the UI imports (F97). Never
+# dependencies, build output, secrets or local tool state.
+**/target/
+target/
+**/node_modules/
+web/dist/
+auth/dist/
+web/src/wasm/*.wasm
+web/test-results/
+web/playwright-report/
+# The e2e harness's secrets (e2e/.tokens/: 0600 token files, state.json)
+# and run logs (e2e/.run/): never in a build context, where `COPY web ./`
+# would keep them in a cached layer. Every hidden entry, so a new one is
+# covered too; web/e2e/harness/context-check.ts verifies it with docker
+# before each container-mode build (U26).
+web/e2e/.*
+.git/
+.github/
+.superpowers/
+.worktrees/
+.claude/
+.locks/
+.reviews/
+.stitch/
+*-wt/
+**/.DS_Store
+**/*.swp
+deploy/
+docs/
+examples/
+skills/*
+!skills/therunbook
+!skills/therunbook/**
+conformance/
+README.md
+**/.env
+**/.env.*

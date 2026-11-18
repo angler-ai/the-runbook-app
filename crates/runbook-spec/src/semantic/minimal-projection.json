@@ -1,0 +1,82 @@
+{
+  "metadata": {
+    "id": "test",
+    "title": "Test",
+    "description": null,
+    "tags": [],
+    "owners": []
+  },
+  "execution": {
+    "title": null,
+    "tags": [],
+    "timeout": null,
+    "cleanup_timeout": 1800000,
+    "concurrency": null
+  },
+  "defaults": {
+    "actor": "any",
+    "timeout": null,
+    "retry": {
+      "max_attempts": 1,
+      "backoff": null
+    },
+    "on_failure": "fail"
+  },
+  "inputs": {
+    "kind": {
+      "object": {}
+    },
+    "required": false,
+    "default": {
+      "missing": null
+    },
+    "min": null,
+    "max": null,
+    "title": null,
+    "description": null,
+    "indexed": null,
+    "locked": null
+  },
+  "fields": {
+    "kind": {
+      "object": {}
+    },
+    "required": false,
+    "default": {
+      "missing": null
+    },
+    "min": null,
+    "max": null,
+    "title": null,
+    "description": null,
+    "indexed": null,
+    "locked": null
+  },
+  "variables": {},
+  "skills": {},
+  "agent_params": null,
+  "steps": [],
+  "finally": [],
+  "outputs": {},
+  "report": null,
+  "pins": {
+    "skills": {},
+    "users": {},
+    "teams": {},
+    "project_variables": {
+      "kind": {
+        "object": {}
+      },
+      "required": false,
+      "default": {
+        "missing": null
+      },
+      "min": null,
+      "max": null,
+      "title": null,
+      "description": null,
+      "indexed": null,
+      "locked": null
+    }
+  }
+}

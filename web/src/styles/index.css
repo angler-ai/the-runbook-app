@@ -1,0 +1,202 @@
+/* Tailwind v4 entry. Token values live in tokens.css (A1); this file
+   only maps them into Tailwind's theme so utilities read the --rb-* variables.
+   Use token utilities (bg-surface, text-fg, border-border, ...), never raw palette
+   colors: the default Tailwind palette is removed below on purpose (DESIGN.md §0). */
+@import 'tailwindcss' source('..');
+@import './tokens.css';
+
+/* `dark:` follows an explicit data-theme="dark" on any ancestor. Prefer tokens,
+   which already switch with the theme, over `dark:` overrides. */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+@theme {
+  --color-*: initial;
+}
+
+@theme inline {
+  --color-white: #ffffff;
+  --color-black: #000000;
+
+  --color-canvas: var(--rb-color-bg);
+  --color-sidebar: var(--rb-color-sidebar);
+  --color-sidebar-hover: var(--rb-color-sidebar-hover);
+  --color-surface: var(--rb-color-surface);
+  --color-surface-raised: var(--rb-color-surface-raised);
+  --color-hover: var(--rb-color-hover);
+  --color-fg: var(--rb-color-text);
+  --color-fg-muted: var(--rb-color-text-muted);
+  --color-border: var(--rb-color-border);
+  --color-border-strong: var(--rb-color-border-strong);
+  --color-border-input: var(--rb-color-border-input);
+  --color-accent: var(--rb-color-accent);
+  --color-accent-fg: var(--rb-color-accent-fg);
+  --color-accent-hover: var(--rb-color-accent-hover);
+  --color-accent-hover-fg: var(--rb-color-accent-hover-fg);
+  --color-accent-strong: var(--rb-color-accent-strong);
+  --color-accent-subtle: var(--rb-color-accent-subtle);
+  --color-accent-line: var(--rb-color-accent-line);
+  --color-mint: var(--rb-color-accent-secondary);
+  --color-mint-text: var(--rb-color-accent-secondary-text);
+  --color-mint-subtle: var(--rb-color-accent-secondary-subtle);
+  --color-danger: var(--rb-color-danger);
+  --color-danger-fg: var(--rb-color-danger-fg);
+  --color-danger-text: var(--rb-color-danger-text);
+  --color-warning: var(--rb-color-warning);
+  --color-warning-text: var(--rb-color-warning-text);
+  --color-overlay: var(--rb-color-overlay);
+  --color-focus: var(--rb-color-focus);
+
+  --color-status-queued-fg: var(--rb-status-queued-fg);
+  --color-status-queued-bg: var(--rb-status-queued-bg);
+  --color-status-running-fg: var(--rb-status-running-fg);
+  --color-status-running-bg: var(--rb-status-running-bg);
+  --color-status-waiting-fg: var(--rb-status-waiting-fg);
+  --color-status-waiting-bg: var(--rb-status-waiting-bg);
+  --color-status-paused-fg: var(--rb-status-paused-fg);
+  --color-status-paused-bg: var(--rb-status-paused-bg);
+  --color-status-succeeded-fg: var(--rb-status-succeeded-fg);
+  --color-status-succeeded-bg: var(--rb-status-succeeded-bg);
+  --color-status-failed-fg: var(--rb-status-failed-fg);
+  --color-status-failed-bg: var(--rb-status-failed-bg);
+  --color-status-cancelled-fg: var(--rb-status-cancelled-fg);
+  --color-status-cancelled-bg: var(--rb-status-cancelled-bg);
+  --color-status-skipped-fg: var(--rb-status-skipped-fg);
+  --color-status-skipped-bg: var(--rb-status-skipped-bg);
+  --color-status-timed-out-fg: var(--rb-status-timed-out-fg);
+  --color-status-timed-out-bg: var(--rb-status-timed-out-bg);
+  --color-status-expired-fg: var(--rb-status-expired-fg);
+  --color-status-expired-bg: var(--rb-status-expired-bg);
+
+  --color-verdict-pass-fg: var(--rb-verdict-pass-fg);
+  --color-verdict-pass-bg: var(--rb-verdict-pass-bg);
+  --color-verdict-pass-border: var(--rb-verdict-pass-border);
+  --color-verdict-warn-fg: var(--rb-verdict-warn-fg);
+  --color-verdict-warn-bg: var(--rb-verdict-warn-bg);
+  --color-verdict-warn-border: var(--rb-verdict-warn-border);
+  --color-verdict-fail-fg: var(--rb-verdict-fail-fg);
+  --color-verdict-fail-bg: var(--rb-verdict-fail-bg);
+  --color-verdict-fail-border: var(--rb-verdict-fail-border);
+  --color-verdict-none-fg: var(--rb-verdict-none-fg);
+  --color-verdict-none-bg: var(--rb-verdict-none-bg);
+  --color-verdict-none-border: var(--rb-verdict-none-border);
+
+  --color-stale-fg: var(--rb-stale-fg);
+  --color-stale-bg: var(--rb-stale-bg);
+  --color-stale-border: var(--rb-stale-border);
+  --color-amended-fg: var(--rb-amended-fg);
+  --color-amended-bg: var(--rb-amended-bg);
+  --color-amended-border: var(--rb-amended-border);
+
+  --font-sans: var(--rb-font-family-sans);
+  --font-mono: var(--rb-font-family-mono);
+
+  --text-2xs: var(--rb-font-size-2xs, 11px);
+  --text-xs: var(--rb-font-size-xs, 12px);
+  --text-sm: var(--rb-font-size-sm, 13px);
+  --text-base: var(--rb-font-size-base, 14px);
+  --text-md: var(--rb-font-size-md, 16px);
+  --text-lg: var(--rb-font-size-lg, 20px);
+  --text-xl: var(--rb-font-size-xl, 24px);
+
+  --radius-sm: var(--rb-radius-sm, 4px);
+  --radius-md: var(--rb-radius-md, 6px);
+  --radius-lg: var(--rb-radius-lg, 12px);
+
+  --shadow-overlay: var(--rb-shadow-overlay);
+  --shadow-card: var(--rb-shadow-card);
+}
+
+@layer base {
+  html {
+    color-scheme: light dark;
+  }
+  /* A grid that declares no columns gets one that can shrink: an implicit
+     `auto` column grows to its widest unbreakable child (a table, a code
+     block, a digest) and pushes the page wider than a phone. Base layer, so
+     every grid-cols-* utility (responsive ones included) still wins where it
+     applies. Grids that place items in implicit columns are left alone. */
+  .grid:not([class*='grid-flow-col']):not([class*='auto-cols-']) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  [data-theme='light'] {
+    color-scheme: light;
+  }
+  [data-theme='dark'] {
+    color-scheme: dark;
+  }
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    font-size: var(--text-base);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: 'ss01' on;
+  }
+  /* Shelf: a 2px focus ring in the accent, offset so it never sits on text.
+     Components may tighten the offset; nothing removes the ring. */
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: var(--color-accent-subtle);
+    color: var(--color-fg);
+  }
+  code,
+  kbd,
+  samp {
+    font-family: var(--font-mono);
+  }
+}
+
+/* The one gradient a screen may carry (Angler): a thin accent bar. */
+@utility accent-bar {
+  background-image: linear-gradient(90deg, var(--color-accent) 0%, var(--color-mint) 100%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* UI-3: a run's Document view prints as the page: no app chrome, no
+   controls, the paper full width on white, sections kept whole. The dark
+   tokens apply on screen only (tokens.css), so print is on the light ones. */
+@media print {
+  html,
+  [data-theme='dark'] {
+    color-scheme: light;
+  }
+  [data-slot='app-shell-sidebar'],
+  [data-slot='app-shell-topbar'],
+  [data-slot='app-shell-bottom-action'],
+  [data-slot='run-actions'],
+  [data-slot='live-indicator'],
+  [data-slot='tabs-list'],
+  [data-sonner-toaster] {
+    display: none !important;
+  }
+  html,
+  body,
+  [data-slot='app-shell'],
+  [data-slot='app-shell-content'] {
+    background: #fff !important;
+    color: #000;
+  }
+  [data-slot='app-shell-content'] {
+    padding: 0 !important;
+  }
+  [data-slot='doc-step'] {
+    break-inside: avoid-page;
+  }
+  a[href^='http']::after {
+    content: ' (' attr(href) ')';
+    font-size: 0.85em;
+    word-break: break-all;
+  }
+}

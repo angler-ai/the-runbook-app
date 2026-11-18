@@ -1,0 +1,554 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://therunbook.app/schemas/v1.json",
+  "title": "The Runbook v1 — current pilot source profile",
+  "description": "Validates the JSON-compatible source document produced by strict YAML parsing and supplies editor completion. This is not a schema for normalized IR or reported data values and does not prove publication eligibility. Compiler checks still enforce YAML syntax, numeric representation, duration overflow, resource limits, bound ordering, defaults against declarations, unique IDs, references, expressions, scopes, skills, identities and approval/destructive-action policy.",
+  "type": "object",
+  "required": ["metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "therunbook.app/v1" },
+    "kind": { "const": "Runbook" },
+    "metadata": { "$ref": "#/$defs/metadata" },
+    "spec": { "$ref": "#/$defs/spec" }
+  },
+  "patternProperties": { "^x-": true },
+  "additionalProperties": false,
+  "$defs": {
+    "positiveU32": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4294967295
+    },
+    "nodeId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,62}$"
+    },
+    "duration": {
+      "description": "One or more digit-plus-unit segments (ms, s, m, h, d), with a nonzero total. Checked u64 millisecond accumulation remains a compiler check.",
+      "type": "string",
+      "pattern": "^([0-9]+(ms|s|m|h|d))+$",
+      "allOf": [{ "pattern": "[1-9]" }]
+    },
+    "strings": { "type": "array", "items": { "type": "string" } },
+    "nonemptyString": { "type": "string", "minLength": 1 },
+    "recipient": {
+      "description": "A nonempty user name, user:name or team:name. Identity resolution is a compiler/server concern.",
+      "type": "string",
+      "pattern": "^((user|team):[\\s\\S]+|[^:]+)$"
+    },
+    "recipients": { "type": "array", "items": { "$ref": "#/$defs/recipient" } },
+    "actor": { "enum": ["human", "agent", "any"] },
+    "failure": { "enum": ["fail", "continue", "handoff"] },
+    "dataMap": {
+      "description": "A map of arbitrary JSON data. Names and nested values are not source-language keywords.",
+      "type": "object",
+      "additionalProperties": true
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["id"],
+      "properties": {
+        "id": { "type": "string", "maxLength": 63, "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "tags": { "$ref": "#/$defs/strings" },
+        "owners": { "$ref": "#/$defs/recipients" }
+      },
+      "patternProperties": { "^x-": true },
+      "additionalProperties": false
+    },
+    "spec": {
+      "type": "object",
+      "required": ["steps"],
+      "properties": {
+        "execution": { "$ref": "#/$defs/execution" },
+        "inputs": { "$ref": "#/$defs/declarations" },
+        "fields": { "$ref": "#/$defs/fields" },
+        "vars": { "$ref": "#/$defs/dataMap" },
+        "defaults": { "$ref": "#/$defs/defaults" },
+        "skills": { "$ref": "#/$defs/skills" },
+        "agents": { "$ref": "#/$defs/agents" },
+        "steps": { "$ref": "#/$defs/body" },
+        "finally": { "$ref": "#/$defs/body" },
+        "outputs": { "$ref": "#/$defs/dataMap" },
+        "report": { "type": "string" }
+      },
+      "patternProperties": { "^x-": true },
+      "additionalProperties": false
+    },
+    "execution": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "tags": { "$ref": "#/$defs/strings" },
+        "timeout": { "$ref": "#/$defs/duration" },
+        "cleanup_timeout": { "$ref": "#/$defs/duration" },
+        "concurrency": { "$ref": "#/$defs/concurrency" }
+      },
+      "patternProperties": { "^x-": true },
+      "additionalProperties": false
+    },
+    "concurrency": {
+      "type": "object",
+      "required": ["key", "limit"],
+      "properties": {
+        "key": { "type": "string" },
+        "limit": { "$ref": "#/$defs/positiveU32" },
+        "on_conflict": { "enum": ["queue", "reject", "cancel_previous"] }
+      },
+      "patternProperties": { "^x-": true },
+      "additionalProperties": false
+    },
+    "defaults": {
+      "type": "object",
+      "properties": {
+        "actor": { "$ref": "#/$defs/actor" },
+        "timeout": { "$ref": "#/$defs/duration" },
+        "retry": { "$ref": "#/$defs/retry" },
+        "on_failure": { "$ref": "#/$defs/failure" }
+      },
+      "patternProperties": { "^x-": true },
+      "additionalProperties": false
+    },
+    "retry": {
+      "description": "Members are independently optional; omitted members inherit compiler defaults.",
+      "type": "object",
+      "properties": {
+        "max_attempts": { "$ref": "#/$defs/positiveU32" },
+        "backoff": { "$ref": "#/$defs/duration" }
+      },
+      "patternProperties": { "^x-": true },
+      "additionalProperties": false
+    },
+    "skills": {
+      "type": "object",
+      "patternProperties": { "^x-": true },
+      "additionalProperties": { "type": "string" }
+    },
+    "agents": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "description": "Vendor-neutral opaque subscriber parameters. Every key and value is data, including dispatch, github, model, x-* and expression-looking strings. The compiler enforces a 4096-byte limit on compact JSON UTF-8 serialization; JSON Schema does not enforce that limit.",
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "patternProperties": { "^x-": true },
+      "additionalProperties": false
+    },
+    "declarations": {
+      "description": "Named ordinary declarations; x-* entries are opaque metadata, not declarations.",
+      "type": "object",
+      "patternProperties": { "^x-": true },
+      "additionalProperties": { "$ref": "#/$defs/declaration" }
+    },
+    "fields": {
+      "description": "Top-level field declarations may additionally specify indexed and locked. Nested declarations remain ordinary declarations.",
+      "type": "object",
+      "patternProperties": { "^x-": true },
+      "additionalProperties": { "$ref": "#/$defs/field" }
+    },
+    "declarationCommon": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "required": { "type": "boolean" },
+        "pattern": { "type": "string" },
+        "default": {
+          "description": "Literal data. Branches check coarse types only; the compiler validates defaults against declared properties, items, options, bounds and required flags."
+        }
+      },
+      "patternProperties": { "^x-": true }
+    },
+    "declarationTypes": {
+      "oneOf": [
+        {
+          "properties": {
+            "type": { "enum": ["string", "text"] },
+            "min": { "type": "integer", "minimum": 0 },
+            "max": { "type": "integer", "minimum": 0 },
+            "default": { "type": "string" }
+          }
+        },
+        {
+          "properties": {
+            "type": { "const": "number" },
+            "min": { "type": "number" },
+            "max": { "type": "number" },
+            "default": { "type": "number" }
+          }
+        },
+        {
+          "properties": {
+            "type": { "const": "integer" },
+            "min": { "type": "number" },
+            "max": { "type": "number" },
+            "default": { "type": "integer" }
+          }
+        },
+        {
+          "properties": {
+            "type": { "const": "boolean" },
+            "default": { "type": "boolean" }
+          }
+        },
+        {
+          "required": ["options"],
+          "properties": {
+            "type": { "const": "enum" },
+            "options": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } },
+            "default": { "type": "string" }
+          }
+        },
+        {
+          "required": ["options"],
+          "properties": {
+            "type": { "const": "multi_enum" },
+            "options": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } },
+            "default": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        {
+          "properties": {
+            "type": { "enum": ["date", "datetime", "duration", "url", "email", "user"] },
+            "default": { "type": "string" }
+          }
+        },
+        {
+          "required": ["items"],
+          "properties": {
+            "type": { "const": "list" },
+            "items": { "$ref": "#/$defs/declaration" },
+            "min": { "type": "integer", "minimum": 0 },
+            "max": { "type": "integer", "minimum": 0 },
+            "default": { "type": "array" }
+          }
+        },
+        {
+          "properties": {
+            "type": { "const": "object" },
+            "properties": { "$ref": "#/$defs/declarations" },
+            "default": { "type": "object" }
+          }
+        }
+      ]
+    },
+    "declaration": {
+      "allOf": [
+        { "$ref": "#/$defs/declarationCommon" },
+        { "$ref": "#/$defs/declarationTypes" }
+      ],
+      "unevaluatedProperties": false
+    },
+    "field": {
+      "allOf": [
+        { "$ref": "#/$defs/declarationCommon" },
+        { "$ref": "#/$defs/declarationTypes" }
+      ],
+      "properties": {
+        "indexed": { "type": "boolean" },
+        "locked": { "type": "boolean" }
+      },
+      "unevaluatedProperties": false
+    },
+    "body": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/node" }
+    },
+    "nodeCommon": {
+      "type": "object",
+      "required": ["id"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nodeId" },
+        "title": { "type": "string" },
+        "if": { "type": "string" },
+        "on_failure": { "$ref": "#/$defs/failure" },
+        "timeout": { "$ref": "#/$defs/duration" }
+      },
+      "patternProperties": { "^x-": true }
+    },
+    "node": {
+      "allOf": [{ "$ref": "#/$defs/nodeCommon" }],
+      "oneOf": [
+        { "$ref": "#/$defs/task" },
+        {
+          "required": ["steps"],
+          "properties": {
+            "steps": { "$ref": "#/$defs/body" },
+            "catch": { "$ref": "#/$defs/body" },
+            "finally": { "$ref": "#/$defs/body" }
+          }
+        },
+        {
+          "required": ["parallel"],
+          "properties": {
+            "parallel": { "allOf": [{ "$ref": "#/$defs/body" }, { "maxItems": 20 }] },
+            "join": {
+              "oneOf": [
+                { "enum": ["all", "any"] },
+                {
+                  "type": "object",
+                  "required": ["at_least"],
+                  "properties": { "at_least": { "$ref": "#/$defs/positiveU32" } },
+                  "patternProperties": { "^x-": true },
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "fail_fast": { "type": "boolean" }
+          },
+          "if": { "required": ["fail_fast"], "properties": { "fail_fast": { "const": true } } },
+          "then": { "properties": { "join": { "const": "all" } } }
+        },
+        { "required": ["foreach"], "properties": { "foreach": { "$ref": "#/$defs/foreach" } } },
+        { "required": ["loop"], "properties": { "loop": { "$ref": "#/$defs/loop" } } },
+        { "required": ["switch"], "properties": { "switch": { "$ref": "#/$defs/switch" } } },
+        { "required": ["wait"], "properties": { "wait": { "$ref": "#/$defs/wait" } } },
+        { "required": ["approval"], "properties": { "approval": { "$ref": "#/$defs/approval" } } },
+        { "required": ["set"], "properties": { "set": { "$ref": "#/$defs/set" } } },
+        { "required": ["end"], "properties": { "end": { "$ref": "#/$defs/end" } } },
+        { "required": ["call"], "properties": { "call": { "$ref": "#/$defs/call" } } }
+      ],
+      "unevaluatedProperties": false
+    },
+    "task": {
+      "not": {
+        "anyOf": [
+          { "required": ["steps"] }, { "required": ["parallel"] },
+          { "required": ["foreach"] }, { "required": ["loop"] },
+          { "required": ["switch"] }, { "required": ["wait"] },
+          { "required": ["approval"] }, { "required": ["set"] },
+          { "required": ["end"] }, { "required": ["call"] }
+        ]
+      },
+      "properties": {
+        "actor": { "$ref": "#/$defs/actor" },
+        "assignee": { "type": "string" },
+        "assignment": {
+          "description": "guidance (default): the assignee only routes the work. strict: only the assignee may claim and complete it.",
+          "enum": ["guidance", "strict"]
+        },
+        "retry": { "$ref": "#/$defs/retry" },
+        "instructions": { "$ref": "#/$defs/instructions" },
+        "skill": { "type": "string" },
+        "with": { "$ref": "#/$defs/dataMap" },
+        "checklist": { "$ref": "#/$defs/strings" },
+        "check": { "type": "boolean" },
+        "skippable": { "type": "boolean" },
+        "destructive": { "type": "boolean" },
+        "allow_auto_decision": { "type": "boolean" },
+        "outputs": { "$ref": "#/$defs/declarations" },
+        "evidence": { "$ref": "#/$defs/evidence" },
+        "agent": { "$ref": "#/$defs/agent" }
+      },
+      "if": { "required": ["assignment"], "properties": { "assignment": { "const": "strict" } } },
+      "then": { "required": ["assignee"] }
+    },
+    "instructions": {
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "object",
+          "properties": {
+            "default": { "type": "string" },
+            "human": { "type": "string" },
+            "agent": { "type": "string" }
+          },
+          "patternProperties": { "^x-": true },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "evidenceKinds": {
+      "type": "array",
+      "items": { "enum": ["link", "log", "file", "screenshot"] }
+    },
+    "evidence": {
+      "type": "object",
+      "properties": {
+        "required": { "$ref": "#/$defs/evidenceKinds" },
+        "accepted": { "$ref": "#/$defs/evidenceKinds" }
+      },
+      "patternProperties": { "^x-": true },
+      "additionalProperties": false
+    },
+    "agent": {
+      "description": "Advisory agent hints are preserved and exposed, never server execution instructions.",
+      "type": "object",
+      "properties": {
+        "tools": { "description": "Arbitrary advisory JSON; preserved and exposed, never executed by the server." },
+        "commands": { "description": "Arbitrary advisory JSON; preserved and exposed, never executed by the server." }
+      },
+      "patternProperties": { "^x-": true },
+      "additionalProperties": false
+    },
+    "foreach": {
+      "type": "object",
+      "required": ["items", "max_items", "steps"],
+      "properties": {
+        "items": { "type": "string" },
+        "as": { "type": "string" },
+        "key": { "type": "string" },
+        "concurrency": { "$ref": "#/$defs/positiveU32" },
+        "max_items": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "steps": { "$ref": "#/$defs/body" }
+      },
+      "patternProperties": { "^x-": true },
+      "additionalProperties": false
+    },
+    "loop": {
+      "type": "object",
+      "required": ["max_iterations", "steps"],
+      "oneOf": [{ "required": ["until"] }, { "required": ["while"] }],
+      "properties": {
+        "until": { "type": "string" },
+        "while": { "type": "string" },
+        "max_iterations": { "type": "integer", "minimum": 1, "maximum": 50 },
+        "delay": { "$ref": "#/$defs/duration" },
+        "steps": { "$ref": "#/$defs/body" }
+      },
+      "patternProperties": { "^x-": true },
+      "additionalProperties": false
+    },
+    "switch": {
+      "type": "object",
+      "required": ["cases"],
+      "properties": {
+        "cases": { "type": "array", "items": { "$ref": "#/$defs/case" } },
+        "default": { "$ref": "#/$defs/branch" }
+      },
+      "patternProperties": { "^x-": true },
+      "additionalProperties": false
+    },
+    "case": {
+      "type": "object",
+      "required": ["when", "steps"],
+      "properties": {
+        "when": { "type": "string" },
+        "steps": { "$ref": "#/$defs/body" }
+      },
+      "patternProperties": { "^x-": true },
+      "additionalProperties": false
+    },
+    "branch": {
+      "type": "object",
+      "required": ["steps"],
+      "properties": { "steps": { "$ref": "#/$defs/body" } },
+      "patternProperties": { "^x-": true },
+      "additionalProperties": false
+    },
+    "call": {
+      "description": "Run a published version of another runbook in the same project as a child execution (LANG4). Calls nest at most 3 deep and cannot recurse; the compiler pins the version.",
+      "type": "object",
+      "required": ["runbook"],
+      "properties": {
+        "runbook": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+        "version": { "$ref": "#/$defs/positiveU32" },
+        "with": { "$ref": "#/$defs/dataMap" },
+        "outputs": { "$ref": "#/$defs/declarations" }
+      },
+      "patternProperties": { "^x-": true },
+      "additionalProperties": false
+    },
+    "wait": {
+      "type": "object",
+      "oneOf": [
+        { "required": ["for"] },
+        { "required": ["until"] },
+        { "required": ["signal"] }
+      ],
+      "properties": {
+        "for": {
+          "$ref": "#/$defs/duration",
+          "description": "At most 7 days in total (PRD §17). A pattern cannot sum compound durations, so the compiler enforces it (spec.limit_exceeded)."
+        },
+        "until": {
+          "type": "string",
+          "description": "Resolved when the wait starts; a target more than 7 days later fails the wait and the run (limit.wait_exceeded, engine version 4)."
+        },
+        "signal": { "type": "string" },
+        "timeout": { "$ref": "#/$defs/duration" }
+      },
+      "patternProperties": { "^x-": true },
+      "additionalProperties": false
+    },
+    "approval": {
+      "description": "Recipient presence, option-ID uniqueness, decision eligibility and authorization remain compiler policy checks.",
+      "type": "object",
+      "required": ["prompt", "options"],
+      "properties": {
+        "prompt": { "type": "string" },
+        "options": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/approvalOption" } },
+        "approvers": { "$ref": "#/$defs/approvers" },
+        "min": { "$ref": "#/$defs/positiveU32" },
+        "timeout": { "$ref": "#/$defs/duration" },
+        "escalation_timeout": { "$ref": "#/$defs/duration" },
+        "escalate_to": { "$ref": "#/$defs/recipients" },
+        "allow_agents": { "type": "boolean" },
+        "on_expired": { "enum": ["pause", "fail"] },
+        "on_timeout": { "$ref": "#/$defs/approvalTimeout" }
+      },
+      "patternProperties": { "^x-": true },
+      "additionalProperties": false
+    },
+    "approvalOption": {
+      "oneOf": [
+        { "$ref": "#/$defs/nonemptyString" },
+        {
+          "type": "object",
+          "required": ["id"],
+          "properties": {
+            "id": { "$ref": "#/$defs/nonemptyString" },
+            "title": { "type": "string" },
+            "auto": { "type": "boolean" }
+          },
+          "patternProperties": { "^x-": true },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "approvers": {
+      "type": "object",
+      "properties": {
+        "users": { "type": "array", "items": { "$ref": "#/$defs/nonemptyString" } },
+        "teams": { "type": "array", "items": { "$ref": "#/$defs/nonemptyString" } }
+      },
+      "patternProperties": { "^x-": true },
+      "additionalProperties": false
+    },
+    "approvalTimeout": {
+      "oneOf": [
+        { "const": "escalate" },
+        {
+          "type": "object",
+          "required": ["decide"],
+          "properties": { "decide": { "type": "string" } },
+          "patternProperties": { "^x-": true },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "set": {
+      "type": "object",
+      "properties": {
+        "vars": { "$ref": "#/$defs/dataMap" },
+        "fields": { "$ref": "#/$defs/dataMap" }
+      },
+      "patternProperties": { "^x-": true },
+      "additionalProperties": false
+    },
+    "end": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": { "enum": ["succeeded", "failed", "cancelled"] },
+        "message": { "type": "string" }
+      },
+      "patternProperties": { "^x-": true },
+      "additionalProperties": false
+    }
+  }
+}

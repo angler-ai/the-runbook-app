@@ -1,0 +1,21 @@
+{
+  "id": "mem_01JABCDEFGHJKMNPQRSTVWXYZ0",
+  "scope": {
+    "kind": "runbook",
+    "runbook_id": "rb_01JABCDEFGHJKMNPQRSTVWXYZ0"
+  },
+  "step_id": "error_rate",
+  "title": "Normal error-rate baseline",
+  "body_markdown": "Service error rate normally sits near 0.5%. Compare the ten-minute window.",
+  "tags": [
+    "baseline",
+    "metrics"
+  ],
+  "status": "active",
+  "source": {
+    "kind": "person",
+    "user_id": "usr_01JABCDEFGHJKMNPQRSTVWXYZ0"
+  },
+  "revision": 2,
+  "expires_at": "2027-02-01T00:00:00Z"
+}

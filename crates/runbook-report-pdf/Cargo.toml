@@ -1,0 +1,19 @@
+[package]
+name = "runbook-report-pdf"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license = "AGPL-3.0-only"
+
+# D52: the execution document's Markdown export rendered to PDF. Pure Rust,
+# no I/O, no clock, no randomness: it builds for wasm32-unknown-unknown and
+# the same Markdown always gives the same bytes.
+[dependencies]
+# MIT. Parsing only: no `html` (pulldown-cmark-escape) or `getopts` (the binary).
+pulldown-cmark = { version = "=0.13.5", default-features = false }
+# MIT OR Apache-2.0, no dependencies: cmap and advance widths of the embedded fonts.
+ttf-parser = { version = "=0.25.1", default-features = false, features = ["std"] }
+# MIT OR Zlib OR Apache-2.0: FlateDecode for the embedded font programs.
+miniz_oxide = { version = "0.9.1", default-features = false, features = ["with-alloc"] }
+

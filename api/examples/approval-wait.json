@@ -1,0 +1,33 @@
+{
+  "schema_revision": 1,
+  "step_run_id": "sr_01JABCDEFGHJKMNPQRSTVWXYZ0",
+  "status": "waiting",
+  "prompt": "Checks failed. Choose an action.",
+  "options": [
+    {
+      "id": "keep",
+      "title": "Keep deployment",
+      "auto": false
+    },
+    {
+      "id": "rollback",
+      "title": "Roll back",
+      "auto": false
+    }
+  ],
+  "eligible_recipients": [
+    {
+      "kind": "team",
+      "reference": "oncall"
+    }
+  ],
+  "escalation_recipients": [
+    {
+      "kind": "team",
+      "reference": "eng-leads"
+    }
+  ],
+  "escalated": false,
+  "quorum": 2,
+  "decisions": []
+}

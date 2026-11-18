@@ -1,0 +1,89 @@
+{
+  "child": [
+    {
+      "parent": {
+        "depth": 1,
+        "execution_id": "exe_00000000000000000000000001",
+        "step_id": "db",
+        "step_run_id": "sr_0H6GQA0V6BMPB25Y5YWQGQPP3A"
+      },
+      "seq": 1,
+      "type": "ExecutionStarted"
+    },
+    {
+      "seq": 2,
+      "type": "StepReady"
+    },
+    {
+      "seq": 3,
+      "type": "AgentWorkAvailable"
+    },
+    {
+      "seq": 4,
+      "type": "StepClaimed"
+    },
+    {
+      "seq": 5,
+      "type": "StepReported"
+    },
+    {
+      "seq": 6,
+      "status": "succeeded",
+      "type": "ExecutionCompleted"
+    }
+  ],
+  "parent": [
+    {
+      "parent": null,
+      "seq": 1,
+      "type": "ExecutionStarted"
+    },
+    {
+      "seq": 2,
+      "type": "StepReady"
+    },
+    {
+      "child_execution_id": "exe_1BYJRWM0GDPF8C5HS1CTPQP82X",
+      "inputs": {
+        "target": "prod"
+      },
+      "seq": 3,
+      "type": "CallRequested"
+    },
+    {
+      "child_execution_id": "exe_1BYJRWM0GDPF8C5HS1CTPQP82X",
+      "seq": 4,
+      "type": "CallStarted"
+    },
+    {
+      "error": null,
+      "outputs": {
+        "rows": 7
+      },
+      "seq": 5,
+      "status": "succeeded",
+      "type": "CallCompleted"
+    },
+    {
+      "seq": 6,
+      "type": "StepReady"
+    },
+    {
+      "seq": 7,
+      "type": "AgentWorkAvailable"
+    },
+    {
+      "seq": 8,
+      "type": "StepClaimed"
+    },
+    {
+      "seq": 9,
+      "type": "StepReported"
+    },
+    {
+      "seq": 10,
+      "status": "succeeded",
+      "type": "ExecutionCompleted"
+    }
+  ]
+}

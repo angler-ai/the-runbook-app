@@ -1,0 +1,12 @@
+# LANG7: only IDs are required; apiVersion, kind and titles are derived.
+metadata:
+  id: check-health
+spec:
+  inputs:
+    owner: {type: string, default: "team:oncall"}
+  steps:
+    - id: ping_api
+      actor: agent
+    - id: confirm
+      assignee: "${{ inputs.owner }}"
+      assignment: strict

@@ -1,0 +1,23 @@
+apiVersion: therunbook.app/v1
+kind: Runbook
+metadata:
+  id: dependency-audit
+  title: Weekly dependency audit
+  description: Scans every service's lockfile for known vulnerabilities and opens upgrade pull requests for the safe ones.
+  owners: [team:oncall]
+  tags: [security, dependencies, agentic]
+spec:
+  defaults: { actor: agent }
+  steps:
+    - id: scan
+      title: Scan lockfiles for advisories
+      check: true
+      instructions: Run the advisory scanner over every service repository and list findings by severity.
+      outputs:
+        critical: { type: integer, required: true }
+        high: { type: integer, required: true }
+    - id: upgrades
+      title: Open upgrade pull requests
+      instructions: For each patch-level fix with passing tests, open one pull request per repository.
+      outputs:
+        pull_requests: { type: integer, required: true }

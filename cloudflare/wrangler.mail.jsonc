@@ -1,0 +1,14 @@
+// LOCAL ONLY. NEVER DEPLOY FROM HERE.
+//
+// CF7: a stand-in for the email binding of the local multi-Worker
+// `wrangler dev`: it prints each sign-in code to the dev log and keeps the
+// last ones for GET (the stack's tests read them). No mail leaves the
+// machine.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "runbook-mail-local",
+  "main": "dev/mail.mjs",
+  "compatibility_date": "2026-09-01",
+  "workers_dev": false,
+  "preview_urls": false
+}

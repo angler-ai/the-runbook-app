@@ -1,0 +1,74 @@
+// LOCAL ONLY. NEVER DEPLOY FROM HERE.
+//
+// This is the CF1 spike's local Workers config (plan 2026-11-12 §2.6). It is
+// for `wrangler dev` (local mode) and the Miniflare tests (`npm test`) only:
+// - never run `wrangler deploy`, `wrangler login` or any `--remote` command
+//   with it;
+// - the D1 database_id and bucket names are placeholders, not real resources;
+// - no route, custom domain or workers.dev subdomain is configured.
+// Deploy configs belong to CF10 (`wrangler.jsonc.example`) and are the
+// user's call (D55).
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "runbook-api-local-cf1",
+  "main": "build/index.js",
+  "compatibility_date": "2026-09-18",
+  "workers_dev": false,
+  "preview_urls": false,
+  "build": {
+    "command": "node scripts/build-worker.mjs"
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "EXECUTIONS", "class_name": "ExecutionDO" },
+      // CF6: one OrgDO per organization holds its quota counters (D56).
+      { "name": "ORGS", "class_name": "OrgDO" },
+      // CF11: one WebhookDO per webhook subscription holds its delivery log.
+      { "name": "WEBHOOKS", "class_name": "WebhookDO" },
+      { "name": "LIMITS", "class_name": "LimitsDO" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["ExecutionDO"] },
+    { "tag": "v2", "new_sqlite_classes": ["OrgDO"] },
+    { "tag": "v3", "new_sqlite_classes": ["WebhookDO"] },
+    { "tag": "v4", "new_sqlite_classes": ["LimitsDO"] }
+  ],
+  // CF11: `DB` is the control database and, by default, every
+  // organization's shard. More shards are more D1 bindings here plus
+  // RUNBOOK_D1_SHARDS (a JSON string var), e.g.
+  // {"control": "DB", "default": "DB", "orgs": {"org_…": "DB_2"}};
+  // unset, everything is `DB` (crates/runbook-worker/src/shards.rs).
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "runbook-local",
+      "database_id": "00000000-0000-0000-0000-000000000000"
+    }
+  ],
+  "r2_buckets": [
+    { "binding": "BLOBS", "bucket_name": "runbook-local-blobs" },
+    // D57: uploads and evidence, served from a separate hostname (CF4).
+    { "binding": "USER_CONTENT", "bucket_name": "runbook-local-user-content" }
+  ],
+  // CF4: webhook redelivery every minute; the archive and retention job
+  // shortly after midnight UTC (PRD §14). Cron Triggers run locally only
+  // when a test fires them.
+  "triggers": { "crons": ["* * * * *", "17 0 * * *"] },
+  // CF4: notification intents leave the ExecutionDO through this queue; the
+  // same Worker consumes it. A message whose fan-out keeps failing is
+  // retried every 60 s (the native fan-out lease) and, after max_retries,
+  // parked in the dead-letter queue. Queues are Miniflare's locally.
+  "queues": {
+    "producers": [{ "binding": "NOTIFICATIONS", "queue": "runbook-local-notifications" }],
+    "consumers": [
+      {
+        "queue": "runbook-local-notifications",
+        "max_batch_size": 10,
+        "max_batch_timeout": 1,
+        "max_retries": 100,
+        "dead_letter_queue": "runbook-local-notifications-dlq"
+      }
+    ]
+  }
+}

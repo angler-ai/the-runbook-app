@@ -1,0 +1,1 @@
+{"id":"whk_00000000000000000000000001","name":"Pager","url":"https://hooks.example.test/runbook","events":["approval.requested"],"runbooks":[],"tags":[],"enabled":true,"created_at_ms":1700000000000,"updated_at_ms":1700000000000,"secret_rotated_at_ms":1700000000000,"failing_since_ms":null,"disabled_reason":null,"disabled_at_ms":null,"revision":0,"notice":null}

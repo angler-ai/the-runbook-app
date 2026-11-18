@@ -1,0 +1,203 @@
+name: Release
+
+# UPD1: a `vX.Y.Z` tag push publishes that release:
+# - the container image ghcr.io/angler-ai/runbook, tagged X.Y.Z, and
+#   X.Y / latest when it is the newest of its line / of all, for
+#   linux/amd64 and linux/arm64, with a build provenance attestation;
+# - a GitHub Release with the CLI and server binaries, the Cloudflare
+#   edition bundle (built Workers, web UI, migrations, templates; its
+#   RELEASE.json names the image digest and the rollback floors),
+#   SHA256SUMS and release notes, each asset attested.
+# deploy/update.sh and cloudflare/scripts/update.mjs install from these and
+# verify the attestations (gh attestation verify).
+#
+# Two jobs (review #9): `build` holds no write permission and pushes
+# nothing (it checks the tag is a release on main, builds the image into an
+# OCI archive and the assets); `publish` only pushes what `build` made, by
+# digest, attests it, creates the release and then moves X.Y / latest.
+#
+# Like the other workflows, it runs on the default self-hosted runner while
+# the repository is private and on GitHub's runners once it is public.
+# `publish` holds the write tokens: on a persistent self-hosted runner it
+# shares a machine with `build` (and anything else that runner runs), so
+# move it to an ephemeral or separate runner, or to GitHub's runners once
+# the repository is public. Turn on a tag ruleset for v* (who may create,
+# move or delete release tags) and a protected `publish` environment. A
+# self-hosted runner needs docker with buildx, skopeo, gh and git. GitHub
+# attestations need a public repository (or GitHub Enterprise Cloud): the
+# repository goes public before the first public release. Every step is a
+# script that also runs locally (scripts/release/).
+
+on:
+  push:
+    tags: ['v*']
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/angler-ai/runbook
+
+jobs:
+  build:
+    runs-on: ${{ github.event.repository.private && 'self-hosted' || 'ubuntu-latest' }}
+    timeout-minutes: 120
+    # Read only: a private repository's checkout needs contents: read.
+    permissions:
+      contents: read
+    env:
+      TAG: ${{ github.ref_name }}
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      digest: ${{ steps.image.outputs.digest }}
+      extra_tags: ${{ steps.release.outputs.extra_tags }}
+    steps:
+      # Third-party actions are on major tags: pin each to a verified full
+      # commit SHA before the first real release (decisions UPD1-12 lists
+      # them; no SHA is guessed here).
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0 # the notes compare with the previous tag; the ancestry check needs main
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '26.8.1'
+      - name: The tag is this checkout's release, on main, not yet published
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # contents: read lists releases
+        run: |
+          node scripts/release/release.mjs sync-versions --check
+          version=$(node scripts/release/release.mjs check-tag "$TAG" origin/main)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          # X.Y / latest count published releases only, not every v* tag.
+          gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases --limit 1000 \
+            --json tagName --jq '.[].tagName' > "$RUNNER_TEMP/published"
+          if grep -qx "$TAG" "$RUNNER_TEMP/published"; then echo "$TAG is already published" >&2; exit 1; fi
+          {
+            echo 'extra_tags<<EOF'
+            node scripts/release/release.mjs image-tags "$TAG" "$IMAGE" "$RUNNER_TEMP/published" | grep -v ":$version\$" || true
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
+          echo "FLOOR_POSTGRES=$(node scripts/release/release.mjs floor postgres)" >> "$GITHUB_ENV"
+      # A self-hosted runner may not have rustup yet (as in ci.yml).
+      - name: Install rustup if the runner lacks it
+        run: |
+          if ! command -v rustup >/dev/null 2>&1 && [ ! -x "$HOME/.cargo/bin/rustup" ]; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+          fi
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Toolchain (rust-toolchain.toml) and worker-build
+        run: |
+          rustup toolchain install
+          cargo install worker-build --version '=0.8.7' --locked
+
+      # The image, both architectures, into an OCI archive: nothing is pushed here.
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: false
+          outputs: type=oci,dest=${{ runner.temp }}/image.tar
+          tags: ${{ env.IMAGE }}:${{ steps.release.outputs.version }}
+          labels: |
+            org.opencontainers.image.version=${{ steps.release.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            ai.angler.runbook.rollback-floor=${{ env.FLOOR_POSTGRES }}
+      - name: The image digest
+        id: image
+        run: echo "digest=$(node scripts/release/release.mjs oci-digest "$RUNNER_TEMP/image.tar")" >> "$GITHUB_OUTPUT"
+
+      # The release assets.
+      - name: CLI and server binaries (per platform, from the build cache)
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: scripts/release/binaries.sh "$VERSION" dist
+      - name: Cloudflare edition bundle
+        env:
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          (cd cloudflare && npm ci --ignore-scripts --no-audit --no-fund)
+          (cd auth && npm ci --ignore-scripts --no-audit --no-fund)
+          (cd web && npm ci --ignore-scripts --no-audit --no-fund && node scripts/build-wasm.mjs && npm run build)
+          (cd cloudflare && node scripts/build-worker.mjs worker && node scripts/build-worker.mjs auth)
+          node scripts/release/release.mjs cloudflare-bundle dist "$DIGEST"
+      - name: Notes and checksums
+        run: |
+          mkdir -p notes
+          node scripts/release/release.mjs notes "$TAG" > notes/notes.md
+          node scripts/release/release.mjs checksums dist
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release
+          path: |
+            dist/
+            notes/
+          if-no-files-found: error
+          retention-days: 3
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: image
+          path: ${{ runner.temp }}/image.tar
+          if-no-files-found: error
+          retention-days: 3
+
+  publish:
+    needs: build
+    # A protected environment (required reviewers, tags v* only), set up in
+    # the repository's settings.
+    environment: publish
+    runs-on: ${{ github.event.repository.private && 'self-hosted' || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    permissions:
+      contents: write # the GitHub Release
+      packages: write # ghcr.io
+      id-token: write # attestations
+      attestations: write
+    env:
+      TAG: ${{ github.ref_name }}
+      VERSION: ${{ needs.build.outputs.version }}
+      DIGEST: ${{ needs.build.outputs.digest }}
+      EXTRA_TAGS: ${{ needs.build.outputs.extra_tags }}
+      ACTOR: ${{ github.actor }}
+      REPOSITORY: ${{ github.repository }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: image
+          path: image
+      - name: Refuse a version that already exists
+        run: |
+          printf '%s' "$GH_TOKEN" | skopeo login ghcr.io --username "$ACTOR" --password-stdin
+          if gh release view "$TAG" --repo "$REPOSITORY" >/dev/null 2>&1; then echo "release $TAG exists" >&2; exit 1; fi
+          if skopeo inspect --raw "docker://$IMAGE:$VERSION" >/dev/null 2>&1; then echo "$IMAGE:$VERSION exists" >&2; exit 1; fi
+      - name: Push the image by digest (untagged)
+        run: |
+          skopeo copy --all --preserve-digests --digestfile pushed oci-archive:image/image.tar "docker://$IMAGE@$DIGEST"
+          [ "$(cat pushed)" = "$DIGEST" ] || { echo "pushed $(cat pushed), built $DIGEST" >&2; exit 1; }
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ env.DIGEST }}
+          push-to-registry: true
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: dist/*
+      - name: GitHub Release
+        run: gh release create "$TAG" dist/* --repo "$REPOSITORY" --verify-tag --title "The Runbook $VERSION" --notes-file notes/notes.md
+      # Only now do the tags point at it: X.Y.Z, then X.Y and latest.
+      - name: X.Y.Z, X.Y and latest
+        run: |
+          for ref in "$IMAGE:$VERSION" $EXTRA_TAGS; do
+            skopeo copy --all --preserve-digests "docker://$IMAGE@$DIGEST" "docker://$ref"
+          done

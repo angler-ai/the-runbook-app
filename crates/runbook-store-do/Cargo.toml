@@ -1,0 +1,23 @@
+[package]
+name = "runbook-store-do"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license = "AGPL-3.0-only"
+description = "CF2: the ExecutionDO store (one Durable Object per execution) over a small SQLite trait; Workers and native backends."
+
+[dependencies]
+runbook-core = { path = "../runbook-core" }
+runbook-engine = { path = "../runbook-engine" }
+runbook-model = { path = "../runbook-model" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["arbitrary_precision"] }
+sha2 = { version = "0.10", default-features = false }
+
+# The Workers backend exists only on wasm32, pinned with runbook-worker
+# (D55 "CF1 spike results").
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+worker = { version = "=0.8.7" }
+wasm-bindgen = "0.2.129"
+js-sys = "0.3.106"

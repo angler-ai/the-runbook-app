@@ -1,0 +1,132 @@
+{
+  "format": "runbook-project-archive",
+  "schema_version": 1,
+  "engine_version": 4,
+  "org_id": "org_00000000000000000000000001",
+  "project_id": "prj_00000000000000000000000001",
+  "created_at_ms": 1800000000000,
+  "files": [
+    {
+      "path": "organization.ndjson",
+      "records": 1,
+      "bytes": 54,
+      "sha256": "4572edcc9179056da48befa52eb174a34bcec54829c1403fca7dcbe67343e3ee"
+    },
+    {
+      "path": "project.ndjson",
+      "records": 1,
+      "bytes": 109,
+      "sha256": "80b4987b9e99fd24451d2fe32ee91eb12fad0d4507b5b94c59cac2d266b7d526"
+    },
+    {
+      "path": "users.ndjson",
+      "records": 3,
+      "bytes": 253,
+      "sha256": "5f3982744aa079beb29c0315654bc93f54b87cc5e208ec66a9d4b3559966bb39"
+    },
+    {
+      "path": "teams.ndjson",
+      "records": 1,
+      "bytes": 117,
+      "sha256": "810f96fa68af6585af2fe19faefe0973bc04130db6b35995bc2496608cf1e797"
+    },
+    {
+      "path": "project_members.ndjson",
+      "records": 2,
+      "bytes": 123,
+      "sha256": "a7d8dcf4e5ee9d15e099b7eba5c4de6f60e8bcc1db0faa41041fbfbb06c5076a"
+    },
+    {
+      "path": "team_members.ndjson",
+      "records": 1,
+      "bytes": 89,
+      "sha256": "acfce033cc09ac09c92a946dc814346f9fed8beecbe9b471b9942b4ad65ef540"
+    },
+    {
+      "path": "project_variables.ndjson",
+      "records": 1,
+      "bytes": 103,
+      "sha256": "7c5ed94593aab5b7718e6c120e4cad00328597b2abfe72420abc8e5aea4f3a92"
+    },
+    {
+      "path": "runbooks.ndjson",
+      "records": 2,
+      "bytes": 733,
+      "sha256": "829b0c0c8b80ab2fea9129df99e5eae1e121ba8e1607d9e85669b45fc1da37a8"
+    },
+    {
+      "path": "runbook_versions.ndjson",
+      "records": 2,
+      "bytes": 1466,
+      "sha256": "6d1b8f0b0772d03e0571c833c9e871e2e0897db0dafe50d9b460601a120cf391"
+    },
+    {
+      "path": "drafts.ndjson",
+      "records": 1,
+      "bytes": 56,
+      "sha256": "557b6386d8e4c2c29c6685d1da592b863057c0cef8513dc791f35014ce43c991"
+    },
+    {
+      "path": "skill_versions.ndjson",
+      "records": 1,
+      "bytes": 236,
+      "sha256": "c124482719dfe19f7387dbbfe4ec6dd43696a5b2b4b2686d796cdbad73afc769"
+    },
+    {
+      "path": "admission_pools.ndjson",
+      "records": 1,
+      "bytes": 78,
+      "sha256": "2ef8b12ff200e88e65679343e50aea84f346e342c69134178fe646b229eaa416"
+    },
+    {
+      "path": "executions.ndjson",
+      "records": 4,
+      "bytes": 18670,
+      "sha256": "63efb89a986dd109898cfaf48690e90a4ffee45e9dfa68ea9f2b9a317afb5516"
+    },
+    {
+      "path": "execution_events.ndjson",
+      "records": 12,
+      "bytes": 4192,
+      "sha256": "68fd349af2c209e5659722f1ecf8053e687430abd7e59000bec979a086ad8009"
+    },
+    {
+      "path": "tombstones.ndjson",
+      "records": 1,
+      "bytes": 257,
+      "sha256": "251756fbf8d34831f6a4603b691f4b04b75f0b01b918ec77b947959f251324da"
+    },
+    {
+      "path": "webhook_subscriptions.ndjson",
+      "records": 1,
+      "bytes": 362,
+      "sha256": "7f6c86ea5cda7a2be43570bfd0f072922451cb47d8f6d490a2aa204793d41ccf"
+    },
+    {
+      "path": "blobs.ndjson",
+      "records": 4,
+      "bytes": 873,
+      "sha256": "1a27f7d7891fde1be4c556efe6270bad41360bcc516a3e30e59baf568e6fe7d7"
+    },
+    {
+      "path": "blobs/022ec86f40b6c590ad46b51a51571daaf1114adec4feb8153d9a700cc1017930",
+      "bytes": 35,
+      "sha256": "022ec86f40b6c590ad46b51a51571daaf1114adec4feb8153d9a700cc1017930"
+    },
+    {
+      "path": "blobs/0fdeb0a7ab0914a46855450c9879afb116f3511a7f605a84cd916c9e72cf4382",
+      "bytes": 4944,
+      "sha256": "0fdeb0a7ab0914a46855450c9879afb116f3511a7f605a84cd916c9e72cf4382"
+    },
+    {
+      "path": "blobs/ba4ddaf8f961b58f4bac6293ae33e8ae8651ca53b7f16088fb9c5b663bec937b",
+      "bytes": 13,
+      "sha256": "ba4ddaf8f961b58f4bac6293ae33e8ae8651ca53b7f16088fb9c5b663bec937b"
+    },
+    {
+      "path": "blobs/eeeffd29bec81ee272c064bff8f78c6d761d9eeb18648709de975e7f8f255646",
+      "bytes": 7142,
+      "sha256": "eeeffd29bec81ee272c064bff8f78c6d761d9eeb18648709de975e7f8f255646"
+    }
+  ]
+}
