@@ -54,12 +54,15 @@ resource "kubernetes_manifest" "frontend_config" {
         "app.kubernetes.io/managed-by" = "terraform"
       }
     }
-    spec = {
-      redirectToHttps = {
-        enabled          = true
-        responseCodeName = "MOVED_PERMANENTLY_DEFAULT"
-      }
-    }
+    spec = merge(
+      {
+        redirectToHttps = {
+          enabled          = true
+          responseCodeName = "MOVED_PERMANENTLY_DEFAULT"
+        }
+      },
+      var.ssl_policy != "" ? { sslPolicy = var.ssl_policy } : {}
+    )
   }
 }
 

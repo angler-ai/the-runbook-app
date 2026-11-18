@@ -40,3 +40,14 @@ test('terraform fmt and validate for deploy/terraform/gcp-gke', (t) => {
   });
   assert.equal(val.status, 0, `terraform validate failed:\n${val.stdout}\n${val.stderr}`);
 });
+
+test('Google sign-in: the ID goes to the ConfigMap, the secret only to the Secret', async () => {
+  const { readFileSync } = await import('node:fs');
+  const read = (name) => readFileSync(`${tfDir}/${name}`, 'utf8');
+  const variables = read('variables.tf');
+  assert.match(variables, /variable "google_client_secret" \{[^}]*sensitive\s*=\s*true/s);
+  assert.match(read('workload.tf'), /RUNBOOK_GOOGLE_CLIENT_ID\s*=\s*var\.google_client_id/);
+  assert.doesNotMatch(read('workload.tf'), /google_client_secret/);
+  assert.match(read('secrets.tf'), /RUNBOOK_GOOGLE_CLIENT_SECRET\s*=\s*var\.google_client_secret/);
+  assert.match(read('ingress.tf'), /sslPolicy\s*=\s*var\.ssl_policy/);
+});

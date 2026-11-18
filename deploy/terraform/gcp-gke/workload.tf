@@ -52,6 +52,9 @@ resource "kubernetes_config_map" "runbook_config" {
     var.blob_store == "gcs" ? {
       RUNBOOK_BLOB_BUCKET = google_storage_bucket.blobs[0].name
       RUNBOOK_BLOB_PREFIX = var.blob_prefix
+    } : {},
+    var.google_client_id != "" ? {
+      RUNBOOK_GOOGLE_CLIENT_ID = var.google_client_id
     } : {}
   )
 }

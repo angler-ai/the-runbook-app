@@ -221,7 +221,16 @@ The sign-in service (`auth/`) is built into the image and runs automatically as 
 
 - **Email codes (SMTP):** Configured via `smtp_url` and `smtp_from`. Users enter their email and receive a one-time code.
 - **Allowed Domains:** Use `auth_allowed_domains` (e.g. `example.com,getangler.ai`) to restrict registrations and sign-ins to verified corporate domains.
-- **Google OAuth (Optional):** Can be enabled by adding `google` to `auth_methods` and passing `RUNBOOK_GOOGLE_CLIENT_ID` and `RUNBOOK_GOOGLE_CLIENT_SECRET` via Secret Manager / ConfigMap. Google redirect URI is `https://${var.app_domain}/api/auth/callback/google`.
+- **Google sign-in (optional):** create an OAuth web client in the Google Cloud console with the redirect URI `https://<app_domain>/api/auth/callback/google`, then set `google_client_id` and `google_client_secret` and add `google` to `auth_methods` (`"google"` alone turns email codes off). The secret goes to Secret Manager and the workload's Secret; the ID goes to the ConfigMap. Pass the secret from the environment (`TF_VAR_google_client_secret`), not a tfvars file.
+
+---
+
+## TLS policy and Cloud Armor
+
+- `ssl_policy`: the name of a Compute Engine SSL policy (say TLS 1.2 minimum with the `MODERN` profile) that the load balancer uses, attached through the FrontendConfig.
+- `cloud_armor_policy`: the name of a Cloud Armor security policy attached to the backend.
+
+Both are created outside this module, so one policy can serve several apps.
 
 ---
 

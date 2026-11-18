@@ -33,8 +33,15 @@ auth_allowed_domains = "example.com,getangler.ai"
 smtp_from            = "The Runbook <login@example.com>"
 smtp_url             = "smtps://login-user:SECRET_PASSWORD@smtp.example.com:465"
 
+# Optional: Google sign-in (add "google" to auth_methods). Pass the secret as
+# TF_VAR_google_client_secret rather than writing it here.
+# google_client_id = "1234567890-abc.apps.googleusercontent.com"
+
 # Optional: the most step runs one run may open ("off", the default, is no cap)
 # step_runs_limit = "500"
+
+# Optional SSL policy name for the load balancer (e.g. MODERN, TLS 1.2 minimum)
+# ssl_policy = "runbook-tls"
 
 # Optional Cloud Armor security policy name
 # cloud_armor_policy = "runbook-security-policy"

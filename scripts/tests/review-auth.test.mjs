@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const script = join(root, 'scripts', 'dev', 'review.sh');
-const targetDir = process.env.CARGO_TARGET_DIR || join(root, '..', 'runbook', 'target');
+const targetDir = process.env.CARGO_TARGET_DIR || join(root, 'target');
 
 function getFreePort() {
   return new Promise((resolve, reject) => {
@@ -30,6 +30,12 @@ async function sleep(ms) {
 }
 
 test('review.sh supports email-code sign-in and captures codes to 0600 file', async (t) => {
+  // It starts the built server: scripts/check.sh runs these tests before it
+  // builds, so a clean checkout skips it (the review stack has its own CI).
+  if (!existsSync(join(targetDir, 'debug', 'runbook-server'))) {
+    t.skip('runbook-server is not built (cargo build -p runbook-server -p runbook-cli)');
+    return;
+  }
   const base = mkdtempSync(join(tmpdir(), 'review-auth-test-'));
   const stateDir = join(base, 'state');
   const dbName = `rb_test_review_auth_${Date.now()}`;

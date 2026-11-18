@@ -96,6 +96,24 @@ resource "google_secret_manager_secret_version" "smtp_url" {
   secret_data = var.smtp_url
 }
 
+resource "google_secret_manager_secret" "google_client_secret" {
+  count     = var.google_client_secret != "" ? 1 : 0
+  secret_id = "runbook-google-client-secret"
+  project   = var.project_id
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_secret_manager_secret_version" "google_client_secret" {
+  count       = var.google_client_secret != "" ? 1 : 0
+  secret      = google_secret_manager_secret.google_client_secret[0].id
+  secret_data = var.google_client_secret
+}
+
 # Kubernetes Secret populated for the Deployment
 resource "kubernetes_secret" "runbook_secrets" {
   metadata {
@@ -118,6 +136,9 @@ resource "kubernetes_secret" "runbook_secrets" {
     } : {},
     var.smtp_url != "" ? {
       RUNBOOK_SMTP_URL = var.smtp_url
+    } : {},
+    var.google_client_secret != "" ? {
+      RUNBOOK_GOOGLE_CLIENT_SECRET = var.google_client_secret
     } : {}
   )
 
