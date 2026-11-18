@@ -254,6 +254,18 @@ impl CatalogData {
         runbook.record.archived = true;
         Ok(())
     }
+    pub(crate) fn detach_git(
+        &mut self,
+        scope: &TenantScope,
+        id: &runbook_model::RunbookId,
+    ) -> Result<(), StoreError> {
+        let runbook = self.runbook_mut(scope, id).ok_or(StoreError::NotFound)?;
+        if runbook.record.origin != RunbookOrigin::Git {
+            return Err(StoreError::InvalidBatch("runbook.not_git_managed"));
+        }
+        runbook.record.origin = RunbookOrigin::Ui;
+        Ok(())
+    }
     pub(crate) fn create_preview(
         &mut self,
         scope: &TenantScope,

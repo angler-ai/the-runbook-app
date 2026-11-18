@@ -29,7 +29,7 @@ A push sends the whole folder in one request:
 - **All or nothing.** Every file is compiled first. If any file is invalid, nothing is published, and the CLI lists each file's errors with line numbers (exit code 2).
 - **Versions.** A changed runbook gets a new version that records the commit and branch. An unchanged one keeps its version (`unchanged`).
 - **New runbooks** are created, and runbooks written in the app with the same slug are taken over (`adopt`).
-- **Locked in the app.** A runbook published from Git is read-only in the app; the editor says so. Change it with a pull request.
+- **Locked in the app.** A runbook published from Git is read-only in the app; the editor says so. Change it with a pull request, or choose **Edit here instead** (`POST /v1/runbooks/{rb}/detach`, needs `runbooks:publish`). The next push of its file takes it back.
 - **Removing a file** does nothing unless you pass `--prune`, which archives the runbook. Its versions and runs are kept, and a later push of the file brings it back.
 - `--dry-run` validates and reports what would change, without changing anything. Use it on pull requests.
 

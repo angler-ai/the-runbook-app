@@ -107,6 +107,30 @@ pub trait CfHost: Clone + 'static {
     fn step_cap(&self) -> Option<u64> {
         None
     }
+    /// SLACK1 stage 2: the operator's Slack app (none by default).
+    fn slack_app(&self) -> Option<runbook_core::slack::SlackApp> {
+        None
+    }
+    /// SLACK1 stage 2: a Slack Web API call (unavailable by default).
+    fn slack_api(
+        &self,
+        token: &str,
+        method: &str,
+        query: &[(&str, &str)],
+        body: Option<&serde_json::Value>,
+    ) -> impl std::future::Future<Output = Result<serde_json::Value, String>> {
+        let _ = (token, method, query, body);
+        async { Err("slack.unavailable".to_owned()) }
+    }
+    /// SLACK1 stage 2: a JSON POST to an interaction's `response_url`.
+    fn slack_respond(
+        &self,
+        url: &str,
+        body: &serde_json::Value,
+    ) -> impl std::future::Future<Output = Result<(), String>> {
+        let _ = (url, body);
+        async { Err("slack.unavailable".to_owned()) }
+    }
     /// Test seam: how far ahead of the host clock the archive pass runs
     /// (`RUNBOOK_TEST_RETENTION_CLOCK_OFFSET_MS`, as native); 0 otherwise.
     fn retention_clock_offset_ms(&self) -> i64 {
@@ -305,6 +329,21 @@ impl<H: CfHost> Backends for CfBackends<H> {
     }
     fn try_image_slot(&self) -> Option<()> {
         Some(())
+    }
+    fn slack_app(&self) -> Option<runbook_core::slack::SlackApp> {
+        self.host.slack_app()
+    }
+    async fn slack_api(
+        &self,
+        token: &str,
+        method: &str,
+        query: &[(&str, &str)],
+        body: Option<&serde_json::Value>,
+    ) -> Result<serde_json::Value, String> {
+        self.host.slack_api(token, method, query, body).await
+    }
+    async fn slack_respond(&self, url: &str, body: &serde_json::Value) -> Result<(), String> {
+        self.host.slack_respond(url, body).await
     }
     fn wall_clock_ms(&self) -> i64 {
         self.host.now_ms()

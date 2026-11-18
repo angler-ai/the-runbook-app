@@ -18,6 +18,7 @@ pub mod log;
 mod mcp;
 pub mod owner_recovery;
 pub mod session;
+mod slack_http;
 pub mod web_assets;
 pub mod webhooks;
 use std::fmt;

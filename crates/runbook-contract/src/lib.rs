@@ -34,7 +34,7 @@ pub fn openapi() -> Value {
     register!(requests; MemoryEntryView, SaveMemoryRequest, MemoryReadRef, MemoryPatchRequest, MemoryPage, MemoryRevisionPage, ExecutionDocumentView);
     register!(requests; InboxPage);
     register!(requests; TriggerResponse);
-    register!(requests; MeView, VersionFormView, ConnectedAppPage, ConnectedAppView, EmailPreferencesView, EmailPreferencesRequest, UnsubscribeRequest, UnsubscribeView, ProjectSlackView, ProjectSlackRequest, UniversalSearchView, UpdateMeRequest, MeUser, PictureUpload, PictureView, UpdateProjectRequest, SyncRequest, SyncFile, SyncView, SyncRunbookView, SyncFileErrors);
+    register!(requests; MeView, VersionFormView, ConnectedAppPage, ConnectedAppView, EmailPreferencesView, EmailPreferencesRequest, UnsubscribeRequest, UnsubscribeView, ProjectSlackView, ProjectSlackRequest, UniversalSearchView, UpdateMeRequest, MeUser, PictureUpload, PictureView, UpdateProjectRequest, SyncRequest, SyncFile, SyncView, SyncRunbookView, SyncFileErrors, DetachView);
     register!(requests; StepLogPage);
     register!(requests; CreateTokenRequest, TokenView, TokenSecretView, TokenPage);
     register!(requests; CreateWebhookRequest, UpdateWebhookRequest, WebhookView, WebhookSecretView,
@@ -124,6 +124,7 @@ pub fn openapi() -> Value {
             Some("ProjectSlackView"),
         ),
         ("/v1/projects/{p}/slack", "delete", None, None),
+        ("/v1/slack/interactions", "post", None, None),
         (
             "/v1/me/picture",
             "put",
@@ -152,6 +153,7 @@ pub fn openapi() -> Value {
             Some("SyncRequest"),
             Some("SyncView"),
         ),
+        ("/v1/runbooks/{rb}/detach", "post", None, Some("DetachView")),
         ("/v1/me", "get", None, Some("MeView")),
         ("/v1/me", "patch", Some("UpdateMeRequest"), Some("MeUser")),
         ("/v1/me/token", "delete", None, None),
@@ -531,6 +533,15 @@ pub fn openapi() -> Value {
             operation["description"] = json!(
                 "Implemented. A PNG or JPEG of at most 512x512 pixels and 1 MiB, sent base64-encoded and kept in the database. Reading a project's image needs only membership of its organization; setting or removing it needs project admin. A larger or other image is 422 picture.too_large or picture.unsupported_format."
             );
+            operation["x-implementation"] = json!("implemented");
+        }
+        if path == "/v1/slack/interactions" {
+            operation["summary"] = json!("Slack button clicks (the Slack app)");
+            operation["description"] = json!(
+                "Implemented. Slack posts here (application/x-www-form-urlencoded, signed with X-Slack-Signature and X-Slack-Request-Timestamp) when someone clicks an approval button. The signature over the exact body, made with RUNBOOK_SLACK_SIGNING_SECRET, is the credential; older than five minutes is 401 slack.invalid_signature. The clicking user is matched by email and votes with their own permissions; the answer to them goes to the interaction's response_url. 404 when the server has no Slack app. Not for API clients."
+            );
+            operation["security"] = json!([]);
+            operation["parameters"] = json!([]);
             operation["x-implementation"] = json!("implemented");
         }
         if path == "/v1/users/{user}/picture" {

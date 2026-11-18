@@ -114,6 +114,31 @@ resource "google_secret_manager_secret_version" "google_client_secret" {
   secret_data = var.google_client_secret
 }
 
+locals {
+  slack_secrets = var.slack_bot_token != "" ? {
+    "runbook-slack-bot-token"      = var.slack_bot_token
+    "runbook-slack-signing-secret" = var.slack_signing_secret
+  } : {}
+}
+
+resource "google_secret_manager_secret" "slack" {
+  for_each  = nonsensitive(toset(keys(local.slack_secrets)))
+  secret_id = each.key
+  project   = var.project_id
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_secret_manager_secret_version" "slack" {
+  for_each    = nonsensitive(toset(keys(local.slack_secrets)))
+  secret      = google_secret_manager_secret.slack[each.key].id
+  secret_data = local.slack_secrets[each.key]
+}
+
 # Kubernetes Secret populated for the Deployment
 resource "kubernetes_secret" "runbook_secrets" {
   metadata {
@@ -139,6 +164,10 @@ resource "kubernetes_secret" "runbook_secrets" {
     } : {},
     var.google_client_secret != "" ? {
       RUNBOOK_GOOGLE_CLIENT_SECRET = var.google_client_secret
+    } : {},
+    var.slack_bot_token != "" ? {
+      RUNBOOK_SLACK_BOT_TOKEN      = var.slack_bot_token
+      RUNBOOK_SLACK_SIGNING_SECRET = var.slack_signing_secret
     } : {}
   )
 

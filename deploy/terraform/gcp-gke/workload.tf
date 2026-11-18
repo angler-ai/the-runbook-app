@@ -55,6 +55,9 @@ resource "kubernetes_config_map" "runbook_config" {
     } : {},
     var.google_client_id != "" ? {
       RUNBOOK_GOOGLE_CLIENT_ID = var.google_client_id
+    } : {},
+    var.slack_default_channel != "" ? {
+      RUNBOOK_SLACK_DEFAULT_CHANNEL = var.slack_default_channel
     } : {}
   )
 }

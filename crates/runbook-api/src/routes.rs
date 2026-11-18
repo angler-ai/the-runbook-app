@@ -155,6 +155,12 @@ pub const MANIFEST: &[Route] = &[
         Kind::Public,
     ),
     api("GET", "/v1/projects/{p}/slack", Area::Slack, Kind::Public),
+    api(
+        "POST",
+        "/v1/slack/interactions",
+        Area::SlackInteractions,
+        Kind::Public,
+    ),
     api("PUT", "/v1/me/picture", Area::Pictures, Kind::Public),
     api("DELETE", "/v1/me/picture", Area::Pictures, Kind::Public),
     api(
@@ -319,6 +325,12 @@ pub const MANIFEST: &[Route] = &[
     api(
         "POST",
         "/v1/projects/{p}/sync",
+        Area::Authoring,
+        Kind::Public,
+    ),
+    api(
+        "POST",
+        "/v1/runbooks/{rb}/detach",
         Area::Authoring,
         Kind::Public,
     ),

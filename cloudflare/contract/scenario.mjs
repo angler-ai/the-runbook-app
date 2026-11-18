@@ -429,6 +429,14 @@ export async function scenario(t) {
     body: { url: 'https://hooks.slack.com/services/T0000000/B0000000/contract' },
   });
   await t.call('slack clear', 'DELETE', '/v1/projects/{p}/slack', { p: project });
+  // Stage 2 without a Slack app: no channel, no interactions endpoint.
+  await t.call('slack channel without app', 'PUT', '/v1/projects/{p}/slack', { p: project }, {
+    body: { channel: 'C0123ABCDEF' },
+  });
+  await t.call('slack interactions without app', 'POST', '/v1/slack/interactions', {}, {
+    token: null,
+    body: { payload: '{}' },
+  });
 
   // ---- Profiles and project settings (2026-11-17): rename yourself, a
   // photo set, read and removed, a project renamed with an image. Only the
@@ -473,6 +481,14 @@ export async function scenario(t) {
     await t.call('sync draft locked', 'PATCH', '/v1/runbooks/{rb}/draft', { rb: syncedRb }, {
       ifMatch: syncedDraft.headers.get('etag'),
       body: { source: synced('contract-synced') + '# edited\n' },
+    });
+  }
+  if (syncedRb) {
+    await t.call('sync detach', 'POST', '/v1/runbooks/{rb}/detach', { rb: syncedRb });
+    await t.call('sync detach again', 'POST', '/v1/runbooks/{rb}/detach', { rb: syncedRb });
+    // The next sync adopts it back.
+    await t.call('sync after detach', 'POST', '/v1/projects/{p}/sync', { p: project }, {
+      body: { files: syncFiles },
     });
   }
   await t.call('sync prune', 'POST', '/v1/projects/{p}/sync', { p: project }, {

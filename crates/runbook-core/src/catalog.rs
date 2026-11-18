@@ -260,6 +260,12 @@ pub trait CatalogStore {
         &self,
         runbook_id: &runbook_model::RunbookId,
     ) -> impl Future<Output = Result<(), StoreError>>;
+    /// Git sync: make a Git-managed runbook editable in the app again (its
+    /// draft and versions stay; the next sync of its file adopts it back).
+    fn detach_git(
+        &self,
+        runbook_id: &runbook_model::RunbookId,
+    ) -> impl Future<Output = Result<(), StoreError>>;
     /// Omitted selector: highest published number. Foreign and nonexistent
     /// versions are the same NotFound.
     fn resolve_version(

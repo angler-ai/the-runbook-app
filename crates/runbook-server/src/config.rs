@@ -58,6 +58,9 @@ pub struct ServerConfig {
     pub email: Option<crate::email::EmailConfig>,
     /// STO1: optional object storage for blobs (GCS or S3).
     pub blob_store: runbook_store_objects::BlobStoreConfig,
+    /// SLACK1 stage 2: the operator's Slack app (`RUNBOOK_SLACK_BOT_TOKEN`,
+    /// `RUNBOOK_SLACK_SIGNING_SECRET`, `RUNBOOK_SLACK_DEFAULT_CHANNEL`).
+    pub slack: Option<runbook_core::slack::SlackApp>,
 }
 
 /// HOST1: the listen address: RUNBOOK_LISTEN_ADDR when set (empty means
@@ -692,6 +695,7 @@ impl ServerConfig {
         }
         config.retention.check()?;
         (config.theme, config.theme_warnings) = theme_config(env_value)?;
+        config.slack = runbook_core::slack::SlackApp::from_vars(env_value);
         if let Ok(value) = std::env::var("RUNBOOK_ALLOW_LINK_LOCAL_WEBHOOK_TARGETS") {
             config.webhooks.allow_link_local_targets = match value.as_str() {
                 "true" | "1" => true,
@@ -742,6 +746,7 @@ impl ServerConfig {
             migrate_on_start: true,
             email: None,
             blob_store: Default::default(),
+            slack: None,
             database,
             origin,
             listen: listen.parse().map_err(|_| Error("config.invalid_listen"))?,

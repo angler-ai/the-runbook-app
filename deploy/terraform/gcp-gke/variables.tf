@@ -184,6 +184,31 @@ variable "google_client_secret" {
   }
 }
 
+variable "slack_bot_token" {
+  type        = string
+  default     = ""
+  sensitive   = true
+  description = "Bot token (xoxb-...) of The Runbook's Slack app (deploy/slack/manifest.yaml, docs/slack.md): approval buttons in Slack. With slack_signing_secret."
+}
+
+variable "slack_signing_secret" {
+  type        = string
+  default     = ""
+  sensitive   = true
+  description = "The Slack app's signing secret, with slack_bot_token."
+
+  validation {
+    condition     = (var.slack_signing_secret == "") == (var.slack_bot_token == "")
+    error_message = "Set slack_bot_token and slack_signing_secret together, or neither."
+  }
+}
+
+variable "slack_default_channel" {
+  type        = string
+  default     = ""
+  description = "Optional Slack channel ID for projects that name none."
+}
+
 variable "smtp_from" {
   type        = string
   default     = "The Runbook <login@example.com>"

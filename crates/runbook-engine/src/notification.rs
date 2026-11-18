@@ -58,6 +58,25 @@ pub fn notification_for(
                 .step_run_ids
                 .push(snapshot.request.step_run_id.clone());
             intent.recipients = snapshot.recipients.clone();
+            // SLACK1 stage 2: the step's title, prompt and options, so a
+            // chat message can offer one button per option.
+            intent.detail = state
+                .steps
+                .iter()
+                .find(|step| step.id.as_ref() == Some(&snapshot.request.step_run_id))
+                .and_then(|step| state.node(&step.step_id))
+                .and_then(|node| match &node.kind {
+                    runbook_spec::ir::NodeKind::Approval(approval) => Some(serde_json::json!({
+                        "step_title": node.title,
+                        "prompt": approval.prompt,
+                        "options": approval
+                            .options
+                            .iter()
+                            .map(|o| serde_json::json!({"id": o.id, "title": o.title}))
+                            .collect::<Vec<_>>(),
+                    })),
+                    _ => None,
+                });
         }
         Event::AgentWorkAvailable { work } => {
             intent.kind = "agent.work_available".into();

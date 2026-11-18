@@ -160,6 +160,31 @@ pub trait Backends: Clone {
     /// The host's wall clock, in epoch milliseconds (request nonces; the
     /// stores keep their own clock for every decision).
     fn wall_clock_ms(&self) -> i64;
+    /// SLACK1 stage 2: the operator's Slack app, when configured.
+    fn slack_app(&self) -> Option<runbook_core::slack::SlackApp> {
+        None
+    }
+    /// SLACK1 stage 2: a Slack Web API call ([`runbook_core::slack::SlackTransport::slack_api`]).
+    fn slack_api(
+        &self,
+        token: &str,
+        method: &str,
+        query: &[(&str, &str)],
+        body: Option<&serde_json::Value>,
+    ) -> impl Future<Output = Result<serde_json::Value, String>> {
+        let _ = (token, method, query, body);
+        async { Err("slack.unavailable".to_owned()) }
+    }
+    /// SLACK1 stage 2: a JSON POST to an interaction's `response_url`
+    /// (always `https://hooks.slack.com/…`, checked by the caller).
+    fn slack_respond(
+        &self,
+        url: &str,
+        body: &serde_json::Value,
+    ) -> impl Future<Output = Result<(), String>> {
+        let _ = (url, body);
+        async { Err("slack.unavailable".to_owned()) }
+    }
     /// Fill `bytes` from the host's cryptographic RNG.
     fn fill_random(&self, bytes: &mut [u8]) -> Result<(), NoEntropy>;
     /// AUTH3 sliding-window limit: count one hit for `key`, or

@@ -750,6 +750,27 @@ impl<D: D1> D1Catalog<D> {
         Err(StoreError::Backend("d1.retry"))
     }
 
+    /// Git sync: make a Git-managed runbook editable in the app again.
+    pub async fn detach_git(&self, id: &RunbookId) -> Result<(), StoreError> {
+        let runbook = self.runbook_row(id).await?;
+        if runbook.origin != RunbookOrigin::Git {
+            return Err(StoreError::InvalidBatch("runbook.not_git_managed"));
+        }
+        self.db
+            .run(
+                prepare(
+                    "UPDATE runbook SET origin = 'ui' \
+                     WHERE org_id = ? AND project_id = ? AND runbook_id = ? AND origin = 'git'",
+                )
+                .bind(self.org())
+                .bind(self.project())
+                .bind(id.as_str()),
+            )
+            .await
+            .map_err(err)?;
+        Ok(())
+    }
+
     /// Git sync: archive a Git-managed runbook whose file is gone.
     pub async fn archive_git(&self, id: &RunbookId) -> Result<(), StoreError> {
         let runbook = self.runbook_row(id).await?;

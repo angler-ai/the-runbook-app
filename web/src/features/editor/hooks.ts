@@ -4,7 +4,14 @@
 // per action, reused when the same action is retried after a network error
 // or a 5xx, and dropped once the server has answered definitively.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ACTION_HEADER, api, ApiError, apiRuntime, type Schemas } from '../../api/client';
+import {
+  ACTION_HEADER,
+  api,
+  ApiError,
+  apiRuntime,
+  newActionId,
+  type Schemas,
+} from '../../api/client';
 import { queryKeys } from '../../api/query-keys';
 import type { Diagnostic } from '../../wasm/runbook';
 
@@ -204,4 +211,16 @@ export interface EditorPermissions {
 export function editorPermissions(scopes: readonly string[] | undefined): EditorPermissions {
   const has = (scope: string) => scopes?.includes(scope) ?? false;
   return { canWrite: has('runbooks:write'), canPublish: has('runbooks:publish') };
+}
+
+/** Git sync: make a Git-managed runbook editable here again (runbooks:publish). */
+export async function detachFromGit(runbookId: string): Promise<void> {
+  const actionId = newActionId();
+  await api.POST('/v1/runbooks/{rb}/detach', {
+    params: {
+      path: { rb: runbookId },
+      header: { 'Idempotency-Key': apiRuntime.idempotencyKeyFor(actionId) },
+    },
+  });
+  apiRuntime.forgetAction(actionId);
 }

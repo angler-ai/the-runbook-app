@@ -183,10 +183,26 @@ pub struct SyncFileErrors {
     pub errors: Vec<Diagnostic>,
 }
 
+/// `POST /v1/runbooks/{rb}/detach`: the runbook, now authored in the app.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct DetachView {
+    pub runbook_id: RunbookId,
+    /// Always `ui`.
+    pub origin: String,
+}
+
 /// The most files one sync takes.
 pub const SYNC_MAX_FILES: usize = 500;
 
 pub const AUTHORING_ROUTES: &[PublicRoute] = &[
+    // Git sync: a Git-managed runbook editable in the app again (runbooks:publish).
+    PublicRoute {
+        method: "POST",
+        path: "/v1/runbooks/{rb}/detach",
+        request: None,
+        response: Some("DetachView"),
+        status: 200,
+    },
     // Git sync (2026-11-17): a repository folder published as a batch.
     PublicRoute {
         method: "POST",

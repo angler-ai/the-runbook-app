@@ -288,6 +288,8 @@ pub struct WorkersHost {
     run_budget: u64,
     /// The per-run step cap (`RUNBOOK_LIMIT_STEP_RUNS`).
     step_cap: Option<u64>,
+    /// SLACK1 stage 2: the operator's Slack app.
+    slack: Option<runbook_core::slack::SlackApp>,
     /// CF7: the sign-in methods discovery lists (the auth Worker's).
     auth_methods: Vec<String>,
     /// MCP2: the auth Worker, for the connected-app routes.
@@ -338,6 +340,7 @@ impl WorkersHost {
                 runbook_core::run_budget::DEFAULT_MAX_RUN_BYTES
             }),
             step_cap: step_cap(env),
+            slack: slack_app(env),
             // CF6: off unless set; an invalid value keeps it off and says so.
             quota: runbook_core::quotas::QuotaLimits {
                 executions_monthly: runbook_core::quotas::parse_limit(
@@ -402,6 +405,28 @@ impl CfHost for WorkersHost {
     fn step_cap(&self) -> Option<u64> {
         self.step_cap
     }
+    fn slack_app(&self) -> Option<runbook_core::slack::SlackApp> {
+        self.slack.clone()
+    }
+    async fn slack_api(
+        &self,
+        token: &str,
+        method: &str,
+        query: &[(&str, &str)],
+        body: Option<&serde_json::Value>,
+    ) -> std::result::Result<serde_json::Value, String> {
+        use runbook_core::slack::SlackTransport;
+        crate::notify::SlackFetch
+            .slack_api(token, method, query, body)
+            .await
+    }
+    async fn slack_respond(
+        &self,
+        url: &str,
+        body: &serde_json::Value,
+    ) -> std::result::Result<(), String> {
+        crate::notify::SlackFetch.respond(url, body).await
+    }
     fn auth_methods(&self) -> Vec<String> {
         self.auth_methods.clone()
     }
@@ -455,6 +480,15 @@ async fn ensure_schema(env: &Env) -> Result<()> {
 /// when the auth Worker is bound (with its registration domains,
 /// `RUNBOOK_AUTH_ALLOWED_DOMAINS`), uploads with a signing key and a
 /// separate user-content origin (`usercontent::settings`).
+/// SLACK1 stage 2: the Slack app from the Worker's secrets (or vars).
+pub(crate) fn slack_app(env: &Env) -> Option<runbook_core::slack::SlackApp> {
+    runbook_core::slack::SlackApp::from_vars(|name| {
+        env.secret(name)
+            .ok()
+            .map(|v| v.to_string())
+            .or_else(|| var(env, name))
+    })
+}
 /// The per-run step cap (`RUNBOOK_LIMIT_STEP_RUNS`): none unless set; an
 /// invalid value keeps none and says so.
 fn step_cap(env: &Env) -> Option<u64> {

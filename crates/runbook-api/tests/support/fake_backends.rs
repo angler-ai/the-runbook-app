@@ -52,6 +52,15 @@ pub struct Fake {
     /// MCP2: the auth service's connected-app routes: each call
     /// (route, body), and what the next one answers.
     pub apps: Rc<std::cell::RefCell<FakeApps>>,
+    /// SLACK1 stage 2: the app, `users.info`'s answer, and replies sent.
+    pub slack: Rc<std::cell::RefCell<FakeSlack>>,
+}
+
+#[derive(Default)]
+pub struct FakeSlack {
+    pub app: Option<runbook_core::slack::SlackApp>,
+    pub users_info: Option<Value>,
+    pub replies: Vec<(String, Value)>,
 }
 
 /// The connected-app calls made, and the next answer.
@@ -85,6 +94,7 @@ impl Fake {
             notify: runbook_core::notify::memory::MemoryNotify::new(1_000_000),
             random: Rc::default(),
             apps: Rc::default(),
+            slack: Rc::default(),
         }
     }
 }
@@ -433,6 +443,28 @@ impl Backends for Fake {
     }
     fn wall_clock_ms(&self) -> i64 {
         1_000
+    }
+    fn slack_app(&self) -> Option<runbook_core::slack::SlackApp> {
+        self.slack.borrow().app.clone()
+    }
+    async fn slack_api(
+        &self,
+        _: &str,
+        method: &str,
+        _: &[(&str, &str)],
+        _: Option<&Value>,
+    ) -> Result<Value, String> {
+        match (method, self.slack.borrow().users_info.clone()) {
+            ("users.info", Some(info)) => Ok(info),
+            _ => Err("slack_fake".into()),
+        }
+    }
+    async fn slack_respond(&self, url: &str, body: &Value) -> Result<(), String> {
+        self.slack
+            .borrow_mut()
+            .replies
+            .push((url.to_owned(), body.clone()));
+        Ok(())
     }
     fn fill_random(&self, bytes: &mut [u8]) -> Result<(), NoEntropy> {
         for b in bytes.iter_mut() {

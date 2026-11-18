@@ -225,6 +225,12 @@ The sign-in service (`auth/`) is built into the image and runs automatically as 
 
 ---
 
+## Slack
+
+`slack_bot_token` and `slack_signing_secret` (both sensitive; pass them as `TF_VAR_…`) turn on The Runbook's Slack app: approval requests in a project's channel with a button per option. `slack_default_channel` is optional. Setup: [`docs/slack.md`](../../../docs/slack.md).
+
+---
+
 ## TLS policy and Cloud Armor
 
 - `ssl_policy`: the name of a Compute Engine SSL policy (say TLS 1.2 minimum with the `MODERN` profile) that the load balancer uses, attached through the FrontendConfig.

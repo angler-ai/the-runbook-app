@@ -510,6 +510,28 @@ impl PostgresExecutionStore {
         Ok(view)
     }
 
+    pub(crate) async fn detach_git_row(&self, id: &RunbookId) -> Result<(), StoreError> {
+        self.transaction(READ_COMMITTED, async |c| {
+            let runbook = lock_runbook(c, &self.scope, id).await?;
+            if runbook.origin != RunbookOrigin::Git {
+                return Err(StoreError::InvalidBatch("runbook.not_git_managed"));
+            }
+            c.execute(
+                "UPDATE runbook.runbook SET origin = 'ui' \
+                 WHERE org_id = $1 AND project_id = $2 AND runbook_id = $3",
+                &[
+                    &self.scope.org_id.as_str(),
+                    &self.scope.project_id.as_str(),
+                    &id.as_str(),
+                ],
+            )
+            .await
+            .map_err(db)?;
+            Ok(())
+        })
+        .await
+    }
+
     pub(crate) async fn archive_git_row(&self, id: &RunbookId) -> Result<(), StoreError> {
         self.transaction(READ_COMMITTED, async |c| self.archive_git_in(c, id).await)
             .await

@@ -497,6 +497,9 @@ impl CatalogStore for MemoryExecutionStore {
     async fn archive_git(&self, id: &runbook_model::RunbookId) -> Result<(), StoreError> {
         self.transaction(|db| db.catalog.archive_git(&self.scope, id))
     }
+    async fn detach_git(&self, id: &runbook_model::RunbookId) -> Result<(), StoreError> {
+        self.transaction(|db| db.catalog.detach_git(&self.scope, id))
+    }
     async fn create_preview(
         &self,
         id: &runbook_model::RunbookId,

@@ -525,6 +525,9 @@ impl CatalogStore for PostgresExecutionStore {
     async fn archive_git(&self, id: &runbook_model::RunbookId) -> Result<(), StoreError> {
         self.archive_git_row(id).await
     }
+    async fn detach_git(&self, id: &runbook_model::RunbookId) -> Result<(), StoreError> {
+        self.detach_git_row(id).await
+    }
     async fn resolve_version(
         &self,
         id: &runbook_model::RunbookId,

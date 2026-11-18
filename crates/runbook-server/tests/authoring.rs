@@ -1068,7 +1068,48 @@ async fn sync_publishes_a_folder_adopts_and_archives() {
         assert_eq!(refused.status, 409);
         assert_eq!(refused.body["code"], "runbook.git_managed");
 
-        // The same files again: nothing new.
+        // Detached (runbooks:publish), alpha is editable in the app again.
+        let detached = api
+            .checked(req(
+                "POST",
+                &format!("/v1/runbooks/{alpha}/detach"),
+                Value::Null,
+                40,
+                1,
+                Some("detach"),
+                None,
+            ))
+            .await;
+        assert_eq!(detached.status, 200, "{:?}", detached.body);
+        assert_eq!(detached.body["origin"], "ui");
+        let edited = api
+            .checked(req(
+                "PATCH",
+                &format!("/v1/runbooks/{alpha}/draft"),
+                json!({"source": source("alpha") + "# edit\n"}),
+                41,
+                1,
+                None,
+                draft.etag.as_deref(),
+            ))
+            .await;
+        assert_eq!(edited.status, 200, "{:?}", edited.body);
+        // The write-only service token can't publish, so can't detach.
+        let denied = api
+            .checked(req(
+                "POST",
+                &format!("/v1/runbooks/{alpha}/detach"),
+                Value::Null,
+                42,
+                2,
+                Some("detach-2"),
+                None,
+            ))
+            .await;
+        assert_eq!(denied.status, 403);
+
+        // The same files again: nothing new, but the detached alpha is
+        // adopted back.
         let again = sync(
             &api,
             sync_body(
@@ -1086,7 +1127,7 @@ async fn sync_publishes_a_folder_adopts_and_archives() {
         assert_eq!(
             actions(&again.body),
             [
-                ("alpha".into(), "unchanged".into()),
+                ("alpha".into(), "adopt".into()),
                 ("manual".into(), "unchanged".into())
             ]
         );

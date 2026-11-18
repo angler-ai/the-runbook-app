@@ -7,6 +7,7 @@ use runbook_core::{
     directory::DirectoryStore,
     directory_operations::DirectoryOperations,
     notify::NotifyStore,
+    slack::{SlackTarget, valid_channel},
 };
 use runbook_model::{ProjectSlackRequest, ProjectSlackView};
 use serde_json::json;
@@ -64,12 +65,19 @@ async fn dispatch<B: Backends>(
                 Scope::RunbooksRead,
             )
             .map_err(|_| (403, "auth.forbidden"))?;
-            let configured = notify
-                .slack_url(&scope)
-                .await
-                .map_err(|_| UNAVAILABLE)?
-                .is_some();
-            Ok((200, json!(ProjectSlackView { configured })))
+            let stored = notify.slack_url(&scope).await.map_err(|_| UNAVAILABLE)?;
+            let channel = match stored.as_deref().map(SlackTarget::parse) {
+                Some(SlackTarget::Channel(channel)) => Some(channel),
+                _ => None,
+            };
+            Ok((
+                200,
+                json!(ProjectSlackView {
+                    configured: stored.is_some(),
+                    channel,
+                    app: backends.slack_app().is_some(),
+                }),
+            ))
         }
         "PUT" => {
             authorize(
@@ -82,15 +90,43 @@ async fn dispatch<B: Backends>(
             .map_err(|_| (403, "auth.forbidden"))?;
             let request: ProjectSlackRequest =
                 serde_json::from_value(r.body.clone()).map_err(|_| (422, "slack.invalid_url"))?;
-            let url = request.url.trim().to_owned();
-            if !url.starts_with("https://hooks.slack.com/") || url.len() > 512 {
-                return Err((422, "slack.invalid_url"));
-            }
+            let target = match (request.url, request.channel) {
+                (Some(url), None) => {
+                    let url = url.trim().to_owned();
+                    if !url.starts_with("https://hooks.slack.com/") || url.len() > 512 {
+                        return Err((422, "slack.invalid_url"));
+                    }
+                    SlackTarget::Webhook(url)
+                }
+                (None, Some(channel)) => {
+                    let channel = channel.trim().to_owned();
+                    if !valid_channel(&channel) {
+                        return Err((422, "slack.invalid_channel"));
+                    }
+                    // A channel needs the server's Slack app to post.
+                    if backends.slack_app().is_none() {
+                        return Err((409, "slack.app_not_configured"));
+                    }
+                    SlackTarget::Channel(channel)
+                }
+                _ => return Err((422, "slack.invalid_url")),
+            };
             notify
-                .set_slack_url(&scope, Some(url))
+                .set_slack_url(&scope, Some(target.stored()))
                 .await
                 .map_err(|_| UNAVAILABLE)?;
-            Ok((200, json!(ProjectSlackView { configured: true })))
+            let channel = match target {
+                SlackTarget::Channel(channel) => Some(channel),
+                SlackTarget::Webhook(_) => None,
+            };
+            Ok((
+                200,
+                json!(ProjectSlackView {
+                    configured: true,
+                    channel,
+                    app: backends.slack_app().is_some(),
+                }),
+            ))
         }
         "DELETE" => {
             authorize(

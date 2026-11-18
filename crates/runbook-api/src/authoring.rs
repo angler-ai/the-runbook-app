@@ -123,7 +123,10 @@ impl<D: DirectoryOperations, C: CredentialStore, F: AuthoringFactory> AuthoringS
                 }
             } else if r.method == "GET" || route.path == "/v1/validate" && project.is_some() {
                 Scope::RunbooksRead
-            } else if route.path.ends_with("/versions") || route.path.ends_with("/sync") {
+            } else if route.path.ends_with("/versions")
+                || route.path.ends_with("/sync")
+                || route.path.ends_with("/detach")
+            {
                 Scope::RunbooksPublish
             } else {
                 Scope::RunbooksWrite
@@ -180,6 +183,22 @@ impl<D: DirectoryOperations, C: CredentialStore, F: AuthoringFactory> AuthoringS
                 return self
                     .read(r, route, &p, rb.as_ref(), &store, &principal, with_runs)
                     .await;
+            }
+            if route.path == "/v1/runbooks/{rb}/detach" {
+                let rb = rb
+                    .as_ref()
+                    .ok_or_else(|| error(r, 404, "resource.not_found"))?;
+                catalog
+                    .detach_git(rb)
+                    .await
+                    .map_err(|e| store_error(r, e))?;
+                return Ok(response(
+                    200,
+                    json!(DetachView {
+                        runbook_id: rb.clone(),
+                        origin: "ui".into(),
+                    }),
+                ));
             }
             let replay = if r.method == "POST" {
                 let key = r

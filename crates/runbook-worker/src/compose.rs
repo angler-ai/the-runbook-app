@@ -972,6 +972,9 @@ impl<D: D1, O: Objects, B: ObjectBucket> CatalogStore for CfStore<D, O, B> {
     async fn archive_git(&self, id: &RunbookId) -> Result<(), StoreError> {
         self.catalog.archive_git(id).await
     }
+    async fn detach_git(&self, id: &RunbookId) -> Result<(), StoreError> {
+        self.catalog.detach_git(id).await
+    }
     async fn resolve_version(
         &self,
         id: &RunbookId,

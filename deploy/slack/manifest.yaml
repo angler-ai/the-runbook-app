@@ -1,0 +1,31 @@
+# The Slack app for a self-hosted The Runbook (SLACK1 stage 2).
+# Create it at https://api.slack.com/apps → Create New App → From a manifest,
+# after replacing runbook.example.com with your server's public host name.
+# Then install it to your workspace and give the server:
+#   RUNBOOK_SLACK_BOT_TOKEN       the Bot User OAuth Token (xoxb-…)
+#   RUNBOOK_SLACK_SIGNING_SECRET  Basic Information → Signing Secret
+#   RUNBOOK_SLACK_DEFAULT_CHANNEL optional: a channel ID for projects that
+#                                 name none
+display_information:
+  name: The Runbook
+  description: Approvals, handoffs and failed runs from The Runbook, with approve and reject buttons.
+  background_color: "#4338ca"
+features:
+  bot_user:
+    display_name: The Runbook
+    always_online: false
+oauth_config:
+  scopes:
+    bot:
+      # Post to channels it is invited to.
+      - chat:write
+      # Match whoever clicks a button to their account by email.
+      - users:read
+      - users:read.email
+settings:
+  interactivity:
+    is_enabled: true
+    request_url: https://runbook.example.com/v1/slack/interactions
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false
