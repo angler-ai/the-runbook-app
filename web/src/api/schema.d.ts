@@ -1026,6 +1026,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{p}/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Public authoring and catalog operation
+         * @description Current PAT/service authorization intersects project role, scope and project allow-list. Mutating POST replay lasts 24h and includes If-Match; authorization precedes replay and replay precedes stale preconditions. Compilation and immutable blobs precede a short atomic catalog/replay transaction. Execution credentials cannot use authoring routes. Draft save accepts invalid YAML and returns diagnostics; publication requires validity and the fixed slug. Source size overflow returns 413 spec.source_limit. No UI-only handlers.
+         */
+        post: operations["post_v1_projects__p__sync"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{p}/vars": {
         parameters: {
             query?: never;
@@ -3532,6 +3552,62 @@ export interface components {
             execution_id: components["schemas"]["ExecutionId"];
             /** @description The principal who started the replacing run (`user:…`, `service:…`). */
             started_by: string;
+        };
+        /**
+         * @description One file of a Git sync: its path in the repository (reported back, never
+         *     stored) and its runbook source, whose `metadata.id` names the runbook.
+         */
+        SyncFile: {
+            path: string;
+            source: string;
+        };
+        /** @description A refused sync: each file with errors, and its diagnostics. */
+        SyncFileErrors: {
+            errors: components["schemas"]["Diagnostic"][];
+            path: string;
+        };
+        /**
+         * @description `POST /v1/projects/{p}/sync` (2026-11-17, PRD §12 open-source path):
+         *     a repository folder's runbooks, published as a batch. Every file is
+         *     compiled first; any error refuses the whole batch with nothing changed.
+         */
+        SyncRequest: {
+            branch?: string | null;
+            /** @description Recorded on each new version. */
+            commit_sha?: string | null;
+            /**
+             * @description Validate and report what would change, changing nothing (for pull
+             *     request checks).
+             */
+            dry_run?: boolean;
+            files: components["schemas"]["SyncFile"][];
+            /** @description Archive this project's Git-managed runbooks that have no file here. */
+            prune?: boolean;
+        };
+        /** @description What a sync did (or, with `dry_run`, would do) to one runbook. */
+        SyncRunbookView: {
+            /**
+             * @description `create`, `adopt` (a UI-authored runbook becomes Git-managed),
+             *     `update`, `unchanged` or `archive`.
+             */
+            action: string;
+            /** @description The file's path; absent for an archived runbook. */
+            path?: string | null;
+            /** @description Absent for a runbook a dry run would create. */
+            runbook_id?: components["schemas"]["RunbookId"] | null;
+            /**
+             * Format: uint32
+             * @description The published version (absent on a dry run and for `archive`).
+             */
+            runbook_version?: number | null;
+            runbook_version_id?: components["schemas"]["VersionId"] | null;
+            slug: string;
+        };
+        SyncView: {
+            branch?: string | null;
+            commit_sha?: string | null;
+            dry_run: boolean;
+            runbooks: components["schemas"]["SyncRunbookView"][];
         };
         /** @description LANG7: a person took over an agent task. */
         TakenOverView: {
@@ -10378,6 +10454,151 @@ export interface operations {
         responses: {
             /** @description Invalid request, including incompatible rerun inputs. */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Response details will be finalized with the durable API implementation. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    post_v1_projects__p__sync: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                p: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SyncRequest"];
+            };
+        };
+        responses: {
+            /** @description Typed public response */
+            200: {
+                headers: {
+                    "X-RateLimit-Limit"?: string;
+                    "X-Request-ID"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncView"];
+                };
+            };
+            /** @description Stable problem details and X-Request-ID. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details and X-Request-ID. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details and X-Request-ID. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details and X-Request-ID. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details and X-Request-ID. */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details and X-Request-ID. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details and X-Request-ID. */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details and X-Request-ID. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details and X-Request-ID. */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid request, including incompatible rerun inputs. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details and X-Request-ID. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details and X-Request-ID. */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -688,6 +688,40 @@ impl<H: CfHost> AuthoringStore for CfAuthoringStore<H> {
                 ),
                 etag: None,
             },
+            AuthoringCommand::Sync {
+                ops,
+                archive,
+                branch,
+                commit_sha,
+            } => {
+                // D1 has no multi-statement transaction across these calls:
+                // the batch was compiled whole first, and each runbook's
+                // publish is idempotent, so a retry converges.
+                let mut published = Vec::with_capacity(ops.len());
+                for op in &ops {
+                    if let Some(record) = &op.create {
+                        store
+                            .create_runbook(record.clone(), op.prepared.source.clone())
+                            .await?;
+                    }
+                    published.push(
+                        store
+                            .publish_git(
+                                &op.runbook_id,
+                                (*op.prepared).clone(),
+                                branch.clone(),
+                                commit_sha.clone(),
+                            )
+                            .await?,
+                    );
+                }
+                for (_, id) in &archive {
+                    store.archive_git(id).await?;
+                }
+                runbook_core::authoring::sync_response(
+                    &ops, &published, &archive, branch, commit_sha,
+                )
+            }
             AuthoringCommand::Skill { version } => {
                 let version = store.record_skill_version(version).await?;
                 let latest = store

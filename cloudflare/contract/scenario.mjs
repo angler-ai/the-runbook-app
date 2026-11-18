@@ -446,6 +446,39 @@ export async function scenario(t) {
   await t.call('project picture', 'GET', '/v1/projects/{p}/picture', { p: project });
   await t.call('project picture remove', 'DELETE', '/v1/projects/{p}/picture', { p: project });
 
+  // ---- Git sync (2026-11-17): a folder published as a batch. A dry run,
+  // a refused batch (one bad file), the publish recording its commit, the
+  // same files again (unchanged), the draft locked, then a prune.
+  const synced = (id) =>
+    ['apiVersion: therunbook.app/v1', 'kind: Runbook', `metadata: {id: ${id}, title: Synced}`, 'spec:', '  steps:',
+      '    - {id: work, title: Work}', ''].join('\n');
+  const syncFiles = [{ path: 'runbooks/contract-synced.yaml', source: synced('contract-synced') }];
+  await t.call('sync dry run', 'POST', '/v1/projects/{p}/sync', { p: project }, {
+    body: { files: syncFiles, dry_run: true },
+  });
+  await t.call('sync invalid', 'POST', '/v1/projects/{p}/sync', { p: project }, {
+    body: { files: [...syncFiles, { path: 'runbooks/copy.yaml', source: synced('contract-synced') }] },
+  });
+  const firstSync = await t.call('sync', 'POST', '/v1/projects/{p}/sync', { p: project }, {
+    body: { files: syncFiles, commit_sha: 'abc123', branch: 'main' },
+  });
+  await t.call('sync again', 'POST', '/v1/projects/{p}/sync', { p: project }, {
+    body: { files: syncFiles, commit_sha: 'def456' },
+  });
+  const syncedRb = firstSync.body?.runbooks?.[0]?.runbook_id;
+  if (syncedRb) {
+    await t.call('sync version', 'GET', '/v1/runbooks/{rb}/versions/{version}', { rb: syncedRb, version: '1' });
+    await t.call('sync versions', 'GET', '/v1/runbooks/{rb}/versions', { rb: syncedRb });
+    const syncedDraft = await t.call('sync draft', 'GET', '/v1/runbooks/{rb}/draft', { rb: syncedRb });
+    await t.call('sync draft locked', 'PATCH', '/v1/runbooks/{rb}/draft', { rb: syncedRb }, {
+      ifMatch: syncedDraft.headers.get('etag'),
+      body: { source: synced('contract-synced') + '# edited\n' },
+    });
+  }
+  await t.call('sync prune', 'POST', '/v1/projects/{p}/sync', { p: project }, {
+    body: { files: [], prune: true },
+  });
+
   // ---- Project variables.
   const vars = await t.call('vars', 'GET', '/v1/projects/{p}/vars', { p: project });
   const declared = await t.call('vars put', 'PUT', '/v1/projects/{p}/vars', { p: project }, {

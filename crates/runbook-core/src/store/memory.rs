@@ -468,6 +468,35 @@ impl CatalogStore for MemoryExecutionStore {
             Ok(view)
         })
     }
+    async fn publish_git(
+        &self,
+        id: &runbook_model::RunbookId,
+        prepared: crate::publish::PreparedPublication,
+        branch: Option<String>,
+        commit_sha: Option<String>,
+    ) -> Result<runbook_model::PublishedVersionView, StoreError> {
+        let now = self.clock.get();
+        let fresh = prepared.version_id.clone();
+        self.transaction(|db| {
+            let view = db
+                .catalog
+                .publish_git(&self.scope, id, prepared, branch, commit_sha)?;
+            if view.runbook_version_id == fresh {
+                let slug = db
+                    .catalog
+                    .read_runbook(&self.scope, id)
+                    .ok_or(StoreError::NotFound)?
+                    .slug;
+                let event = crate::webhooks::published_event(id, &slug, &view, now);
+                db.project_outbox
+                    .insert((self.scope.clone(), event.event_id.clone()), event);
+            }
+            Ok(view)
+        })
+    }
+    async fn archive_git(&self, id: &runbook_model::RunbookId) -> Result<(), StoreError> {
+        self.transaction(|db| db.catalog.archive_git(&self.scope, id))
+    }
     async fn create_preview(
         &self,
         id: &runbook_model::RunbookId,

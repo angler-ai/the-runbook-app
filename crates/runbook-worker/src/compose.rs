@@ -958,6 +958,20 @@ impl<D: D1, O: Objects, B: ObjectBucket> CatalogStore for CfStore<D, O, B> {
             .create_preview(id, prepared, branch, commit_sha)
             .await
     }
+    async fn publish_git(
+        &self,
+        id: &RunbookId,
+        prepared: runbook_core::publish::PreparedPublication,
+        branch: Option<String>,
+        commit_sha: Option<String>,
+    ) -> Result<runbook_model::PublishedVersionView, StoreError> {
+        self.catalog
+            .publish_git(id, prepared, branch, commit_sha)
+            .await
+    }
+    async fn archive_git(&self, id: &RunbookId) -> Result<(), StoreError> {
+        self.catalog.archive_git(id).await
+    }
     async fn resolve_version(
         &self,
         id: &RunbookId,

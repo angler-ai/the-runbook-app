@@ -30,6 +30,80 @@ pub enum AuthoringCommand {
     Skill {
         version: SkillVersion,
     },
+    /// Git sync (2026-11-17): every file compiled and its snapshot stored
+    /// before the commit; the stores apply the batch in one transaction
+    /// where they have one (Postgres), in order otherwise.
+    Sync {
+        ops: Vec<SyncOp>,
+        /// Git-managed runbooks without a file (`prune`): slug and ID.
+        archive: Vec<(String, RunbookId)>,
+        branch: Option<String>,
+        commit_sha: Option<String>,
+    },
+}
+
+/// One file of a sync, ready to publish.
+#[derive(Clone, Debug)]
+pub struct SyncOp {
+    pub path: String,
+    pub slug: String,
+    pub runbook_id: RunbookId,
+    /// The new runbook's record (origin Git) when it does not exist yet.
+    pub create: Option<RunbookRecord>,
+    /// It exists and was authored in the UI: it becomes Git-managed.
+    pub adopt: bool,
+    pub prepared: Box<PreparedPublication>,
+}
+
+/// The sync response once each op published (in order): `create`, `adopt`,
+/// `update`, or `unchanged` when the store returned the latest version (a
+/// semantic duplicate), then `archive` rows.
+pub fn sync_response(
+    ops: &[SyncOp],
+    published: &[PublishedVersionView],
+    archive: &[(String, RunbookId)],
+    branch: Option<String>,
+    commit_sha: Option<String>,
+) -> StoredResponse {
+    let mut runbooks: Vec<SyncRunbookView> = ops
+        .iter()
+        .zip(published)
+        .map(|(op, view)| SyncRunbookView {
+            path: Some(op.path.clone()),
+            slug: op.slug.clone(),
+            runbook_id: Some(op.runbook_id.clone()),
+            action: if op.create.is_some() {
+                "create"
+            } else if op.adopt {
+                "adopt"
+            } else if view.runbook_version_id == op.prepared.version_id {
+                "update"
+            } else {
+                "unchanged"
+            }
+            .into(),
+            runbook_version: Some(view.runbook_version.get()),
+            runbook_version_id: Some(view.runbook_version_id.clone()),
+        })
+        .collect();
+    runbooks.extend(archive.iter().map(|(slug, id)| SyncRunbookView {
+        path: None,
+        slug: slug.clone(),
+        runbook_id: Some(id.clone()),
+        action: "archive".into(),
+        runbook_version: None,
+        runbook_version_id: None,
+    }));
+    StoredResponse {
+        status: 200,
+        body: serde_json::json!(SyncView {
+            dry_run: false,
+            commit_sha,
+            branch,
+            runbooks,
+        }),
+        etag: None,
+    }
 }
 pub trait AuthoringStore {
     type Catalog: CatalogStore + BlobStore;

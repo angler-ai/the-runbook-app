@@ -34,7 +34,7 @@ pub fn openapi() -> Value {
     register!(requests; MemoryEntryView, SaveMemoryRequest, MemoryReadRef, MemoryPatchRequest, MemoryPage, MemoryRevisionPage, ExecutionDocumentView);
     register!(requests; InboxPage);
     register!(requests; TriggerResponse);
-    register!(requests; MeView, VersionFormView, ConnectedAppPage, ConnectedAppView, EmailPreferencesView, EmailPreferencesRequest, UnsubscribeRequest, UnsubscribeView, ProjectSlackView, ProjectSlackRequest, UniversalSearchView, UpdateMeRequest, MeUser, PictureUpload, PictureView, UpdateProjectRequest);
+    register!(requests; MeView, VersionFormView, ConnectedAppPage, ConnectedAppView, EmailPreferencesView, EmailPreferencesRequest, UnsubscribeRequest, UnsubscribeView, ProjectSlackView, ProjectSlackRequest, UniversalSearchView, UpdateMeRequest, MeUser, PictureUpload, PictureView, UpdateProjectRequest, SyncRequest, SyncFile, SyncView, SyncRunbookView, SyncFileErrors);
     register!(requests; StepLogPage);
     register!(requests; CreateTokenRequest, TokenView, TokenSecretView, TokenPage);
     register!(requests; CreateWebhookRequest, UpdateWebhookRequest, WebhookView, WebhookSecretView,
@@ -146,6 +146,12 @@ pub fn openapi() -> Value {
             Some("PictureView"),
         ),
         ("/v1/projects/{p}/picture", "delete", None, None),
+        (
+            "/v1/projects/{p}/sync",
+            "post",
+            Some("SyncRequest"),
+            Some("SyncView"),
+        ),
         ("/v1/me", "get", None, Some("MeView")),
         ("/v1/me", "patch", Some("UpdateMeRequest"), Some("MeUser")),
         ("/v1/me/token", "delete", None, None),

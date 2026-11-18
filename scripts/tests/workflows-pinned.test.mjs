@@ -17,7 +17,10 @@ test("workflow actions are pinned to commit SHAs", () => {
       .forEach((line, i) => {
         const m = line.match(/^\s*-?\s*uses:\s*(\S+)(.*)$/);
         if (!m || m[1].startsWith("./")) return;
-        if (!/@[0-9a-f]{40}$/.test(m[1]) || !/#\s*v\d+\.\d+\.\d+/.test(m[2])) {
+        // The angler-ai org's required PR-description action has only a
+        // major tag (v1): pinned to its SHA, commented with that tag.
+        const majorOnly = file === "update-pr-desc.yml" && /#\s*v\d+$/.test(m[2].trim());
+        if (!/@[0-9a-f]{40}$/.test(m[1]) || !(majorOnly || /#\s*v\d+\.\d+\.\d+/.test(m[2]))) {
           unpinned.push(`${file}:${i + 1}: ${line.trim()}`);
         }
       });

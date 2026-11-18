@@ -608,6 +608,47 @@ impl ApiClient {
         }
     }
 
+    /// Send a request and return any HTTP answer's status and JSON body,
+    /// problems included (for commands that render a problem's own
+    /// fields, like `sync push` listing each file's errors). Transport
+    /// failures and redirects are still errors.
+    pub fn send_raw(&self, r: &Request<'_>) -> Result<(u16, serde_json::Value), ApiError> {
+        let mut req = self
+            .agent
+            .request(r.method, &self.url(r.path))
+            .set("Accept", "application/json");
+        if !self.token.is_empty() {
+            req = req.set("Authorization", &format!("Bearer {}", self.token));
+        }
+        for (k, v) in r.query {
+            req = req.query(k, v);
+        }
+        if let Some(key) = r.idempotency_key {
+            req = req.set("Idempotency-Key", key);
+        }
+        if let Some(etag) = r.if_match {
+            req = req.set("If-Match", etag);
+        }
+        let result = match r.body {
+            Some(body) => req.send_json(body),
+            None => req.call(),
+        };
+        match result {
+            Ok(resp) if (300..400).contains(&resp.status()) => Err(redirect_refused(resp.status())),
+            Ok(resp) => {
+                let status = resp.status();
+                let body = resp
+                    .into_json()
+                    .map_err(|e| ApiError::Transport(e.to_string()))?;
+                Ok((status, body))
+            }
+            Err(ureq::Error::Status(status, resp)) => {
+                Ok((status, resp.into_json().unwrap_or_default()))
+            }
+            Err(ureq::Error::Transport(t)) => Err(ApiError::Transport(t.to_string())),
+        }
+    }
+
     fn handle_response(
         result: Result<ureq::Response, ureq::Error>,
     ) -> Result<serde_json::Value, ApiError> {

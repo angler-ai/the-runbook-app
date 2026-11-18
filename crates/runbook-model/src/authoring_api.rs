@@ -118,7 +118,83 @@ pub struct SkillVersionView {
     /// version does not make it latest.
     pub latest: bool,
 }
+/// One file of a Git sync: its path in the repository (reported back, never
+/// stored) and its runbook source, whose `metadata.id` names the runbook.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SyncFile {
+    pub path: String,
+    pub source: String,
+}
+
+/// `POST /v1/projects/{p}/sync` (2026-11-17, PRD §12 open-source path):
+/// a repository folder's runbooks, published as a batch. Every file is
+/// compiled first; any error refuses the whole batch with nothing changed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SyncRequest {
+    pub files: Vec<SyncFile>,
+    /// Recorded on each new version.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit_sha: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    /// Validate and report what would change, changing nothing (for pull
+    /// request checks).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub dry_run: bool,
+    /// Archive this project's Git-managed runbooks that have no file here.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub prune: bool,
+}
+
+/// What a sync did (or, with `dry_run`, would do) to one runbook.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SyncRunbookView {
+    /// The file's path; absent for an archived runbook.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    pub slug: String,
+    /// Absent for a runbook a dry run would create.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runbook_id: Option<RunbookId>,
+    /// `create`, `adopt` (a UI-authored runbook becomes Git-managed),
+    /// `update`, `unchanged` or `archive`.
+    pub action: String,
+    /// The published version (absent on a dry run and for `archive`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runbook_version: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runbook_version_id: Option<VersionId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SyncView {
+    pub dry_run: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit_sha: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    pub runbooks: Vec<SyncRunbookView>,
+}
+
+/// A refused sync: each file with errors, and its diagnostics.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SyncFileErrors {
+    pub path: String,
+    pub errors: Vec<Diagnostic>,
+}
+
+/// The most files one sync takes.
+pub const SYNC_MAX_FILES: usize = 500;
+
 pub const AUTHORING_ROUTES: &[PublicRoute] = &[
+    // Git sync (2026-11-17): a repository folder published as a batch.
+    PublicRoute {
+        method: "POST",
+        path: "/v1/projects/{p}/sync",
+        request: Some("SyncRequest"),
+        response: Some("SyncView"),
+        status: 200,
+    },
     PublicRoute {
         method: "POST",
         path: "/v1/projects/{p}/runbooks",

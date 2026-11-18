@@ -642,6 +642,135 @@ impl<D: D1> D1Catalog<D> {
         Err(StoreError::Backend("d1.retry"))
     }
 
+    /// Git sync: see `CatalogStore::publish_git`. One batch: the
+    /// runbook row (origin, archived, draft and its listing) and the new
+    /// version with its event, guarded against a racing publish.
+    pub async fn publish_git(
+        &self,
+        id: &RunbookId,
+        prepared: PreparedPublication,
+        branch: Option<String>,
+        commit_sha: Option<String>,
+    ) -> Result<PublishedVersionView, StoreError> {
+        let stored = self.store_source(&prepared.source).await?;
+        for _ in 0..PUBLISH_ATTEMPTS {
+            let runbook = self.runbook_row(id).await?;
+            let revision = if runbook.draft_is(&prepared.source) {
+                runbook.draft_revision
+            } else {
+                runbook
+                    .draft_revision
+                    .checked_add(1)
+                    .ok_or(StoreError::InvalidBatch("catalog.revision_overflow"))?
+            };
+            let listing = crate::listing::StoredListing::of(&runbook.slug, &prepared.source)?;
+            let update = listing
+                .bind(
+                    prepare(format!(
+                        "UPDATE runbook SET origin = 'git', archived = 0, draft_source = ?, \
+                         draft_revision = ?, draft_digest = ?, draft_size = ?, {} \
+                         WHERE org_id = ? AND project_id = ? AND runbook_id = ?",
+                        crate::listing::LISTING_SET
+                    ))
+                    .bind(stored.inline.as_bytes())
+                    .bind(uint(revision).map_err(err)?)
+                    .bind(stored.digest_value())
+                    .bind(stored.size),
+                    revision,
+                )?
+                .bind(self.org())
+                .bind(self.project())
+                .bind(id.as_str());
+            let latest = self
+                .db
+                .all(
+                    prepare(
+                        "SELECT version_id, number, semantic_hash FROM runbook_version \
+                         WHERE runbook_id = ? AND number IS NOT NULL ORDER BY number DESC LIMIT 1",
+                    )
+                    .bind(id.as_str()),
+                )
+                .await
+                .map_err(err)?;
+            let mut next = 1u32;
+            let mut latest_number = 0i64;
+            if let Some(row) = latest.first() {
+                latest_number = row.integer(1).map_err(err)?;
+                let number = u32::try_from(latest_number)
+                    .ok()
+                    .and_then(NonZeroU32::new)
+                    .ok_or(StoreError::Backend("d1.invalid_version_number"))?;
+                if row.digest(2).map_err(err)? == prepared.semantic_hash {
+                    self.db.run(update).await.map_err(err)?;
+                    return Ok(PublishedVersionView {
+                        runbook_id: id.clone(),
+                        runbook_version_id: row.parse(0).map_err(err)?,
+                        runbook_version: number,
+                    });
+                }
+                next = number
+                    .get()
+                    .checked_add(1)
+                    .ok_or(StoreError::InvalidBatch("catalog.version_overflow"))?;
+            }
+            let number = NonZeroU32::new(next)
+                .ok_or(StoreError::InvalidBatch("catalog.version_overflow"))?;
+            let view = PublishedVersionView {
+                runbook_id: id.clone(),
+                runbook_version_id: prepared.version_id.clone(),
+                runbook_version: number,
+            };
+            let event =
+                runbook_core::webhooks::published_event(id, &runbook.slug, &view, self.db.now_ms());
+            let statements = vec![
+                guard(
+                    "catalog.publish_race",
+                    "coalesce((SELECT max(number) FROM runbook_version WHERE runbook_id = ?), 0) = ?",
+                )
+                .bind(id.as_str())
+                .bind(latest_number),
+                update,
+                self.insert_version(
+                    id,
+                    &prepared,
+                    Some(number),
+                    branch.clone(),
+                    commit_sha.clone(),
+                    &stored,
+                )?,
+                project_event(&self.scope, &event)?,
+            ];
+            match self.db.batch(statements).await {
+                Ok(_) => return Ok(view),
+                Err(D1Error::Guard(code)) if code == "catalog.publish_race" => {}
+                Err(D1Error::Unique) => {}
+                Err(error) => return Err(err(error)),
+            }
+        }
+        Err(StoreError::Backend("d1.retry"))
+    }
+
+    /// Git sync: archive a Git-managed runbook whose file is gone.
+    pub async fn archive_git(&self, id: &RunbookId) -> Result<(), StoreError> {
+        let runbook = self.runbook_row(id).await?;
+        if runbook.origin != RunbookOrigin::Git {
+            return Err(StoreError::InvalidBatch("runbook.not_git_managed"));
+        }
+        self.db
+            .run(
+                prepare(
+                    "UPDATE runbook SET archived = 1 \
+                     WHERE org_id = ? AND project_id = ? AND runbook_id = ? AND origin = 'git'",
+                )
+                .bind(self.org())
+                .bind(self.project())
+                .bind(id.as_str()),
+            )
+            .await
+            .map_err(err)?;
+        Ok(())
+    }
+
     pub async fn create_preview(
         &self,
         id: &RunbookId,

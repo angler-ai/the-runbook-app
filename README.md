@@ -170,6 +170,7 @@ Over MCP, an agent can draft a runbook (`save_runbook_draft`), validate it and s
 | Run it on your Cloudflare account | [`cloudflare/README.md`](cloudflare/README.md) |
 | Set up people, sign-in and agents | [`docs/install.md`](docs/install.md) |
 | Learn the runbook language | [`docs/pilot-profile.md`](docs/pilot-profile.md) |
+| Keep runbooks in a Git repository | [`docs/git-sync.md`](docs/git-sync.md) |
 | Teach your agent | [`skills/therunbook/`](skills/therunbook/), or the Claude Code plugin in [`plugins/claude-code/`](plugins/claude-code/) |
 
 ## Develop

@@ -15,6 +15,7 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 mod context;
 mod reads;
+mod sync;
 pub use context::validate;
 use context::*;
 type Error = Response;
@@ -122,7 +123,7 @@ impl<D: DirectoryOperations, C: CredentialStore, F: AuthoringFactory> AuthoringS
                 }
             } else if r.method == "GET" || route.path == "/v1/validate" && project.is_some() {
                 Scope::RunbooksRead
-            } else if route.path.ends_with("/versions") {
+            } else if route.path.ends_with("/versions") || route.path.ends_with("/sync") {
                 Scope::RunbooksPublish
             } else {
                 Scope::RunbooksWrite
@@ -216,6 +217,15 @@ impl<D: DirectoryOperations, C: CredentialStore, F: AuthoringFactory> AuthoringS
                 None
             };
             let command = match route.path {
+                "/v1/projects/{p}/sync" => {
+                    let project = project
+                        .as_ref()
+                        .ok_or_else(|| error(r, 404, "resource.not_found"))?;
+                    match self.sync_plan(r, &s, project, &store).await? {
+                        sync::SyncPlan::Answer(answer) => return Ok(answer),
+                        sync::SyncPlan::Commit(command) => command,
+                    }
+                }
                 "/v1/projects/{p}/runbooks" => {
                     let b: CreateRunbookRequest = parse(r, &r.body)?;
                     self.source_limit(r, &b.source)?;

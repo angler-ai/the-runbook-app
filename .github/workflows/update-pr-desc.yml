@@ -9,7 +9,7 @@ jobs:
     permissions:
       pull-requests: write
     steps:
-      - uses: jonathansudhakar1/gemini-pr-description@v1
+      - uses: jonathansudhakar1/gemini-pr-description@1a876cfedc26d45d55b937a0115667dcb038978b # v1
         with:
           gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
           update_mode: smart

@@ -317,6 +317,12 @@ pub const MANIFEST: &[Route] = &[
         Kind::Public,
     ),
     api(
+        "POST",
+        "/v1/projects/{p}/sync",
+        Area::Authoring,
+        Kind::Public,
+    ),
+    api(
         "GET",
         "/v1/projects/{p}/runbooks",
         Area::Authoring,

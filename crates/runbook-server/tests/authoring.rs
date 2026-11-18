@@ -927,3 +927,281 @@ async fn arbitrary_utf8_drafts_round_trip_nul() {
     })
     .await;
 }
+
+// Git sync (2026-11-17): `POST /v1/projects/{p}/sync`.
+fn sync_body(files: &[(&str, String)], extra: Value) -> Value {
+    let mut body = json!({
+        "files": files.iter().map(|(path, source)| json!({"path": path, "source": source})).collect::<Vec<_>>(),
+    });
+    for (k, v) in extra.as_object().unwrap() {
+        body[k] = v.clone();
+    }
+    body
+}
+async fn sync(api: &Api, body: Value, n: u32, who: u8) -> runbook_api::problem::Response {
+    api.checked(req(
+        "POST",
+        &format!("/v1/projects/{}/sync", project(1)),
+        body,
+        n,
+        who,
+        Some(&format!("sync-{n}")),
+        None,
+    ))
+    .await
+}
+fn actions(body: &Value) -> Vec<(String, String)> {
+    body["runbooks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| {
+            (
+                r["slug"].as_str().unwrap().to_owned(),
+                r["action"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect()
+}
+#[tokio::test]
+#[ignore = "requires DATABASE_URL; owned databases only"]
+async fn sync_publishes_a_folder_adopts_and_archives() {
+    with_api(async |api, _| {
+        let manual = create(&api, "manual", 10, 1).await;
+        assert_eq!(manual.status, 201, "{:?}", manual.body);
+        let manual_id = manual.body["runbook_id"].as_str().unwrap().to_owned();
+
+        let first = sync(
+            &api,
+            sync_body(
+                &[
+                    ("ops/alpha.yaml", source("alpha")),
+                    ("ops/manual.yaml", source("manual")),
+                ],
+                json!({"commit_sha": "abc123", "branch": "main"}),
+            ),
+            20,
+            1,
+        )
+        .await;
+        assert_eq!(first.status, 200, "{:?}", first.body);
+        assert_eq!(
+            actions(&first.body),
+            [
+                ("alpha".into(), "create".into()),
+                ("manual".into(), "adopt".into())
+            ]
+        );
+        assert_eq!(first.body["runbooks"][0]["runbook_version"], 1);
+        assert_eq!(first.body["runbooks"][1]["runbook_id"], manual_id);
+        let alpha = first.body["runbooks"][0]["runbook_id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+
+        // The version records the commit; the runbook is Git-managed now.
+        let versions = api
+            .checked(req(
+                "GET",
+                &format!("/v1/runbooks/{alpha}/versions/1"),
+                Value::Null,
+                21,
+                1,
+                None,
+                None,
+            ))
+            .await;
+        assert_eq!(versions.status, 200, "{:?}", versions.body);
+        assert_eq!(versions.body["commit_sha"], "abc123");
+        assert_eq!(versions.body["branch"], "main");
+        let listed = api
+            .checked(req(
+                "GET",
+                &format!("/v1/runbooks/{alpha}/versions"),
+                Value::Null,
+                28,
+                1,
+                None,
+                None,
+            ))
+            .await;
+        assert_eq!(
+            listed.body["items"][0]["commit_sha"], "abc123",
+            "{:?}",
+            listed.body
+        );
+        let read = api
+            .checked(req(
+                "GET",
+                &format!("/v1/runbooks/{manual_id}"),
+                Value::Null,
+                22,
+                1,
+                None,
+                None,
+            ))
+            .await;
+        assert_eq!(read.body["origin"], "git", "{:?}", read.body);
+        let draft = api
+            .checked(req(
+                "GET",
+                &format!("/v1/runbooks/{alpha}/draft"),
+                Value::Null,
+                23,
+                1,
+                None,
+                None,
+            ))
+            .await;
+        assert_eq!(draft.body["source"], source("alpha"));
+        let refused = api
+            .checked(req(
+                "PATCH",
+                &format!("/v1/runbooks/{alpha}/draft"),
+                json!({"source": source("alpha") + "# edit\n"}),
+                24,
+                1,
+                None,
+                draft.etag.as_deref(),
+            ))
+            .await;
+        assert_eq!(refused.status, 409);
+        assert_eq!(refused.body["code"], "runbook.git_managed");
+
+        // The same files again: nothing new.
+        let again = sync(
+            &api,
+            sync_body(
+                &[
+                    ("ops/alpha.yaml", source("alpha")),
+                    ("ops/manual.yaml", source("manual")),
+                ],
+                json!({"commit_sha": "def456"}),
+            ),
+            25,
+            1,
+        )
+        .await;
+        assert_eq!(again.status, 200, "{:?}", again.body);
+        assert_eq!(
+            actions(&again.body),
+            [
+                ("alpha".into(), "unchanged".into()),
+                ("manual".into(), "unchanged".into())
+            ]
+        );
+        assert_eq!(again.body["runbooks"][0]["runbook_version"], 1);
+
+        // A changed alpha, manual's file gone, prune: v2 and an archive.
+        let changed = source("alpha").replace("Do work", "Do the work");
+        let pruned = sync(
+            &api,
+            sync_body(
+                &[("ops/alpha.yaml", changed.clone())],
+                json!({"prune": true}),
+            ),
+            26,
+            1,
+        )
+        .await;
+        assert_eq!(pruned.status, 200, "{:?}", pruned.body);
+        assert_eq!(
+            actions(&pruned.body),
+            [
+                ("alpha".into(), "update".into()),
+                ("manual".into(), "archive".into())
+            ]
+        );
+        assert_eq!(pruned.body["runbooks"][0]["runbook_version"], 2);
+        let read = api
+            .checked(req(
+                "GET",
+                &format!("/v1/runbooks/{manual_id}"),
+                Value::Null,
+                27,
+                1,
+                None,
+                None,
+            ))
+            .await;
+        assert_eq!(read.body["archived"], true, "{:?}", read.body);
+
+        // A retry with the same key replays the stored answer.
+        let replay = sync(
+            &api,
+            sync_body(&[("ops/alpha.yaml", changed)], json!({"prune": true})),
+            26,
+            1,
+        )
+        .await;
+        assert_eq!(replay.body, pruned.body);
+    })
+    .await;
+}
+#[tokio::test]
+#[ignore = "requires DATABASE_URL; owned databases only"]
+async fn sync_refuses_the_whole_batch_and_dry_runs_change_nothing() {
+    with_api(async |api, _| {
+        let list = async |n| {
+            api.checked(req(
+                "GET",
+                &format!("/v1/projects/{}/runbooks", project(1)),
+                Value::Null,
+                n,
+                1,
+                None,
+                None,
+            ))
+            .await
+            .body["items"]
+                .as_array()
+                .unwrap()
+                .len()
+        };
+        let broken = "apiVersion: therunbook.app/v1\nkind: Runbook\nmetadata: {id: broken, title: B}\nspec:\n  steps:\n    - id: a\n      title: A\n      type: manual\n";
+        let refused = sync(
+            &api,
+            sync_body(
+                &[
+                    ("a.yaml", source("alpha")),
+                    ("b.yaml", broken.into()),
+                    ("c.yaml", source("alpha")),
+                    ("d.yaml", "kind: Runbook\n".into()),
+                ],
+                json!({}),
+            ),
+            30,
+            1,
+        )
+        .await;
+        assert_eq!(refused.status, 422, "{:?}", refused.body);
+        assert_eq!(refused.body["code"], "sync.invalid");
+        let paths: Vec<&str> = refused.body["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["path"].as_str().unwrap())
+            .collect();
+        assert_eq!(paths, ["b.yaml", "c.yaml", "d.yaml"]);
+        assert_eq!(refused.body["files"][1]["errors"][0]["code"], "sync.duplicate_slug");
+        assert_eq!(list(31).await, 0);
+
+        let dry = sync(
+            &api,
+            sync_body(&[("a.yaml", source("alpha"))], json!({"dry_run": true})),
+            32,
+            1,
+        )
+        .await;
+        assert_eq!(dry.status, 200, "{:?}", dry.body);
+        assert_eq!(dry.body["dry_run"], true);
+        assert_eq!(actions(&dry.body), [("alpha".into(), "create".into())]);
+        assert_eq!(list(33).await, 0);
+
+        // Publishing needs runbooks:publish: the write-only service token can't.
+        let denied = sync(&api, sync_body(&[("a.yaml", source("alpha"))], json!({})), 34, 2).await;
+        assert_eq!(denied.status, 403);
+        assert_eq!(denied.body["code"], "auth.scope_missing");
+    })
+    .await;
+}

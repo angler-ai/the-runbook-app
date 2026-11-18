@@ -194,6 +194,66 @@ impl CatalogData {
             .push(Self::stored_version(prepared, Some(number), None, None));
         Ok(view)
     }
+    pub(crate) fn publish_git(
+        &mut self,
+        scope: &TenantScope,
+        id: &runbook_model::RunbookId,
+        prepared: crate::publish::PreparedPublication,
+        branch: Option<String>,
+        commit_sha: Option<String>,
+    ) -> Result<runbook_model::PublishedVersionView, StoreError> {
+        let runbook = self.runbook_mut(scope, id).ok_or(StoreError::NotFound)?;
+        runbook.record.origin = RunbookOrigin::Git;
+        runbook.record.archived = false;
+        if runbook.draft_source != prepared.source {
+            runbook.draft_revision = runbook
+                .draft_revision
+                .checked_add(1)
+                .ok_or(StoreError::InvalidBatch("catalog.revision_overflow"))?;
+            runbook.draft_source = prepared.source.clone();
+        }
+        let latest = runbook
+            .versions
+            .iter()
+            .filter(|v| v.number.is_some())
+            .max_by_key(|v| v.number);
+        if let Some(latest) = latest
+            && latest.semantic_hash == prepared.semantic_hash
+        {
+            return Ok(runbook_model::PublishedVersionView {
+                runbook_id: id.clone(),
+                runbook_version_id: latest.version_id.clone(),
+                runbook_version: latest.number.expect("published number"),
+            });
+        }
+        let next = latest.map_or(1, |v| v.number.expect("published number").get() + 1);
+        let number = std::num::NonZeroU32::new(next)
+            .ok_or(StoreError::InvalidBatch("catalog.version_overflow"))?;
+        let view = runbook_model::PublishedVersionView {
+            runbook_id: id.clone(),
+            runbook_version_id: prepared.version_id.clone(),
+            runbook_version: number,
+        };
+        runbook.versions.push(Self::stored_version(
+            prepared,
+            Some(number),
+            branch,
+            commit_sha,
+        ));
+        Ok(view)
+    }
+    pub(crate) fn archive_git(
+        &mut self,
+        scope: &TenantScope,
+        id: &runbook_model::RunbookId,
+    ) -> Result<(), StoreError> {
+        let runbook = self.runbook_mut(scope, id).ok_or(StoreError::NotFound)?;
+        if runbook.record.origin != RunbookOrigin::Git {
+            return Err(StoreError::InvalidBatch("runbook.not_git_managed"));
+        }
+        runbook.record.archived = true;
+        Ok(())
+    }
     pub(crate) fn create_preview(
         &mut self,
         scope: &TenantScope,

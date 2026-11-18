@@ -513,6 +513,18 @@ impl CatalogStore for PostgresExecutionStore {
     ) -> Result<runbook_model::VersionView, StoreError> {
         self.preview_row(id, prepared, branch, commit_sha).await
     }
+    async fn publish_git(
+        &self,
+        id: &runbook_model::RunbookId,
+        prepared: runbook_core::publish::PreparedPublication,
+        branch: Option<String>,
+        commit_sha: Option<String>,
+    ) -> Result<runbook_model::PublishedVersionView, StoreError> {
+        self.publish_git_row(id, prepared, branch, commit_sha).await
+    }
+    async fn archive_git(&self, id: &runbook_model::RunbookId) -> Result<(), StoreError> {
+        self.archive_git_row(id).await
+    }
     async fn resolve_version(
         &self,
         id: &runbook_model::RunbookId,

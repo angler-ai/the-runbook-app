@@ -405,6 +405,140 @@ impl PostgresExecutionStore {
     }
 }
 
+impl PostgresExecutionStore {
+    pub(crate) async fn publish_git_row(
+        &self,
+        id: &RunbookId,
+        prepared: PreparedPublication,
+        branch: Option<String>,
+        commit_sha: Option<String>,
+    ) -> Result<PublishedVersionView, StoreError> {
+        self.transaction(READ_COMMITTED, async |c| {
+            self.publish_git_in(c, id, prepared.clone(), branch.clone(), commit_sha.clone())
+                .await
+        })
+        .await
+    }
+
+    /// Git sync: see [`runbook_core::catalog::CatalogStore::publish_git`].
+    pub(crate) async fn publish_git_in(
+        &self,
+        c: &Client,
+        id: &RunbookId,
+        prepared: PreparedPublication,
+        branch: Option<String>,
+        commit_sha: Option<String>,
+    ) -> Result<PublishedVersionView, StoreError> {
+        let runbook = lock_runbook(c, &self.scope, id).await?;
+        let revision = if runbook.draft_source == prepared.source {
+            runbook.draft_revision
+        } else {
+            runbook
+                .draft_revision
+                .checked_add(1)
+                .ok_or(StoreError::InvalidBatch("catalog.revision_overflow"))?
+        };
+        c.execute(
+            "UPDATE runbook.runbook SET origin = 'git', archived = false, draft_source = $4, \
+             draft_revision = $5 WHERE org_id = $1 AND project_id = $2 AND runbook_id = $3",
+            &[
+                &self.scope.org_id.as_str(),
+                &self.scope.project_id.as_str(),
+                &id.as_str(),
+                &prepared.source.as_bytes(),
+                &int(revision)?,
+            ],
+        )
+        .await
+        .map_err(db)?;
+        let latest = c
+            .query_opt(
+                "SELECT version_id, number, semantic_hash FROM runbook.runbook_version \
+                     WHERE runbook_id = $1 AND number IS NOT NULL ORDER BY number DESC LIMIT 1",
+                &[&id.as_str()],
+            )
+            .await
+            .map_err(db)?;
+        let mut next = 1u32;
+        if let Some(row) = &latest {
+            if hash_of(row.get(2))? == prepared.semantic_hash {
+                return Ok(PublishedVersionView {
+                    runbook_id: id.clone(),
+                    runbook_version_id: parse_id(row.get(0))?,
+                    runbook_version: NonZeroU32::new(
+                        u32::try_from(row.get::<_, i32>(1)).unwrap_or_default(),
+                    )
+                    .ok_or(StoreError::Backend("postgres.invalid_version_number"))?,
+                });
+            }
+            next = u32::try_from(row.get::<_, i32>(1))
+                .ok()
+                .and_then(|n| n.checked_add(1))
+                .ok_or(StoreError::InvalidBatch("catalog.version_overflow"))?;
+        }
+        let number =
+            NonZeroU32::new(next).ok_or(StoreError::InvalidBatch("catalog.version_overflow"))?;
+        insert_version(
+            c,
+            &self.scope,
+            id,
+            &prepared,
+            Some(number),
+            &branch,
+            &commit_sha,
+        )
+        .await?;
+        let view = PublishedVersionView {
+            runbook_id: id.clone(),
+            runbook_version_id: prepared.version_id.clone(),
+            runbook_version: number,
+        };
+        let now: i64 = c
+            .query_one(
+                "SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint",
+                &[],
+            )
+            .await
+            .map_err(db)?
+            .get(0);
+        crate::project_outbox::insert(
+            c,
+            &self.scope,
+            &runbook_core::webhooks::published_event(id, &runbook.slug, &view, now),
+        )
+        .await?;
+        Ok(view)
+    }
+
+    pub(crate) async fn archive_git_row(&self, id: &RunbookId) -> Result<(), StoreError> {
+        self.transaction(READ_COMMITTED, async |c| self.archive_git_in(c, id).await)
+            .await
+    }
+
+    pub(crate) async fn archive_git_in(
+        &self,
+        c: &Client,
+        id: &RunbookId,
+    ) -> Result<(), StoreError> {
+        let runbook = lock_runbook(c, &self.scope, id).await?;
+        if runbook.origin != RunbookOrigin::Git {
+            return Err(StoreError::InvalidBatch("runbook.not_git_managed"));
+        }
+        c.execute(
+            "UPDATE runbook.runbook SET archived = true \
+             WHERE org_id = $1 AND project_id = $2 AND runbook_id = $3",
+            &[
+                &self.scope.org_id.as_str(),
+                &self.scope.project_id.as_str(),
+                &id.as_str(),
+            ],
+        )
+        .await
+        .map_err(db)?;
+        Ok(())
+    }
+}
+
 /// Postgres TEXT cannot represent U+0000; drafts store their exact UTF-8 bytes.
 pub(crate) fn decode_draft_source(bytes: Vec<u8>) -> Result<String, StoreError> {
     String::from_utf8(bytes).map_err(|_| StoreError::Backend("catalog.invalid_draft_utf8"))

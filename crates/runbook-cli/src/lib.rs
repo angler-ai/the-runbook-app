@@ -22,6 +22,7 @@ pub mod selector;
 pub mod session;
 pub mod skill;
 pub mod sse;
+pub mod sync;
 pub mod tokens;
 pub mod validate;
 pub mod version;
