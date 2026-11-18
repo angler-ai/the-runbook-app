@@ -197,7 +197,10 @@ pub fn plan_fan_out(
 }
 
 /// One first delivery per matching subscription, with IDs stable across
-/// retries of the same fan-out.
+/// retries of the same fan-out. A subscription created after the event
+/// happened does not receive it: the drain fans events out some time after
+/// they commit, and what a new webhook receives must not depend on how far
+/// behind the drain was when it was created.
 fn first_deliveries(
     scope: &TenantScope,
     event: &EventRecord,
@@ -207,7 +210,10 @@ fn first_deliveries(
 ) -> Result<Vec<DeliveryRecord>, StoreError> {
     let mut deliveries = vec![];
     for subscription in subscriptions {
-        if subscription.scope != *scope || !subscription.matches(&event.event_type, runbook, tags) {
+        if subscription.scope != *scope
+            || subscription.created_at_ms > event.created_at_ms
+            || !subscription.matches(&event.event_type, runbook, tags)
+        {
             continue;
         }
         let id = derived_id(

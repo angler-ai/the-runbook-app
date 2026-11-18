@@ -611,15 +611,24 @@ export async function scenario(t) {
   void v1;
   void v2;
 
-  // Every delivery so far (the test event and both publications) settled.
+  // Every delivery so far settled: the test event and both publications,
+  // and nothing published before the webhook existed (the drain fans those
+  // out late, but only to subscriptions older than the event).
   const deliveries = await t.until(
     'webhook deliveries',
     'GET',
     '/v1/projects/{p}/webhooks/{id}/deliveries',
     { p: project, id },
-    (r) =>
-      (r.body?.items?.length ?? 0) >= 3 &&
-      r.body.items.every((d) => d.state === 'delivered'),
+    (r) => {
+      const items = r.body?.items ?? [];
+      const count = (type) => items.filter((d) => d.event_type === type).length;
+      return (
+        items.length === 3 &&
+        count('webhook.test') === 1 &&
+        count('runbook.published') === 2 &&
+        items.every((d) => d.state === 'delivered')
+      );
+    },
   );
   const delivery = deliveries.body?.items?.[0]?.id ?? 'whd_00000000000000000000000000';
   await t.call('webhook redeliver', 'POST', '/v1/projects/{p}/webhooks/{id}/deliveries/{d}/redeliver', {
