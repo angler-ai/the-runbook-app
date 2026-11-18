@@ -453,6 +453,15 @@ export async function scenario(t) {
   await t.call('project picture set', 'PUT', '/v1/projects/{p}/picture', { p: project }, { body: { data: 'iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAAAAAAAA' } });
   await t.call('project picture', 'GET', '/v1/projects/{p}/picture', { p: project });
   await t.call('project picture remove', 'DELETE', '/v1/projects/{p}/picture', { p: project });
+  // Archived projects (2026-11-18): read-only until restored.
+  await t.call('project archive', 'PATCH', '/v1/projects/{p}', { p: project }, { body: { archived: true } });
+  await t.call('archived project list', 'GET', '/v1/orgs/{org}/projects', { org });
+  await t.call('archived project runbooks', 'GET', '/v1/projects/{p}/runbooks', { p: project });
+  await t.call('archived project write', 'PUT', '/v1/projects/{p}/slack', { p: project }, {
+    body: { url: 'https://hooks.slack.com/services/T0000000/B0000000/archived' },
+  });
+  await t.call('archived project rename', 'PATCH', '/v1/projects/{p}', { p: project }, { body: { title: 'Nope' } });
+  await t.call('project restore', 'PATCH', '/v1/projects/{p}', { p: project }, { body: { archived: false } });
 
   // ---- Git sync (2026-11-17): a folder published as a batch. A dry run,
   // a refused batch (one bad file), the publish recording its commit, the

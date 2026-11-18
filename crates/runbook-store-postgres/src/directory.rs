@@ -329,6 +329,22 @@ pub(crate) async fn apply(
                     return Err(DirectoryError::NotFound);
                 }
             }
+            DirectoryMutation::SetProjectArchived {
+                project_id,
+                archived,
+            } => {
+                let updated = c
+                    .execute(
+                        "UPDATE runbook.project SET archived = $3 \
+                         WHERE org_id = $1 AND project_id = $2",
+                        &[&org, &project_id.as_str(), &archived],
+                    )
+                    .await
+                    .map_err(db)?;
+                if updated == 0 {
+                    return Err(DirectoryError::NotFound);
+                }
+            }
             DirectoryMutation::SetProjectTitle { project_id, title } => {
                 if title.trim().is_empty() {
                     return Err(DirectoryError::Invalid("project"));
@@ -524,9 +540,10 @@ pub(crate) async fn snapshot_in(
         users.insert(user.id.clone(), user);
     }
     let mut projects = BTreeMap::new();
+    let mut archived_projects = BTreeSet::new();
     for row in c
         .query(
-            "SELECT project_id, slug, title FROM runbook.project WHERE org_id = $1",
+            "SELECT project_id, slug, title, archived FROM runbook.project WHERE org_id = $1",
             &[&org],
         )
         .await
@@ -538,6 +555,9 @@ pub(crate) async fn snapshot_in(
             slug: row.get(1),
             title: row.get(2),
         };
+        if row.get::<_, bool>(3) {
+            archived_projects.insert(project.id.clone());
+        }
         projects.insert(project.id.clone(), project);
     }
     let mut teams = BTreeMap::new();
@@ -595,6 +615,7 @@ pub(crate) async fn snapshot_in(
         teams,
         project_members,
         team_members,
+        archived_projects,
     })
 }
 

@@ -378,3 +378,20 @@ export function useRevokeToken() {
     },
   });
 }
+
+/** Archive (hidden, read-only) or restore a project (org owners and admins). */
+export function useSetProjectArchived(orgId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ projectId, archived }: { projectId: string; archived: boolean }) => {
+      const { data } = await api.PATCH('/v1/projects/{p}', {
+        params: { path: { p: projectId } },
+        body: { archived },
+      });
+      return data;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['projects', orgId ?? ''] });
+    },
+  });
+}

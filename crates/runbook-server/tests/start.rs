@@ -2427,6 +2427,44 @@ async fn people_rename_themselves_and_set_pictures_and_projects_change_settings(
         assert_eq!(fetch(&f.app, &f.token, &image).await.0, 200);
         assert_eq!(send("DELETE", image.clone(), Value::Null).await.status, 204);
         assert_eq!(fetch(&f.app, &f.token, &image).await.0, 404);
+        // Archived (2026-11-18): listed as archived, readable, nothing else.
+        let archived = send("PATCH", project.clone(), json!({"archived": true})).await;
+        assert_eq!(archived.status, 200, "{}", archived.body);
+        assert_eq!(archived.body["archived"], true);
+        let listed = send("GET", format!("/v1/orgs/{}/projects", f.org), Value::Null).await;
+        assert!(
+            listed.body.to_string().contains("\"archived\":true"),
+            "{}",
+            listed.body
+        );
+        assert_eq!(
+            send("GET", format!("{project}/runbooks"), Value::Null)
+                .await
+                .status,
+            200
+        );
+        let refused = send(
+            "POST",
+            format!("{project}/executions"),
+            json!({"runbook": "anything"}),
+        )
+        .await;
+        assert_eq!(refused.status, 403, "{}", refused.body);
+        assert_eq!(
+            send("PATCH", project.clone(), json!({"title": "Nope"}))
+                .await
+                .status,
+            403
+        );
+        let restored = send(
+            "PATCH",
+            project.clone(),
+            json!({"archived": false, "title": "Payments again"}),
+        )
+        .await;
+        assert_eq!(restored.status, 200, "{}", restored.body);
+        assert!(restored.body.get("archived").is_none(), "{}", restored.body);
+        assert_eq!(restored.body["title"], "Payments again");
     })
     .await;
 }

@@ -234,23 +234,54 @@ async fn dispatch<B: Backends>(backends: &B, r: &Request) -> Result<Reply, Failu
             Ok(Reply::Json(204, Value::Null))
         }
         (PROJECT, "PATCH") => {
-            admin()?;
             let request: UpdateProjectRequest =
                 serde_json::from_value(r.body.clone()).map_err(|_| (422, "request.invalid"))?;
-            let title = request.title.trim().to_owned();
-            if title.is_empty() || title.chars().count() > 100 {
+            let mut mutations = vec![];
+            // Archive or restore: org owners and admins (2026-11-18). This
+            // comes first so a restore works on a read-only project.
+            if let Some(archived) = request.archived {
+                runbook_core::credentials::authorize_organization(
+                    &record,
+                    &snapshot,
+                    now,
+                    runbook_core::identity::OrgAction::CreateProject,
+                )
+                .map_err(|_| (403, "auth.forbidden"))?;
+                mutations.push(DirectoryMutation::SetProjectArchived {
+                    project_id: project.clone(),
+                    archived,
+                });
+            }
+            let mut title = snapshot.projects[&project].title.clone();
+            if let Some(new_title) = &request.title {
+                let new_title = new_title.trim().to_owned();
+                if new_title.is_empty() || new_title.chars().count() > 100 {
+                    return Err((422, "request.invalid"));
+                }
+                // Renaming an archived project waits for its restore,
+                // unless this same request restores it.
+                if request.archived != Some(false) {
+                    admin()?;
+                }
+                title = new_title.clone();
+                mutations.push(DirectoryMutation::SetProjectTitle {
+                    project_id: project.clone(),
+                    title: new_title,
+                });
+            }
+            if mutations.is_empty() {
                 return Err((422, "request.invalid"));
             }
+            let archived = request
+                .archived
+                .unwrap_or_else(|| snapshot.archived_projects.contains(&project));
             let mut revision = snapshot.revision;
             for _ in 0..3 {
                 let committed = directory
                     .commit(DirectoryCommit {
                         org_id: record.org_id.clone(),
                         expected_revision: revision,
-                        mutations: vec![DirectoryMutation::SetProjectTitle {
-                            project_id: project.clone(),
-                            title: title.clone(),
-                        }],
+                        mutations: mutations.clone(),
                     })
                     .await
                     .map_err(|_| UNAVAILABLE)?;
@@ -263,6 +294,7 @@ async fn dispatch<B: Backends>(backends: &B, r: &Request) -> Result<Reply, Failu
                             org_id: record.org_id.clone(),
                             slug,
                             title,
+                            archived,
                         }),
                     ));
                 }

@@ -3064,6 +3064,8 @@ export interface components {
             };
         };
         ProjectView: {
+            /** @description Archived (2026-11-18): hidden in the app and read-only. */
+            archived?: boolean;
             id: components["schemas"]["ProjectId"];
             org_id: components["schemas"]["OrganizationId"];
             slug: string;
@@ -3843,8 +3845,13 @@ export interface components {
         };
         /** @description `PATCH /v1/projects/{p}`: a project's settings (project admins). */
         UpdateProjectRequest: {
+            /**
+             * @description Archive (true) or restore (false) the project: org owners and
+             *     admins only. Archived projects are hidden and read-only.
+             */
+            archived?: boolean | null;
             /** @description Display name (1 to 100 characters). */
-            title: string;
+            title?: string | null;
         };
         UpdateUserRequest: {
             active: boolean;

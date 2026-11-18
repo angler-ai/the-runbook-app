@@ -57,6 +57,10 @@ pub struct DirectorySnapshot {
     pub teams: BTreeMap<TeamId, TeamRecord>,
     pub project_members: BTreeMap<(ProjectId, UserId), ProjectRole>,
     pub team_members: BTreeSet<(TeamId, UserId)>,
+    /// Archived projects (2026-11-18): hidden in the app, read-only (no new
+    /// runs, edits or triggers), everything kept; an org owner or admin
+    /// restores them.
+    pub archived_projects: BTreeSet<ProjectId>,
 }
 impl DirectorySnapshot {
     /// The role `user` holds on `project` for access checks: an org owner or
@@ -96,6 +100,11 @@ pub enum DirectoryMutation {
     SetUserActive {
         user_id: UserId,
         active: bool,
+    },
+    /// Archive or restore a project.
+    SetProjectArchived {
+        project_id: ProjectId,
+        archived: bool,
     },
     /// A project's display name (its slug stays).
     SetProjectTitle {

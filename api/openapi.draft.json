@@ -3785,6 +3785,10 @@
       },
       "ProjectView": {
         "properties": {
+          "archived": {
+            "description": "Archived (2026-11-18): hidden in the app and read-only.",
+            "type": "boolean"
+          },
           "id": {
             "$ref": "#/components/schemas/ProjectId"
           },
@@ -6010,14 +6014,21 @@
       "UpdateProjectRequest": {
         "description": "`PATCH /v1/projects/{p}`: a project's settings (project admins).",
         "properties": {
+          "archived": {
+            "description": "Archive (true) or restore (false) the project: org owners and\nadmins only. Archived projects are hidden and read-only.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "title": {
             "description": "Display name (1 to 100 characters).",
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
-        "required": [
-          "title"
-        ],
         "type": "object"
       },
       "UpdateUserRequest": {

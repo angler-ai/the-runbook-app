@@ -273,6 +273,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "1021_pictures_invitation_name.sql",
         sql: include_str!("../../../cloudflare/migrations/d1/1021_pictures_invitation_name.sql"),
     },
+    Migration {
+        version: 1022,
+        name: "1022_project_archived.sql",
+        sql: include_str!("../../../cloudflare/migrations/d1/1022_project_archived.sql"),
+    },
 ];
 
 pub fn checksum(sql: &str) -> String {
@@ -688,6 +693,10 @@ mod tests {
             (
                 "1021_pictures_invitation_name.sql",
                 "3d3924f55c52473aced36efc42c149625e8b95372a8088d0243c89832261ba84",
+            ),
+            (
+                "1022_project_archived.sql",
+                "b96303e177a3f1b899c4b3eb4a98acae0877b1759b79ee7d439bd04a48cd0f76",
             ),
         ];
         assert_eq!(MIGRATIONS.len(), pinned.len(), "pin every migration");

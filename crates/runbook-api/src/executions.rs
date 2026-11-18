@@ -332,6 +332,17 @@ impl<D: DirectoryOperations, C: CredentialStore, B: ExecutionBackend> ExecutionS
         params: &std::collections::BTreeMap<String, String>,
     ) -> Result<(u16, Value), ExecutionApiError> {
         let error = ExecutionApiError::new;
+        // An archived project's triggers are off (2026-11-18).
+        if self
+            .directory
+            .snapshot(&tenant.org_id)
+            .await
+            .map_err(|_| error(503, "storage.unavailable"))?
+            .archived_projects
+            .contains(&tenant.project_id)
+        {
+            return Err(error(404, "resource.not_found"));
+        }
         let trigger_id = &params["trigger"];
         let (published, triggers) = self
             .backend
