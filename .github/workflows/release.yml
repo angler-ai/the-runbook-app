@@ -46,7 +46,8 @@ env:
 jobs:
   build:
     runs-on: ${{ github.event.repository.private && 'self-hosted' || 'ubuntu-latest' }}
-    timeout-minutes: 120
+    # The arm64 image builds under QEMU: about 75 minutes on a GitHub runner.
+    timeout-minutes: 180
     # Read only: a private repository's checkout needs contents: read.
     permissions:
       contents: read
@@ -106,6 +107,11 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: false
           outputs: type=oci,dest=${{ runner.temp }}/image.tar
+          # The same cache id as binaries.sh below: a different one changes
+          # the cargo build steps, and the binaries step builds both
+          # architectures again from nothing (v0.1.0's first run timed out).
+          build-args: |
+            RUNBOOK_CACHE_ID=release
           tags: ${{ env.IMAGE }}:${{ steps.release.outputs.version }}
           labels: |
             org.opencontainers.image.version=${{ steps.release.outputs.version }}
@@ -120,6 +126,7 @@ jobs:
       - name: CLI and server binaries (per platform, from the build cache)
         env:
           VERSION: ${{ steps.release.outputs.version }}
+          RUNBOOK_CACHE_ID: release
         run: scripts/release/binaries.sh "$VERSION" dist
       - name: Cloudflare edition bundle
         env:
