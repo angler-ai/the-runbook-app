@@ -323,6 +323,7 @@ pub async fn inbox_tracks_current_access_and_completion<F: CatalogFactory>(
                 .map(|n| (team(*n), user(1)))
                 .chain([(team(1), user(2))])
                 .collect(),
+            archived_projects: Default::default(),
         }
     };
     // Alice (direct + both teams) sees runs 2 then 1, deduped; carol only hers.

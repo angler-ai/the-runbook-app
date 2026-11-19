@@ -1,0 +1,29 @@
+{
+  "name": "@runbook/site",
+  "version": "0.1.0",
+  "license": "AGPL-3.0-only",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=26.8.1 <27"
+  },
+  "scripts": {
+    "dev": "astro dev",
+    "build": "node scripts/prepare-public.mjs && astro build",
+    "preview": "astro preview",
+    "generate": "node scripts/generate.mjs",
+    "check:generated": "node scripts/generate.mjs && git diff --exit-code -- src/content/docs/reference src/content/docs/samples src/content/docs/changelog && test -z \"$(git status --porcelain -- src/content/docs/reference src/content/docs/samples src/content/docs/changelog)\"",
+    "check:samples": "node scripts/validate-samples.mjs",
+    "test": "node --test scripts/tests/*.test.mjs"
+  },
+  "dependencies": {
+    "@astrojs/markdown-remark": "7.3.5",
+    "@astrojs/starlight": "0.42.8",
+    "@fontsource/dm-sans": "5.3.0",
+    "@fontsource/ibm-plex-mono": "5.3.0",
+    "@scalar/api-reference": "1.76.4",
+    "astro": "7.4.5",
+    "sharp": "0.35.5",
+    "starlight-links-validator": "0.27.0"
+  }
+}

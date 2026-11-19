@@ -1339,6 +1339,23 @@
         ],
         "type": "object"
       },
+      "DetachView": {
+        "description": "`POST /v1/runbooks/{rb}/detach`: the runbook, now authored in the app.",
+        "properties": {
+          "origin": {
+            "description": "Always `ui`.",
+            "type": "string"
+          },
+          "runbook_id": {
+            "$ref": "#/components/schemas/RunbookId"
+          }
+        },
+        "required": [
+          "runbook_id",
+          "origin"
+        ],
+        "type": "object"
+      },
       "DeviceApproveRequest": {
         "additionalProperties": false,
         "description": "`POST /v1/device/approve`: a signed-in person (session plus CSRF) approves\nor denies a code. Every grant field narrows the approver's own access.",
@@ -3694,19 +3711,39 @@
       },
       "ProjectSlackRequest": {
         "additionalProperties": false,
+        "description": "Either a Slack incoming-webhook URL (stage 1: plain messages), or a\nchannel ID for the server's Slack app (stage 2: approve and reject\nbuttons). Exactly one.",
         "properties": {
+          "channel": {
+            "description": "A Slack channel ID (`C…` or `G…`, from the channel's details).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "url": {
             "description": "A Slack incoming-webhook URL (https://hooks.slack.com/…).",
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
-        "required": [
-          "url"
-        ],
         "type": "object"
       },
       "ProjectSlackView": {
         "properties": {
+          "app": {
+            "default": false,
+            "description": "Whether this server has a Slack app (bot token and signing secret),\nwhich channels and approval buttons need.",
+            "type": "boolean"
+          },
+          "channel": {
+            "description": "SLACK1 stage 2: the channel the server's Slack app posts to, when\nthe project uses one (channel IDs are not secrets; a webhook URL is\nnever read back).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "configured": {
             "type": "boolean"
           }
@@ -3748,6 +3785,10 @@
       },
       "ProjectView": {
         "properties": {
+          "archived": {
+            "description": "Archived (2026-11-18): hidden in the app and read-only.",
+            "type": "boolean"
+          },
           "id": {
             "$ref": "#/components/schemas/ProjectId"
           },
@@ -5257,6 +5298,161 @@
         ],
         "type": "object"
       },
+      "SyncFile": {
+        "description": "One file of a Git sync: its path in the repository (reported back, never\nstored) and its runbook source, whose `metadata.id` names the runbook.",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "source"
+        ],
+        "type": "object"
+      },
+      "SyncFileErrors": {
+        "description": "A refused sync: each file with errors, and its diagnostics.",
+        "properties": {
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/Diagnostic"
+            },
+            "type": "array"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "errors"
+        ],
+        "type": "object"
+      },
+      "SyncRequest": {
+        "description": "`POST /v1/projects/{p}/sync` (2026-11-17, PRD §12 open-source path):\na repository folder's runbooks, published as a batch. Every file is\ncompiled first; any error refuses the whole batch with nothing changed.",
+        "properties": {
+          "branch": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "commit_sha": {
+            "description": "Recorded on each new version.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dry_run": {
+            "description": "Validate and report what would change, changing nothing (for pull\nrequest checks).",
+            "type": "boolean"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/SyncFile"
+            },
+            "type": "array"
+          },
+          "prune": {
+            "description": "Archive this project's Git-managed runbooks that have no file here.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "files"
+        ],
+        "type": "object"
+      },
+      "SyncRunbookView": {
+        "description": "What a sync did (or, with `dry_run`, would do) to one runbook.",
+        "properties": {
+          "action": {
+            "description": "`create`, `adopt` (a UI-authored runbook becomes Git-managed),\n`update`, `unchanged` or `archive`.",
+            "type": "string"
+          },
+          "path": {
+            "description": "The file's path; absent for an archived runbook.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "runbook_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunbookId"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Absent for a runbook a dry run would create."
+          },
+          "runbook_version": {
+            "description": "The published version (absent on a dry run and for `archive`).",
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "runbook_version_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VersionId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug",
+          "action"
+        ],
+        "type": "object"
+      },
+      "SyncView": {
+        "properties": {
+          "branch": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "commit_sha": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dry_run": {
+            "type": "boolean"
+          },
+          "runbooks": {
+            "items": {
+              "$ref": "#/components/schemas/SyncRunbookView"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "dry_run",
+          "runbooks"
+        ],
+        "type": "object"
+      },
       "TakenOverView": {
         "description": "LANG7: a person took over an agent task.",
         "properties": {
@@ -5818,14 +6014,21 @@
       "UpdateProjectRequest": {
         "description": "`PATCH /v1/projects/{p}`: a project's settings (project admins).",
         "properties": {
+          "archived": {
+            "description": "Archive (true) or restore (false) the project: org owners and\nadmins only. Archived projects are hidden and read-only.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "title": {
             "description": "Display name (1 to 100 characters).",
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
-        "required": [
-          "title"
-        ],
         "type": "object"
       },
       "UpdateUserRequest": {
@@ -16266,6 +16469,215 @@
         ]
       }
     },
+    "/v1/projects/{p}/sync": {
+      "post": {
+        "description": "Current PAT/service authorization intersects project role, scope and project allow-list. Mutating POST replay lasts 24h and includes If-Match; authorization precedes replay and replay precedes stale preconditions. Compilation and immutable blobs precede a short atomic catalog/replay transaction. Execution credentials cannot use authoring routes. Draft save accepts invalid YAML and returns diagnostics; publication requires validity and the fixed slug. Source size overflow returns 413 spec.source_limit. No UI-only handlers.",
+        "operationId": "post_v1_projects__p__sync",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "p",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SyncRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncView"
+                }
+              }
+            },
+            "description": "Typed public response",
+            "headers": {
+              "X-RateLimit-Limit": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Stable problem details and X-Request-ID.",
+            "x-error-codes": []
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Stable problem details and X-Request-ID.",
+            "x-error-codes": []
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Stable problem details and X-Request-ID.",
+            "x-error-codes": [
+              "auth.scope_missing"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Stable problem details and X-Request-ID.",
+            "x-error-codes": []
+          },
+          "405": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Stable problem details and X-Request-ID.",
+            "x-error-codes": []
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Stable problem details and X-Request-ID.",
+            "x-error-codes": []
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Stable problem details and X-Request-ID.",
+            "x-error-codes": []
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Stable problem details and X-Request-ID.",
+            "x-error-codes": []
+          },
+          "415": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Stable problem details and X-Request-ID.",
+            "x-error-codes": []
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Invalid request, including incompatible rerun inputs."
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Stable problem details and X-Request-ID.",
+            "x-error-codes": []
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Stable problem details and X-Request-ID.",
+            "x-error-codes": []
+          },
+          "default": {
+            "description": "Response details will be finalized with the durable API implementation."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Public authoring and catalog operation",
+        "x-implementation": "implemented",
+        "x-required-scopes": [
+          "runbooks:write"
+        ]
+      }
+    },
     "/v1/projects/{p}/vars": {
       "delete": {
         "description": "Bearer credentials only. D37 directory reads require active membership and a directory-capable read scope (runbooks:read, executions:read or project:admin). Users/teams are org-wide recipient identities; project lists intersect membership, org role, and token project restrictions. Service credentials may read recipients in their own project's org. Directory mutations require a human owner/admin plus project:admin and an unrestricted project list. Project variable reads require runbooks:read, writes project:admin with project role checks; If-Match fences writes, and D34 secret-like values return 422 vars.secret_like. No cookie/session authorization or private UI API.",
@@ -19394,6 +19806,205 @@
         ]
       }
     },
+    "/v1/runbooks/{rb}/detach": {
+      "post": {
+        "description": "Current PAT/service authorization intersects project role, scope and project allow-list. Mutating POST replay lasts 24h and includes If-Match; authorization precedes replay and replay precedes stale preconditions. Compilation and immutable blobs precede a short atomic catalog/replay transaction. Execution credentials cannot use authoring routes. Draft save accepts invalid YAML and returns diagnostics; publication requires validity and the fixed slug. Source size overflow returns 413 spec.source_limit. No UI-only handlers.",
+        "operationId": "post_v1_runbooks__rb__detach",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rb",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DetachView"
+                }
+              }
+            },
+            "description": "Typed public response",
+            "headers": {
+              "X-RateLimit-Limit": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Stable problem details and X-Request-ID.",
+            "x-error-codes": []
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Stable problem details and X-Request-ID.",
+            "x-error-codes": []
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Stable problem details and X-Request-ID.",
+            "x-error-codes": [
+              "auth.scope_missing"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Stable problem details and X-Request-ID.",
+            "x-error-codes": []
+          },
+          "405": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Stable problem details and X-Request-ID.",
+            "x-error-codes": []
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Stable problem details and X-Request-ID.",
+            "x-error-codes": []
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Stable problem details and X-Request-ID.",
+            "x-error-codes": []
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Stable problem details and X-Request-ID.",
+            "x-error-codes": []
+          },
+          "415": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Stable problem details and X-Request-ID.",
+            "x-error-codes": []
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Invalid request, including incompatible rerun inputs."
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Stable problem details and X-Request-ID.",
+            "x-error-codes": []
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Stable problem details and X-Request-ID.",
+            "x-error-codes": []
+          },
+          "default": {
+            "description": "Response details will be finalized with the durable API implementation."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Public authoring and catalog operation",
+        "x-implementation": "implemented",
+        "x-required-scopes": [
+          "runbooks:write"
+        ]
+      }
+    },
     "/v1/runbooks/{rb}/draft": {
       "get": {
         "description": "Current PAT/service authorization intersects project role, scope and project allow-list. Mutating POST replay lasts 24h and includes If-Match; authorization precedes replay and replay precedes stale preconditions. Compilation and immutable blobs precede a short atomic catalog/replay transaction. Execution credentials cannot use authoring routes. Draft save accepts invalid YAML and returns diagnostics; publication requires validity and the fixed slug. Source size overflow returns 413 spec.source_limit. No UI-only handlers.",
@@ -21127,6 +21738,31 @@
         "x-required-scopes": [
           "runbooks:read"
         ]
+      }
+    },
+    "/v1/slack/interactions": {
+      "post": {
+        "description": "Implemented. Slack posts here (application/x-www-form-urlencoded, signed with X-Slack-Signature and X-Slack-Request-Timestamp) when someone clicks an approval button. The signature over the exact body, made with RUNBOOK_SLACK_SIGNING_SECRET, is the credential; older than five minutes is 401 slack.invalid_signature. The clicking user is matched by email and votes with their own permissions; the answer to them goes to the interaction's response_url. 404 when the server has no Slack app. Not for API clients.",
+        "operationId": "post_v1_slack_interactions",
+        "parameters": [],
+        "responses": {
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Invalid request, including incompatible rerun inputs."
+          },
+          "default": {
+            "description": "Response details will be finalized with the durable API implementation."
+          }
+        },
+        "security": [],
+        "summary": "Slack button clicks (the Slack app)",
+        "x-implementation": "implemented"
       }
     },
     "/v1/step-runs/{sr}": {

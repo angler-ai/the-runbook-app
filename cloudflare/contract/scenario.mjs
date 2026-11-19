@@ -429,6 +429,14 @@ export async function scenario(t) {
     body: { url: 'https://hooks.slack.com/services/T0000000/B0000000/contract' },
   });
   await t.call('slack clear', 'DELETE', '/v1/projects/{p}/slack', { p: project });
+  // Stage 2 without a Slack app: no channel, no interactions endpoint.
+  await t.call('slack channel without app', 'PUT', '/v1/projects/{p}/slack', { p: project }, {
+    body: { channel: 'C0123ABCDEF' },
+  });
+  await t.call('slack interactions without app', 'POST', '/v1/slack/interactions', {}, {
+    token: null,
+    body: { payload: '{}' },
+  });
 
   // ---- Profiles and project settings (2026-11-17): rename yourself, a
   // photo set, read and removed, a project renamed with an image. Only the
@@ -445,6 +453,56 @@ export async function scenario(t) {
   await t.call('project picture set', 'PUT', '/v1/projects/{p}/picture', { p: project }, { body: { data: 'iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAAAAAAAA' } });
   await t.call('project picture', 'GET', '/v1/projects/{p}/picture', { p: project });
   await t.call('project picture remove', 'DELETE', '/v1/projects/{p}/picture', { p: project });
+  // Archived projects (2026-11-18): read-only until restored.
+  await t.call('project archive', 'PATCH', '/v1/projects/{p}', { p: project }, { body: { archived: true } });
+  await t.call('archived project list', 'GET', '/v1/orgs/{org}/projects', { org });
+  await t.call('archived project runbooks', 'GET', '/v1/projects/{p}/runbooks', { p: project });
+  await t.call('archived project write', 'PUT', '/v1/projects/{p}/slack', { p: project }, {
+    body: { url: 'https://hooks.slack.com/services/T0000000/B0000000/archived' },
+  });
+  await t.call('archived project rename', 'PATCH', '/v1/projects/{p}', { p: project }, { body: { title: 'Nope' } });
+  await t.call('project restore', 'PATCH', '/v1/projects/{p}', { p: project }, { body: { archived: false } });
+
+  // ---- Git sync (2026-11-17): a folder published as a batch. A dry run,
+  // a refused batch (one bad file), the publish recording its commit, the
+  // same files again (unchanged), the draft locked, then a prune.
+  const synced = (id) =>
+    ['apiVersion: therunbook.app/v1', 'kind: Runbook', `metadata: {id: ${id}, title: Synced}`, 'spec:', '  steps:',
+      '    - {id: work, title: Work}', ''].join('\n');
+  const syncFiles = [{ path: 'runbooks/contract-synced.yaml', source: synced('contract-synced') }];
+  await t.call('sync dry run', 'POST', '/v1/projects/{p}/sync', { p: project }, {
+    body: { files: syncFiles, dry_run: true },
+  });
+  await t.call('sync invalid', 'POST', '/v1/projects/{p}/sync', { p: project }, {
+    body: { files: [...syncFiles, { path: 'runbooks/copy.yaml', source: synced('contract-synced') }] },
+  });
+  const firstSync = await t.call('sync', 'POST', '/v1/projects/{p}/sync', { p: project }, {
+    body: { files: syncFiles, commit_sha: 'abc123', branch: 'main' },
+  });
+  await t.call('sync again', 'POST', '/v1/projects/{p}/sync', { p: project }, {
+    body: { files: syncFiles, commit_sha: 'def456' },
+  });
+  const syncedRb = firstSync.body?.runbooks?.[0]?.runbook_id;
+  if (syncedRb) {
+    await t.call('sync version', 'GET', '/v1/runbooks/{rb}/versions/{version}', { rb: syncedRb, version: '1' });
+    await t.call('sync versions', 'GET', '/v1/runbooks/{rb}/versions', { rb: syncedRb });
+    const syncedDraft = await t.call('sync draft', 'GET', '/v1/runbooks/{rb}/draft', { rb: syncedRb });
+    await t.call('sync draft locked', 'PATCH', '/v1/runbooks/{rb}/draft', { rb: syncedRb }, {
+      ifMatch: syncedDraft.headers.get('etag'),
+      body: { source: synced('contract-synced') + '# edited\n' },
+    });
+  }
+  if (syncedRb) {
+    await t.call('sync detach', 'POST', '/v1/runbooks/{rb}/detach', { rb: syncedRb });
+    await t.call('sync detach again', 'POST', '/v1/runbooks/{rb}/detach', { rb: syncedRb });
+    // The next sync adopts it back.
+    await t.call('sync after detach', 'POST', '/v1/projects/{p}/sync', { p: project }, {
+      body: { files: syncFiles },
+    });
+  }
+  await t.call('sync prune', 'POST', '/v1/projects/{p}/sync', { p: project }, {
+    body: { files: [], prune: true },
+  });
 
   // ---- Project variables.
   const vars = await t.call('vars', 'GET', '/v1/projects/{p}/vars', { p: project });
@@ -553,15 +611,24 @@ export async function scenario(t) {
   void v1;
   void v2;
 
-  // Every delivery so far (the test event and both publications) settled.
+  // Every delivery so far settled: the test event and both publications,
+  // and nothing published before the webhook existed (the drain fans those
+  // out late, but only to subscriptions older than the event).
   const deliveries = await t.until(
     'webhook deliveries',
     'GET',
     '/v1/projects/{p}/webhooks/{id}/deliveries',
     { p: project, id },
-    (r) =>
-      (r.body?.items?.length ?? 0) >= 3 &&
-      r.body.items.every((d) => d.state === 'delivered'),
+    (r) => {
+      const items = r.body?.items ?? [];
+      const count = (type) => items.filter((d) => d.event_type === type).length;
+      return (
+        items.length === 3 &&
+        count('webhook.test') === 1 &&
+        count('runbook.published') === 2 &&
+        items.every((d) => d.state === 'delivered')
+      );
+    },
   );
   const delivery = deliveries.body?.items?.[0]?.id ?? 'whd_00000000000000000000000000';
   await t.call('webhook redeliver', 'POST', '/v1/projects/{p}/webhooks/{id}/deliveries/{d}/redeliver', {

@@ -1,0 +1,83 @@
+---
+title: Redaction and the audit trail
+description: What the server redacts from logs, and how every action on a run is recorded with who did it.
+sidebar:
+  order: 3
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+## Redaction
+
+Step logs are redacted on the server, as one stream per request, before
+they're stored: whatever an agent or a command prints, from `step log`,
+`step exec` or a report's logs. Sensitive values become stable markers;
+ordinary text and key names stay.
+
+| Recognized | Marker |
+| --- | --- |
+| Runbook tokens (`trb_pat_`, `trb_svc_`, `trb_exe_`, `trb_exr_`) | `[REDACTED:runbook_pat]`, `…_svc]`, `…_exe]`, `…_exr]` |
+| AWS access keys | `[REDACTED:aws_access_key]` |
+| GitHub tokens | `[REDACTED:github_token]` |
+| Slack tokens | `[REDACTED:slack_token]` |
+| PEM private keys | `[REDACTED:private_key]` |
+| `Authorization` headers | `[REDACTED:authorization]` |
+| `Bearer …` values | `[REDACTED:bearer]` |
+| `password=`, `secret=`, `token=` and similar values | `[REDACTED:password]`, `[REDACTED:secret]`, `[REDACTED:token]` |
+| Signatures | `[REDACTED:signature]` |
+
+```text title="A step log, as stored"
+connecting with Authorization: [REDACTED:authorization]
+export GITHUB_TOKEN=[REDACTED:github_token]
+migration 0042 applied in 1.8 s
+```
+
+Webhook response snippets in the delivery log are redacted the same way.
+`runbook step exec` writes the program's name, never its arguments, into
+the step's summary.
+
+<Aside type="caution">
+Redaction is a safety net, not a guarantee: it recognizes common shapes,
+not every secret. Don't print secrets, and don't put them in outputs,
+summaries, inputs or runbook source, which aren't redacted.
+</Aside>
+
+## The audit trail
+
+A run is a sequence of **events**, and every event records who caused it:
+
+| Actor | Recorded as |
+| --- | --- |
+| A person | Their user ID |
+| An agent | The agent, its sponsor, and its token or run, with the session, agent name and model it declared |
+| A service token | The token |
+| A schedule | `schedule:<id>` |
+| A webhook trigger | `webhook:<id>` |
+| The engine | Timers, leases that lapsed, automatic decisions |
+
+The events are append-only: nothing about a run is changed in place. The
+run page, the report and the event stream are all views of them:
+
+```sh
+runbook run report exe_… --format md     # or json, junit, pdf
+curl -H "Authorization: Bearer $RUNBOOK_TOKEN" "$RUNBOOK_HOST/v1/executions/exe_…/events"
+```
+
+Take-overs (`StepTakenOver`), overrides, amended reports, credential
+issuance and revocation for a run, and approval decisions with their
+signers are all events in the same record.
+
+### Elsewhere
+
+- **Runbooks:** every publish is a numbered version recording who published
+  it (and, from Git, the commit and branch). `runbook diff` compares
+  versions.
+- **Memory:** every entry records who created it and who last wrote it, and
+  keeps its revisions; people can restore any of them.
+- **Tokens:** `runbook token list` shows each token's scopes, projects,
+  expiry and when it was last used.
+- **Webhooks:** each subscription's delivery log keeps every attempt for 90
+  days.
+- **Archives:** finished runs are written to daily archive files, which
+  outlive the live detail when retention is set. See [Archives and
+  retention](/operating/retention/).

@@ -45,3 +45,11 @@
 *.tfstate
 *.tfstate.*
 
+
+# Docs site (site/, DOCS1): dependencies, build output, Astro's cache and the
+# Scalar bundle copied from node_modules at build time.
+/site/node_modules/
+/site/dist/
+/site/.astro/
+.astro/
+/site/public/api/

@@ -1,0 +1,151 @@
+---
+// The API explorer (DOCS1): Scalar, rendered in the browser from the
+// OpenAPI contract that scripts/prepare-public.mjs copies to /api/openapi.json.
+// "Try it" requests go to the server URL and token the reader enters.
+// Themed like the docs (Indigo/Mint, Ink in dark mode, DM Sans), with a
+// header back to the docs and Scalar's hosted-service toolbar and AI agent
+// turned off.
+import '@fontsource/dm-sans/400.css';
+import '@fontsource/dm-sans/500.css';
+import '@fontsource/dm-sans/600.css';
+import '@fontsource/ibm-plex-mono/400.css';
+import logo from '../assets/logo.svg';
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const customCss = `
+  .light-mode {
+    --scalar-color-accent: #4338ca;
+    --scalar-background-accent: #eeedfb;
+    --scalar-color-1: #1a1a2e;
+    --scalar-color-2: #3a3f52;
+    --scalar-color-3: #566479;
+    --scalar-background-1: #ffffff;
+    --scalar-background-2: #f8fafc;
+    --scalar-background-3: #f1f5f9;
+    --scalar-border-color: #e2e8f0;
+  }
+  .dark-mode {
+    --scalar-color-accent: #a6a2e5;
+    --scalar-background-accent: #1e1d3f;
+    --scalar-color-1: #f1f5f9;
+    --scalar-color-2: #cbd5e1;
+    --scalar-color-3: #94a3b8;
+    --scalar-background-1: #0e0f14;
+    --scalar-background-2: #15161d;
+    --scalar-background-3: #1a1c24;
+    --scalar-border-color: #262833;
+  }
+  :root {
+    --scalar-font: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --scalar-font-code: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    --scalar-custom-header-height: 52px;
+    --scalar-radius: 6px;
+    --scalar-radius-lg: 10px;
+  }
+`;
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>API explorer | The Runbook</title>
+    <meta name="description" content="Every route, schema and error code of The Runbook's REST API." />
+    <meta name="theme-color" content="#4338ca" />
+    <link rel="icon" href={`${base}/favicon.svg`} type="image/svg+xml" />
+    <style is:global>
+      html,
+      body {
+        margin: 0;
+        background: #ffffff;
+      }
+      @media (prefers-color-scheme: dark) {
+        html,
+        body {
+          background: #0e0f14;
+        }
+      }
+      .rb-api-header {
+        position: sticky;
+        top: 0;
+        z-index: 1000;
+        height: 52px;
+        box-sizing: border-box;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0 1rem;
+        font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        background: #ffffff;
+        border-bottom: 1px solid #e2e8f0;
+        color: #1a1a2e;
+      }
+      .rb-api-header a {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        color: inherit;
+        text-decoration: none;
+        font-weight: 600;
+        font-size: 1.05rem;
+      }
+      .rb-api-header img {
+        width: 28px;
+        height: 28px;
+        border-radius: 7px;
+      }
+      .rb-api-header span {
+        color: #566479;
+        font-size: 0.9rem;
+      }
+      .rb-api-header .rb-api-back {
+        margin-left: auto;
+        font-weight: 500;
+        font-size: 0.9rem;
+        color: #4338ca;
+      }
+      @media (prefers-color-scheme: dark) {
+        .rb-api-header {
+          background: #15161d;
+          border-bottom-color: #262833;
+          color: #f1f5f9;
+        }
+        .rb-api-header span {
+          color: #94a3b8;
+        }
+        .rb-api-header .rb-api-back {
+          color: #c4c1ee;
+        }
+      }
+      @media (max-width: 30rem) {
+        .rb-api-header span {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="rb-api-header">
+      <a href={`${base}/`}><img src={logo.src} alt="" />The Runbook</a>
+      <span>API explorer</span>
+      <a class="rb-api-back" href={`${base}/`}>Docs</a>
+    </header>
+    <noscript>
+      The API explorer needs JavaScript. The contract itself is at
+      <a href={`${base}/api/openapi.json`}>/api/openapi.json</a>.
+    </noscript>
+    <script
+      id="api-reference"
+      data-url={`${base}/api/openapi.json`}
+      data-configuration={JSON.stringify({
+        hideClientButton: true,
+        showDeveloperTools: 'never',
+        agent: { disabled: true },
+        withDefaultFonts: false,
+        customCss,
+        servers: [{ url: 'http://127.0.0.1:8080', description: 'A local server' }],
+      })}
+    ></script>
+    <script is:inline src={`${base}/api/scalar.js`}></script>
+  </body>
+</html>

@@ -1,0 +1,97 @@
+---
+title: Signals and waits
+description: Steps that wait for your own systems, a duration or a time, and how signals arrive.
+sidebar:
+  order: 5
+---
+
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+import Sequence from '../../../components/Sequence.astro';
+
+A `wait` step pauses its branch until something happens: a **duration**
+passes, a **time** arrives, or a **signal** comes from one of your
+systems. Other branches keep going.
+
+```yaml
+- id: soak
+  wait: { for: 30m }                       # a duration, at most 7 days
+- id: maintenance_window
+  wait: { until: "2026-12-01T02:00:00Z" }  # a time
+- id: store_connected
+  wait: { signal: store_connected, timeout: 14d }
+```
+
+## Signals
+
+<Sequence
+  actors={['Your system', 'Server', 'Run']}
+  messages={[
+    { from: 1, to: 2, label: 'wait store_connected', note: 'the step is waiting' },
+    { from: 0, to: 1, label: 'POST …/signals/store_connected', note: '{"store_id": "st_123"}' },
+    { from: 1, to: 1, label: 'checks the payload against the wait\'s outputs' },
+    { from: 1, to: 2, label: 'step succeeded; outputs.store_id = st_123' },
+  ]}
+/>
+
+Your system sends a signal with any token that may act on the run:
+
+<Tabs>
+<TabItem label="API">
+
+```sh
+curl -X POST "$RUNBOOK_HOST/v1/executions/$EXE/signals/store_connected" \
+  -H "Authorization: Bearer $RUNBOOK_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"store_id": "st_123"}'
+```
+
+</TabItem>
+<TabItem label="CLI">
+
+```sh
+runbook run signal "$EXE" store_connected --payload store_id=st_123
+```
+
+</TabItem>
+</Tabs>
+
+A signal wait may declare `outputs`, in the same form as a task's. The
+payload must match: an invalid payload is refused with
+`422 signal.invalid_payload` (field errors named `payload.<field>`), nothing
+is recorded, and the step keeps waiting. A valid payload becomes the step's
+outputs; fields the declaration doesn't name are ignored. Without
+`outputs`, any payload is accepted and none is kept.
+
+```yaml title="customer-onboarding.yaml"
+metadata: { id: customer-onboarding }
+spec:
+  inputs:
+    customer: { type: string, required: true }
+  steps:
+    - id: store_connected
+      wait:
+        signal: store_connected
+        timeout: 14d
+        outputs:
+          store_id: { type: string, required: true }
+          plan: { type: enum, options: [starter, growth, enterprise] }
+    - id: welcome
+      actor: agent
+      instructions: >-
+        Send ${{ inputs.customer }} the welcome pack for the
+        ${{ steps.store_connected.outputs.plan }} plan (store
+        ${{ steps.store_connected.outputs.store_id }}).
+```
+
+## Timeouts
+
+`wait.timeout` bounds any wait; past it, the step times out and its
+`on_failure` applies. A signal wait without one is bounded by the run's
+`spec.execution.timeout`. Waits take reminders and escalation
+(`remind_after`, `escalate_after`), so someone hears about a signal that
+never came.
+
+<Aside type="tip" title="Signals, triggers and webhooks">
+A **signal** moves a run that's already waiting. A **webhook trigger**
+(`spec.triggers.webhook`) starts a new run. An outbound **webhook** tells
+your systems something happened.
+</Aside>

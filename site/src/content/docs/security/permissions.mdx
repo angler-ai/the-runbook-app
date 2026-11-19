@@ -1,0 +1,115 @@
+---
+title: Permissions and tokens
+description: How roles and token scopes combine, every scope, the kinds of tokens, and how to give each caller the least access.
+sidebar:
+  order: 2
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+## Roles and scopes
+
+Every request is allowed only if **both** of these allow it:
+
+1. **the role** of whoever the credential acts for: a person's project role
+   (organization owners and admins are admins of every project), or a
+   service token's own role;
+2. **the credential's scopes**, and its project list when it has one.
+
+A scope never widens a role. A token with `runbooks:publish` held by an
+`operator` still can't publish.
+
+| Scope | Lets the credential | Role needed |
+| --- | --- | --- |
+| `runbooks:read` | Read runbooks, versions and drafts | `viewer` |
+| `executions:read` | Read runs, steps, reports and archives | `viewer` |
+| `skills:read` | Read skills | `viewer` |
+| `executions:start` | Start runs | `operator` |
+| `executions:act` | Work on runs: claim and report steps, decide approvals it's eligible for, mint execution pairs | `operator` |
+| `executions:admin` | Override a step's result and edit a run (`runbook run update`) | `operator` |
+| `runbooks:write` | Create runbooks and save drafts | `editor` |
+| `skills:write` | Upload skills | `editor` |
+| `runbooks:publish` | Publish versions, sync from Git | `editor` |
+| `tokens:manage` | Create, list and revoke tokens | `admin` |
+| `webhooks:manage` | Manage webhook subscriptions | `admin` |
+| `project:admin` | Members, project settings and variables | `admin` |
+
+An archived project is read-only for everyone: only the `:read` scopes work
+there.
+
+## Kinds of credentials
+
+| Credential | Prefix | Acts as | Lifetime |
+| --- | --- | --- | --- |
+| Personal access token | `trb_pat_` | A person | 90 days by default, at most 1 year |
+| Agent-kind token | `trb_pat_` | An agent, sponsored by the person who made it | Like a personal token |
+| Service token | `trb_svc_` | A project's automation, with its own role | Until revoked, or an expiry you set |
+| Execution pair | `trb_exe_` / `trb_exr_` | An agent working one run | Access 1 hour; refresh family at most 30 days, only while the run is open |
+| OAuth access token | `trb_oat_` | An agent sponsored by the person who consented (MCP clients) | 1 hour; refresh within 90 days of consent |
+| Browser session | cookie | A person | Until sign-out or expiry |
+
+Tokens are issued only to the caller: `POST /v1/tokens` never creates a
+token for someone else, and a token can carry only scopes its creator holds,
+never past the creator's own token's expiry. Only organization owners and
+admins issue service tokens.
+
+```sh
+# a person's narrow, short-lived token
+runbook token create --name laptop --scope runbooks:read --scope executions:read --expires-in 7d
+
+# an agent you sponsor
+runbook token create --agent --name ci-agent --scope executions:read --scope executions:act --project prod
+
+# a project's launcher, which only mints execution pairs
+runbook token create --kind service --role operator --project prod \
+  --scope executions:read --scope executions:act --name launcher
+
+runbook token list
+runbook token revoke tok_…
+```
+
+## Least access, by caller
+
+| Caller | Give it |
+| --- | --- |
+| A person at the CLI | `runbook login`: the default scopes, through the browser |
+| A person's browser | A session from sign-in |
+| An agent working one run | An execution pair, minted by a launcher |
+| An agent on a developer's machine | An agent-kind token with `runbooks:read`, `executions:read` and `executions:act`, limited to its projects, expiring |
+| A webhook launcher | A service token with `executions:read` and `executions:act` |
+| CI that publishes runbooks | A service token, role `editor`, with `runbooks:read` and `runbooks:publish` |
+| A webhook trigger sender | A token with `executions:start` in that project |
+
+<Aside type="caution" title="Never give an agent a person's token">
+With a person's token, an agent is that person: its writes are recorded as
+theirs and it can decide their approvals. Execution pairs and agent-kind
+tokens are recorded as agents and never cast human approvals.
+</Aside>
+
+## Execution pairs
+
+A launcher with `executions:act` mints a pair for one run:
+
+```sh
+RUNBOOK_TOKEN="$SERVICE_TOKEN" runbook run token exe_… --session agent-1
+```
+
+- The access token reaches only that run, and only the step its session has
+  claimed.
+- The CLI refreshes it from the refresh token. Reusing a refresh token that
+  was already used revokes the whole family (a stolen copy can't keep
+  working).
+- Every pair is revoked when the run ends.
+
+## Connected apps
+
+MCP clients that signed in with OAuth are listed per person, and can be
+disconnected at once:
+
+```sh
+runbook apps list
+runbook apps revoke <client_id>
+```
+
+On the consent page, `runbooks:publish` is unticked by default, and a grant
+is narrowed to the person's role.

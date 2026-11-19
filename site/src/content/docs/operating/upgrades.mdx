@@ -1,0 +1,161 @@
+---
+title: Upgrades and rollback
+description: Update to a new release with verified images, an automatic backup and rollback on failure.
+sidebar:
+  order: 5
+---
+
+import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Each release is a `vX.Y.Z` tag with a GitHub Release (the CLI and server
+binaries, the Cloudflare bundle, `SHA256SUMS`, and release notes with the
+upgrade notes and schema version) and the image
+`ghcr.io/angler-ai/runbook`, tagged `X.Y.Z`, `X.Y` and `latest` for
+`linux/amd64` and `linux/arm64`. Read the [release notes](/changelog/)
+before updating.
+
+<Aside type="caution" title="Before the first release">
+Nothing is published yet. Until it is, update from a git checkout:
+`deploy/update.sh --source git` (compose) or
+`npm run update -- --source checkout` (Cloudflare).
+</Aside>
+
+## Update
+
+<Tabs syncKey="edition">
+<TabItem label="Docker compose">
+
+```sh
+deploy/update.sh --dry-run    # the plan only
+deploy/update.sh              # the latest release, asking before changing anything
+deploy/update.sh --to 0.3     # the newest 0.3.x
+```
+
+<Steps>
+
+1. **Preflight.** `runbook-server doctor` on the running server, its
+   release, the target release and free disk space. A downgrade is refused;
+   the same release is "nothing to do".
+2. **Verify and pull.** The tag is resolved to a digest, its build
+   provenance verified with `gh attestation verify` against the release
+   workflow and tag, and the image pulled by digest. Nothing from the image
+   runs before that. The target's own `doctor` then checks your database:
+   a schema it can't run is refused.
+3. **Back up.** `pg_dump` of the whole database to a `0600` file in
+   `deploy/backups/`, read back in full, so an empty or truncated dump stops
+   the update before anything changes. The newest 5 are kept
+   (`--keep-backups`).
+4. **Restart** on the new image; the server applies its migrations as it
+   starts. The previous image stays as `<image>:rollback-<release>`.
+5. **Check health:** the container healthcheck, `/health/ready`,
+   `/v1/meta` reporting the new version and schema, `doctor`, the web UI
+   and the CLI.
+
+</Steps>
+
+Pin a line in `deploy/.env` with `RUNBOOK_UPDATE_PIN=0.3` (or `0.3.1`), so a
+plain `deploy/update.sh` only takes patch releases. With an external
+database, back up with your provider's tools and pass `--skip-backup`.
+
+</TabItem>
+<TabItem label="Kubernetes and other platforms">
+
+Roll out the new image tag. `serve` applies pending migrations before it
+listens, forward-only and under an advisory lock; or set
+`RUNBOOK_MIGRATE_ON_START=false` and run `runbook-server migrate` as a Job
+first. Back up the database before you roll out.
+
+A native binary: stop the server, back up, install the release's
+`runbook-server-X.Y.Z-linux-<arch>.tar.gz` (checked with
+`sha256sum -c SHA256SUMS`), run `runbook-server migrate` and start it.
+
+</TabItem>
+<TabItem label="Cloudflare">
+
+From `cloudflare/`, with your two configs and a wrangler login:
+
+```sh
+npm run update -- --dry-run          # the plan; read-only
+npm run update                       # the latest release, asking first
+npm run update -- --to 0.3.1 --yes   # a named release
+```
+
+<Steps>
+
+1. **Preflight:** both configs, `wrangler whoami`, the deployed release from
+   `/v1/meta`, the target. A downgrade is refused. Each Worker's current
+   version is recorded for rollback.
+2. **Verify** the release bundle against `SHA256SUMS` and its build
+   provenance.
+3. **Back up and migrate:** a D1 Time Travel bookmark per database (saved
+   to `.update/`), then the pending D1 migrations. Durable Object schemas
+   migrate inside each object on first use.
+4. **Deploy** the sign-in Worker, then the api Worker.
+5. **Verify** that `/v1/meta` reports the new version and schema heads.
+
+</Steps>
+
+</TabItem>
+</Tabs>
+
+## Rollback
+
+Every migration keeps the previous release working (expand, then contract
+in a later release), so rolling the **code** back is safe on the migrated
+schema.
+
+<Tabs syncKey="edition">
+<TabItem label="Docker compose">
+
+If the restart or the health check fails, the script offers to roll back
+(without asking under `--yes`): it starts the previous image on the
+migrated database, with `RUNBOOK_ALLOW_NEWER_SCHEMA=true` set by a compose
+override it writes to `deploy/backups/allow-newer-schema.yml`. Until the
+next update, start the stack with that file too, or the older server refuses
+the newer schema (`postgres.schema_newer_than_code`).
+
+A problem found later: `deploy/update.sh --rollback` undoes the last update.
+
+The backup is restored only with `--restore-backup`, since that loses
+everything written after it. It never drops your database: it restores into
+a scratch database and swaps the two by rename, keeping the old one as
+`runbook_replaced_<time>`.
+
+</TabItem>
+<TabItem label="Kubernetes">
+
+Roll back to the previous image with `RUNBOOK_ALLOW_NEWER_SCHEMA=true`.
+Restore the database backup only when you must, since it loses everything
+written after it.
+
+</TabItem>
+<TabItem label="Cloudflare">
+
+If the deploy or the check fails, each Worker that deployed is rolled back
+with `wrangler rollback` to its recorded version. The schema stays as
+migrated. Restoring D1 from the bookmark (only with `--restore-backup`)
+loses everything written since, and doesn't restore Durable Object or R2
+state.
+
+</TabItem>
+</Tabs>
+
+### The rollback floor
+
+`runbook-server --version` prints the release's **rollback floor**: the
+oldest release whose code is safe on its schema. If you skip releases past
+one that removed something (a contract migration), your current release may
+be below the floor of the new one. A failed update then can't simply restart
+your old release, so the update asks for `--restore-backup` (a failure
+restores the backup) or `--no-rollback`.
+
+Exit status, for automation: `0` updated, `1` refused (nothing changed), `3`
+failed and rolled back, `4` failed and not rolled back.
+
+## Check versions
+
+```sh
+runbook version                                # this CLI's release and the server's
+curl -s https://runbooks.example.com/v1/meta   # "version" and "schema"
+runbook-server --version                       # release, schema and rollback floor
+```

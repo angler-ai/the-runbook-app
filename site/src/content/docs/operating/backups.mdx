@@ -1,0 +1,78 @@
+---
+title: Backups
+description: What to back up on each edition, the secrets that go with it, and project exports.
+sidebar:
+  order: 6
+---
+
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+<Tabs syncKey="edition">
+<TabItem label="Docker/Kubernetes">
+
+Back up **PostgreSQL**: `pg_dump`, or your provider's backups and
+point-in-time recovery (the GKE Terraform module's Cloud SQL has both).
+With blobs in PostgreSQL (the default), that's everything.
+
+```sh
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env exec -T postgres \
+  pg_dump -U runbook -Fc runbook > runbook-$(date +%F).dump
+```
+
+`deploy/update.sh` takes and verifies a dump before every update.
+
+With blobs in **GCS or S3**, back up the bucket too, or turn on its
+versioning, and restore the two together.
+
+</TabItem>
+<TabItem label="Cloudflare">
+
+- **D1** has Time Travel: you can restore a database to any minute in its
+  retention window. `npm run update` records a bookmark before it migrates.
+- **Durable Objects** (runs) and **R2** (blobs) have no point-in-time
+  restore of their own. Export projects (below) and copy the R2 buckets if
+  you need copies outside Cloudflare.
+
+</TabItem>
+</Tabs>
+
+## Keep the secrets with the backup
+
+A database backup is only half a restore without these:
+
+| Secret | Why |
+| --- | --- |
+| `RUNBOOK_WEBHOOK_SECRET_KEY` (`WEBHOOK_SECRET_KEY` on Cloudflare) | Seals webhook signing secrets. Without it, restored subscriptions can't sign deliveries |
+| `RUNBOOK_AUTH_SECRET` | Signs session cookies. A new one signs everyone out |
+| `RUNBOOK_UPLOAD_SIGNING_KEY` | Signs file URLs. A new one only invalidates links already handed out |
+
+Tokens are stored as hashes, so a backup holds no usable token.
+
+## Project exports
+
+A project can be exported to a portable archive, a ZIP of a manifest, one
+NDJSON file per table and the blobs, and imported into another server of
+either edition. Secrets never travel: tokens, execution credentials,
+webhook signing secrets, verified-email bindings and delivery logs are left
+out, so tokens and webhook secrets are issued again on the new server.
+
+```sh
+runbook-server export --org org_… --project prod --out prod.zip
+runbook-server import --in prod.zip --org org_…
+```
+
+On Cloudflare, export and import are `GET /internal/portable/export` and
+`POST /internal/portable/import` on the api Worker, which exist only while
+the `RUNBOOK_OPERATOR_SECRET` secret is set and need it in the
+`x-runbook-operator-secret` header. An import there is at most 10 MiB.
+
+<Aside type="note">
+An archive written by a newer release may not import into an older one.
+Export and import with the same release where you can.
+</Aside>
+
+## Test a restore
+
+Restore into a scratch database now and then, start a server against it
+with the same secrets, and run `runbook-server doctor`. A backup you've
+never restored is a hope, not a backup.

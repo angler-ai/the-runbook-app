@@ -552,6 +552,7 @@ pub fn attacker_archive() -> runbook_core::portable::ProjectData {
                 slug: "evil".into(),
                 title: "Evil".into(),
             },
+            archived: false,
             users: vec![
                 UserRecord {
                     id: user(1),

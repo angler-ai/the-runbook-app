@@ -1,0 +1,137 @@
+---
+title: Claude Code
+description: Give Claude Code the therunbook skill and the Runbook MCP server, locally or remotely with OAuth.
+sidebar:
+  order: 3
+---
+
+import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Claude Code has a shell, so it works best through the `runbook` CLI, guided
+by the `therunbook` skill. The MCP server is there for sessions without the
+CLI.
+
+## With the CLI and the skill (recommended)
+
+<Steps>
+
+1. **Install the CLI** and sign it in to your server. From a checkout:
+
+   ```sh
+   cargo build --release --locked -p runbook-cli
+   export PATH="$PWD/target/release:$PATH"
+   runbook login https://runbooks.example.com
+   ```
+
+   `runbook login` opens the browser to approve the CLI and stores a
+   personal access token for that host (in the macOS Keychain or Windows
+   Credential Manager, otherwise a `0600` file).
+
+2. **Install the skill.** It teaches Claude the agent loop, when to ask a
+   person, and how to treat runbook data:
+
+   ```sh
+   runbook skill install --agent claude --therunbook
+   ```
+
+   That writes `~/.claude/skills/therunbook/`. Add `--scope project` to
+   install it into this repository's `.claude/skills/` instead, so everyone
+   who works here gets it.
+
+3. **Give the agent its own credential.** Claude acting on your login is
+   recorded as you. For agent work, mint an agent-kind token and hand it to
+   the session:
+
+   ```sh
+   runbook token create --agent --name claude-code --expires-in 30d \
+     --scope runbooks:read --scope executions:read --scope executions:act --json
+   ```
+
+   Put the printed secret in `RUNBOOK_TOKEN` for the Claude Code session
+   (for example in a `.env` your shell loads). The token can do no more than
+   you can, and never decides human approvals. For a single run, an
+   [execution pair](/agents/custom/#credentials-for-one-run) is narrower
+   still.
+
+4. **Try it.** In Claude Code:
+
+   ```text
+   Work the next agent step of run exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7.
+   ```
+
+   The skill makes Claude check `runbook whoami --json`, then run the loop
+   with `--json`. More prompts are in the [prompt library](/agents/prompts/).
+
+</Steps>
+
+## Over MCP
+
+<Tabs>
+<TabItem label="Local (stdio)">
+
+The CLI serves MCP over stdio with its own stored credentials:
+
+```sh
+claude mcp add runbook -- runbook mcp serve
+```
+
+This uses the CLI's current context (`runbook context use …`) and its login,
+so nothing else needs configuring.
+
+</TabItem>
+<TabItem label="Remote, with OAuth">
+
+Your server answers MCP at `/mcp` (Streamable HTTP). Add it and sign in from
+Claude Code:
+
+```sh
+claude mcp add --transport http runbook https://runbooks.example.com/mcp
+```
+
+Then run `/mcp` in Claude Code and choose **Authenticate**. Claude Code
+registers itself with your server, you sign in with an email code and tick
+the scopes it may use on the consent page (`runbooks:publish` is off unless
+you tick it). The grant is recorded as an agent you sponsor, so its work is
+never mistaken for yours.
+
+See and disconnect connected clients with `runbook apps list` and
+`runbook apps revoke <client>`.
+
+</TabItem>
+<TabItem label="Remote, with a token">
+
+Without sign-in configured on the server, or for an agent-kind token you
+minted, send the token as a header:
+
+```sh
+claude mcp add --transport http runbook https://runbooks.example.com/mcp \
+  --header "Authorization: Bearer $RUNBOOK_TOKEN"
+```
+
+</TabItem>
+</Tabs>
+
+<Aside type="note">
+The token has exactly the scopes it has on the REST API, and an execution
+token reaches only its own run. The server keeps no MCP session, and a
+browser `Origin` other than your server's is refused.
+</Aside>
+
+## The plugin
+
+The repository also packages the skill and the stdio MCP server as a Claude
+Code plugin, in [`plugins/claude-code/`](https://github.com/angler-ai/the-runbook-app/tree/main/plugins/claude-code).
+It contains the same `therunbook` skill as `runbook skill install` and an
+`.mcp.json` that runs `runbook mcp serve`.
+
+## Running Claude Code unattended
+
+To have runs start Claude Code on their own, subscribe a launcher to
+`agent.work_available` and run Claude Code headless there with an execution
+pair. [Your own agent](/agents/custom/#start-agents-from-a-webhook) shows the
+launcher; the command it runs is:
+
+```sh
+claude -p "Work every ready agent step of run $EXE, then stop." \
+  --allowedTools "Bash(runbook:*)"
+```

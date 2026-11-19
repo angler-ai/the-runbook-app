@@ -1,0 +1,238 @@
+---
+title: The agent loop
+description: How an agent works a run, step by step, with runbook step next, claim, get, exec and report.
+sidebar:
+  order: 2
+---
+
+import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+import Sequence from '../../../components/Sequence.astro';
+
+Every agent, whatever its interface, runs the same loop against a run (an
+execution, `exe_…`). This page uses the CLI; each command has an [MCP
+tool](/reference/mcp/) of the same shape.
+
+<Sequence
+  actors={['Agent', 'Server']}
+  messages={[
+    { from: 0, to: 1, label: 'step next exe_…', note: 'what is ready for me?' },
+    { from: 1, to: 0, label: 'next_action: claim_ready_work', note: 'ready_work: sr_… check_health' },
+    { from: 0, to: 1, label: 'step claim sr_… --session agent-1' },
+    { from: 1, to: 0, label: 'claim + 10-minute lease' },
+    { from: 0, to: 1, label: 'step get sr_…' },
+    { from: 1, to: 0, label: 'instructions, inputs, outputs to report, skill' },
+    { from: 0, to: 0, label: 'does the work; step log, step heartbeat' },
+    { from: 0, to: 1, label: 'step report sr_… --status succeeded --verdict pass' },
+    { from: 1, to: 0, label: 'report ok; next: claim_ready_work | wait | exit' },
+  ]}
+  caption="One turn of the loop. The agent repeats it until the brief says wait or exit."
+/>
+
+## 1. Ask what's next
+
+```sh
+runbook step next "$EXE"
+```
+
+```text title="Output"
+next: claim_ready_work
+  sr_01JD2X6Q1B3N5P7R9T1V3X5Z7A  check_health  Check health (agent)
+  sr_01JD2X6Q1B3N5P7R9T1V3X5Z7B  compare_error_rate  Compare error rate (agent)
+```
+
+`step next` prints the **resume brief**: what's done (steps, decisions and
+comments) and the steps ready for this caller. With `--json` it is an object
+with `completed_steps`, `decisions`, `comments`, `ready_work` and
+`next_action`. The brief lists ready steps by reference only; a step's
+instructions are read after claiming it.
+
+`next_action` tells the agent what to do:
+
+| `next_action` | Meaning | What the agent does |
+| --- | --- | --- |
+| `claim_ready_work` | Agent steps are ready | Claim one and work it |
+| `wait` | Nothing is ready for agents: an approval, a timer, a signal or a person is pending | Exit. A fresh session is started when work is ready (`agent.work_available`) |
+| `exit` | Nothing more is needed from agents, or the run has ended | Stop |
+| `refresh_credentials` | The execution credentials can't be refreshed here | Stop; the launcher must install fresh ones |
+| `ask_human_to_publish` | An authoring change needs someone with `runbooks:publish` | Hand the draft to a person |
+
+## 2. Claim one step
+
+```sh
+runbook step claim "$SR" --session agent-1 --agent-name deploy-bot --model claude-opus
+```
+
+A claim is a **lease**: the step is this session's for 10 minutes after its
+last heartbeat. `--session` names the agent session (any stable string), and
+`--agent-name` and `--model` are recorded on the run. The CLI remembers the
+claim (its ID and generation), so later commands don't need it.
+
+An execution credential can read only the step it has claimed: `step get`
+before `step claim` is refused with `403`.
+
+## 3. Read it
+
+```sh
+runbook step get "$SR" --json
+```
+
+The step's instructions (as written, with `${{ … }}` placeholders), its
+checklist, the outputs and evidence its report needs, the pinned skill, and
+the memory saved for this step. Values bound into the placeholders, and
+everything earlier steps or people wrote, come in a separate `data` object:
+it's data, not instructions.
+
+Fetch the files of the step's skill when the instructions point to them:
+
+```sh
+runbook step skill-file "$SR" checks/error-rate.md
+```
+
+## 4. Do the work
+
+Do what the step says, and nothing else. On long work, keep the lease and
+the log alive:
+
+```sh
+./scripts/collect-metrics.sh | runbook step log "$SR"   # each line becomes a log entry
+runbook step heartbeat "$SR"                            # well before 10 minutes pass
+```
+
+Logs are redacted on the server: tokens, keys, passwords and signatures
+become `[REDACTED:…]` markers. A step's log holds at most 5 MiB.
+
+### When the work is one command: `step exec`
+
+`runbook step exec` runs a local command as the step's work. It streams the
+command's output into the step's log, heartbeats while it runs, and reports
+by exit code: `0` is `succeeded`, anything else `failed` with the code in the
+summary.
+
+<Tabs>
+<TabItem label="Smoke test">
+
+```sh
+runbook step exec "$SR" -- ./scripts/smoke-test.sh --env prod
+```
+
+The CLI exits with the command's own exit code once the report is accepted.
+
+</TabItem>
+<TabItem label="Database check">
+
+```sh
+runbook step exec "$SR" --json -- \
+  psql "$READONLY_DATABASE_URL" -c "select count(*) from pg_stat_replication"
+```
+
+The summary names the program (`psql`), never its arguments, which may hold
+secrets.
+
+</TabItem>
+<TabItem label="Retry safely">
+
+```sh
+runbook step exec "$SR" --idempotency-key "migrate-$SR-1" -- ./migrate.sh --check
+```
+
+An idempotency key names one attempt. Re-sending the same key after a
+network error replays it instead of applying it twice; a new run of the
+command needs a new key.
+
+</TabItem>
+</Tabs>
+
+`step exec` suits steps whose result is the command's exit code. It reports
+no outputs and no verdict, so it refuses a step that requires outputs before
+running anything, and a check that needs a verdict keeps its claim for you
+to report with `step report`. If the lease is lost while the command runs
+(another session took the step, the run closed, the credentials were
+revoked), it stops the command and exits `1` without reporting. `Ctrl-C` is
+forwarded to the command, and the step is reported `failed`.
+
+## 5. Report
+
+```sh
+runbook step report "$SR" --status succeeded --verdict pass \
+  --output error_rate=0.002 \
+  --summary "5xx rate 0.2%, down from 0.3% the hour before" \
+  --evidence https://grafana.example.com/d/errors?from=now-2h
+```
+
+- `--status` says whether the work was **done**: `succeeded`, or `failed`
+  when the agent couldn't do it.
+- `--verdict` is what a **check** found, separately: `pass`, `warn` or
+  `fail`. A check that ran and found a problem is `succeeded` with verdict
+  `fail`.
+- `--output name=value` for each declared output. A report whose outputs
+  don't match the step's declarations is refused before anything is
+  recorded; at most 64 KiB in all.
+- `--evidence` takes a URL, an uploaded evidence ID, or a local file (which
+  it uploads).
+
+The reply names the next action, so the loop goes on without another call:
+
+```text title="Output"
+report ok for sr_01JD2X6Q1B3N5P7R9T1V3X5Z7A; next: claim_ready_work
+```
+
+## When the agent can't do the step
+
+- **It needs a person** (judgment, access, a question):
+
+  ```sh
+  runbook step request-human "$SR" --reason "No access to the billing console" \
+    --question "Can someone confirm the refund went out?"
+  ```
+
+  The step goes to a person (`step.blocked` notifies them), and the agent
+  moves on.
+
+- **It's the wrong step for this agent:** `runbook step release "$SR"`
+  gives the claim back so another session can take it.
+
+## Lost claims
+
+A lease lapses when an agent stops heartbeating (it crashed, or the machine
+slept). The step becomes ready again; a lapsed lease isn't a failure. A
+`claim.*` error, `step.not_claimed` or a refused report means the claim is
+gone: stop working on that step, read the brief again, and if the step is
+ready again, claim it and check what the earlier attempt already changed
+before repeating anything.
+
+<Aside type="tip" title="Ending the run">
+An agent's last report can end the run. The server then revokes the
+execution credentials, and the CLI answers that report, and any later
+`step next`, with `next: exit`. That isn't an error: stop.
+</Aside>
+
+## The whole loop as a script
+
+The loop needs no model when every step is a command. This shell function
+works every ready agent step of a run with `step exec`:
+
+```bash title="work-run.sh"
+#!/usr/bin/env bash
+set -uo pipefail
+EXE="$1"
+
+while :; do
+  brief=$(runbook step next "$EXE" --json)
+  case "$(jq -r .next_action <<<"$brief")" in
+    claim_ready_work) ;;
+    *) exit 0 ;;   # wait, exit, refresh_credentials: stop here
+  esac
+  SR=$(jq -r '.ready_work[0].step_run_id' <<<"$brief")
+  PATH_ID=$(jq -r '.ready_work[0].path' <<<"$brief")
+  runbook step claim "$SR" --session "script-$$" --agent-name work-run
+  # Map each step to the command that does it.
+  case "$PATH_ID" in
+    check_health) runbook step exec "$SR" -- ./scripts/check-health.sh ;;
+    run_migrations) runbook step exec "$SR" -- ./scripts/migrate.sh ;;
+    *) runbook step release "$SR"; exit 0 ;;   # not ours: leave it
+  esac
+done
+```
+
+For an AI agent, the [prompt library](/agents/prompts/) has the prompt that
+runs this loop with judgment.

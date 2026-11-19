@@ -1769,6 +1769,12 @@
           "pg_type": "text",
           "d1_type": "TEXT",
           "nullable": false
+        },
+        {
+          "name": "archived",
+          "pg_type": "boolean",
+          "d1_type": "INTEGER",
+          "nullable": false
         }
       ]
     },

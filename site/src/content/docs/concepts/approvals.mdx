@@ -1,0 +1,114 @@
+---
+title: Approvals and destructive steps
+description: Decisions by named people, timeouts and escalation, and the gates that keep agents from acting alone.
+sidebar:
+  order: 4
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import Flow from '../../../components/Flow.astro';
+
+An **approval** asks named approvers to choose between options. Later steps
+read the choice as `steps.<id>.outputs.decision`, with the approver's
+`comment` and who `decided_by`.
+
+```yaml title="ship-or-hold.yaml"
+metadata: { id: ship-or-hold, owners: [team:release-managers] }
+spec:
+  inputs:
+    version: { type: string, required: true }
+  steps:
+    - id: go_no_go
+      approval:
+        prompt: Ship ${{ inputs.version }} to every region?
+        options:
+          - { id: ship, title: Ship it }
+          - { id: hold, title: Hold the release }
+        approvers: { teams: [release-managers] }
+        timeout: 2h
+        escalate_to: [team:eng-leads]
+    - id: rollout
+      if: "${{ steps.go_no_go.outputs.decision == 'ship' }}"
+      actor: agent
+      destructive: true
+      instructions: Roll out ${{ inputs.version }} everywhere.
+```
+
+## Who decides
+
+- `approvers` names `users` and `teams`; they resolve when you publish, and
+  publishing requires at least one (`spec.approvers_required`).
+- `min` (default 1) is how many approvers must choose the same option. Each
+  person votes once.
+- People decide in the web app, from their inbox, from
+  [Slack](/operating/slack/) or with the CLI:
+
+```sh
+runbook me tasks --kind approval          # what's waiting on me
+runbook step decide "$SR" --option ship --comment "Canaries are clean"
+```
+
+## Timeouts and escalation
+
+<Flow
+  steps={[
+    { title: 'Requested', text: 'approval.requested to the approvers', tone: 'human' },
+    { title: 'Escalated', text: 'At timeout: to escalate_to (or the owners)', tone: 'human' },
+    { title: 'Expired', text: 'At escalation_timeout, undecided', tone: 'muted' },
+    { title: 'Paused or failed', text: 'By on_expired', tone: 'system' },
+  ]}
+/>
+
+- `timeout` starts the clock. At it, `on_timeout: escalate` (the default)
+  hands the approval to `escalate_to`, or to the runbook's `owners`; the
+  original approvers can still decide.
+- `escalation_timeout` (default: the same as `timeout`) is how long the
+  escalated approval waits. Undecided by then, it **expires**, and
+  `on_expired` either pauses the run for a person (`pause`, the default) or
+  fails the step (`fail`).
+- `on_timeout: { decide: <option> }` instead decides automatically at the
+  timeout. The option must be marked `auto: true`.
+
+## Agents and approvals
+
+Approvals aren't in an agent's work brief. `allow_agents: true` lets an
+agent decide one; it requires `min: 1`, and an agent's decision is recorded
+apart from human signatures. Agents never cast **human** approvals, whatever
+token they hold.
+
+## Destructive steps
+
+`destructive: true` marks a step that changes something you can't easily
+undo: a rollback, a deletion, a failover. The publication rules keep a
+destructive step out of reach of decisions no person made:
+
+| A decision made by | May lead to a destructive step? |
+| --- | --- |
+| A person | Yes |
+| An agent (`allow_agents`) | Never (`spec.agent_approval_destructive`) |
+| A timeout (`on_timeout: decide`) | Only if the step sets `allow_auto_decision: true` (`spec.auto_decision_destructive`) |
+
+```yaml title="auto-rollback.yaml"
+metadata: { id: auto-rollback }
+spec:
+  steps:
+    - id: keep_or_roll_back
+      approval:
+        prompt: The error rate doubled after the deploy. Roll back?
+        options: [keep, { id: roll_back, auto: true }]
+        approvers: { teams: [oncall] }
+        timeout: 15m
+        on_timeout: { decide: roll_back }
+    - id: roll_back
+      if: "${{ steps.keep_or_roll_back.outputs.decision == 'roll_back' }}"
+      actor: agent
+      destructive: true
+      allow_auto_decision: true
+      instructions: Roll back to the previous release.
+```
+
+<Aside type="note">
+These rules are checked when you **publish**, not by offline
+`runbook spec validate`. The server also checks them again when an
+automatic decision is about to be made.
+</Aside>

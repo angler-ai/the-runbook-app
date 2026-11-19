@@ -1,0 +1,86 @@
+---
+title: Archives and retention
+description: Daily archive files of finished runs, and how long live run detail, archives and summaries are kept.
+sidebar:
+  order: 7
+---
+
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+import Flow from '../../../components/Flow.astro';
+
+Every finished run is written to a **daily archive file** for its runbook:
+one ZIP per runbook per UTC day, holding each run's full record (events,
+steps, outputs, logs and evidence references). Archives are what retention
+keeps when it removes a run's live detail.
+
+<Flow
+  steps={[
+    { title: 'Run finishes', tone: 'agent' },
+    { title: 'Daily archive', text: 'One ZIP per runbook per day', tone: 'current' },
+    { title: 'Live detail removed', text: 'After the live window, if set', tone: 'muted' },
+    { title: 'Archive removed', text: 'After the archive window, if set', tone: 'muted' },
+    { title: 'Summary removed', text: 'After the summary window, if set', tone: 'muted' },
+  ]}
+/>
+
+## Download archives
+
+```sh
+runbook archive list post-deploy --project prod --from 2026-11-01 --to 2026-11-30
+runbook archive download post-deploy --project prod --date 2026-11-17
+runbook archive download post-deploy --project prod --from 2026-11-01 --to 2026-11-30 --include-evidence
+```
+
+A run whose live detail was removed can still be opened read-only from its
+archive.
+
+## Retention
+
+| Setting | What it keeps | Values |
+| --- | --- | --- |
+| `RUNBOOK_RETENTION_LIVE_DAYS` | A finished run's live detail, after which it's deleted (its daily file must exist first) | Days, or `off` |
+| `RUNBOOK_RETENTION_ARCHIVE_DAYS` | Whole daily archive files | Days, or `off` (kept forever) |
+| `RUNBOOK_RETENTION_SUMMARY_DAYS` | The summary rows of deleted runs, so they still show in lists and search | Days, or `off` |
+
+Days are 1 to 36,500. The windows must nest: live ≤ archive ≤ summary, and
+a summary window needs an archive window (`config.retention_archive_before_live`,
+`config.retention_summary_before_archive`, `config.retention_zero_days`).
+
+<Tabs syncKey="edition">
+<TabItem label="Docker/Kubernetes">
+
+**Retention is off by default**: nothing is deleted until you set a live
+window. Per-project overrides:
+
+```sh
+RUNBOOK_RETENTION_LIVE_DAYS=90
+RUNBOOK_RETENTION_ARCHIVE_DAYS=365
+RUNBOOK_RETENTION_PROJECT_OVERRIDES='prj_…:live=30,archive=365;prj_…:live=off'
+```
+
+Each override names `live`, `archive` and `summary`; `off` keeps records
+forever, and a field left out inherits the default.
+
+</TabItem>
+<TabItem label="Cloudflare">
+
+Set the same names under `vars` in `wrangler.prod.jsonc`. On this edition,
+**live detail is removed after 90 days by default** (once archived), to keep
+Durable Object storage bounded; archives and summaries are kept. Set
+`"RUNBOOK_RETENTION_LIVE_DAYS": "off"` to keep live detail forever.
+
+```jsonc title="wrangler.prod.jsonc"
+"vars": {
+  "RUNBOOK_RETENTION_LIVE_DAYS": "90",
+  "RUNBOOK_RETENTION_ARCHIVE_DAYS": "365",
+  "RUNBOOK_RETENTION_SUMMARY_DAYS": "730"
+}
+```
+
+</TabItem>
+</Tabs>
+
+<Aside type="note" title="Other things that expire">
+Webhook delivery logs are purged after 90 days, and idempotency records
+after 24 hours. Memory keeps a bounded number of revisions per entry.
+</Aside>

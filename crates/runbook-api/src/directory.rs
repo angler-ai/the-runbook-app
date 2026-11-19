@@ -239,6 +239,13 @@ impl<D: DirectoryOperations, C: CredentialStore> Service<D, C> {
                     s.projects
                         .values()
                         .filter(|p| directory_project_visible(&record, &s, &p.id))
+                        .map(|p| runbook_model::ProjectView {
+                            id: p.id.clone(),
+                            org_id: p.org_id.clone(),
+                            slug: p.slug.clone(),
+                            title: p.title.clone(),
+                            archived: s.archived_projects.contains(&p.id),
+                        })
                         .collect::<Vec<_>>()
                 );
             }
@@ -306,9 +313,18 @@ impl<D: DirectoryOperations, C: CredentialStore> Service<D, C> {
         let new_id = |prefix: &str| format!("{prefix}{}", r.new_id);
         match (route.path, r.method.as_str()) {
             ("/v1/orgs", "GET") => Ok(json!([s.organization])),
-            ("/v1/orgs/{org}/projects", "GET") => {
-                Ok(json!(s.projects.values().collect::<Vec<_>>()))
-            }
+            ("/v1/orgs/{org}/projects", "GET") => Ok(json!(
+                s.projects
+                    .values()
+                    .map(|p| runbook_model::ProjectView {
+                        id: p.id.clone(),
+                        org_id: p.org_id.clone(),
+                        slug: p.slug.clone(),
+                        title: p.title.clone(),
+                        archived: s.archived_projects.contains(&p.id),
+                    })
+                    .collect::<Vec<_>>()
+            )),
             ("/v1/orgs/{org}/users", "GET") => Ok(json!(s.users.values().collect::<Vec<_>>())),
             ("/v1/orgs/{org}/teams", "GET") => Ok(json!(s.teams.values().collect::<Vec<_>>())),
             ("/v1/orgs/{org}/projects", "POST") => {

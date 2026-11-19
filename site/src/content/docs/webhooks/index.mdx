@@ -1,0 +1,114 @@
+---
+title: Webhooks
+description: Subscribe your systems to approvals, steps, runs and agent work, and receive signed deliveries.
+sidebar:
+  order: 1
+  label: Overview
+---
+
+import { Aside, CardGrid, LinkCard, Steps } from '@astrojs/starlight/components';
+import Sequence from '../../../components/Sequence.astro';
+
+The Runbook ships one generic, outbound webhook system and no vendor
+integrations: your systems subscribe to the events they care about, and the
+server `POST`s a small, signed JSON envelope to them. Use it to start agents
+when there's work (`agent.work_available`), to page or chat when an approval
+waits (`approval.requested`), or to feed run results into your own tools
+(`execution.completed`).
+
+<Sequence
+  actors={['Run', 'Server', 'Your receiver']}
+  messages={[
+    { from: 0, to: 1, label: 'an approval opens', note: 'recorded with the run, in the same commit' },
+    { from: 1, to: 2, label: 'POST approval.requested', note: 'Runbook-Signature: v1=…' },
+    { from: 2, to: 2, label: 'verify, deduplicate, queue the work' },
+    { from: 2, to: 1, label: '204 within 10 s' },
+    { from: 1, to: 2, label: 'retries on 5xx, 408, 429 or a timeout', note: 'backoff for 24 hours' },
+  ]}
+/>
+
+Events are written to a durable outbox in the same transaction as the run
+change that caused them, so an event is never lost and never sent for a
+change that didn't happen.
+
+## Subscribe
+
+<Steps>
+
+1. Create a subscription in the project. It needs `webhooks:manage` (a
+   project admin):
+
+   ```sh
+   runbook webhook create --project prod --name pager \
+     --url https://hooks.example.com/runbook \
+     --event approval.requested --event step.blocked --json
+   ```
+
+   The response includes the signing secret (`whsec_…`) **once**. Store it
+   where your receiver can read it.
+
+2. Narrow it if you like:
+   - `--event '*'` for every event type;
+   - `--runbook rb_…` (repeatable) for events of those runbooks only;
+   - `--tag <tag>` for runs with that tag (`spec.execution.tags`).
+
+3. Check the receiver end to end:
+
+   ```sh
+   runbook webhook test whk_… --project prod
+   runbook webhook deliveries whk_… --project prod
+   ```
+
+   The delivery log shows each attempt with its status code, latency and the
+   start of the response body (redacted).
+
+</Steps>
+
+A project has at most 20 subscriptions. URLs are `https` and must resolve to
+public addresses: private, loopback and link-local targets are refused when
+the subscription is saved and again at each delivery, and redirects are never
+followed. A self-hosted server can allow private and plain-`http` targets
+with `RUNBOOK_ALLOW_PRIVATE_WEBHOOK_TARGETS=true` (for receivers on your own
+network).
+
+<Aside type="note" title="Docker/Kubernetes">
+Webhooks need `RUNBOOK_WEBHOOK_SECRET_KEY` (32 random bytes, base64), which
+seals the signing secrets at rest. Without it, webhook routes answer
+`503 webhooks.not_configured`. Keep it with your database backups. On
+Cloudflare the same key is the api Worker's `WEBHOOK_SECRET_KEY` secret.
+</Aside>
+
+## Receive
+
+A receiver should:
+
+1. **Verify the signature** on the raw body: [Verifying
+   signatures](/webhooks/signatures/) has the code.
+2. **Deduplicate on the event ID** (`Runbook-Event-Id`, the body's `id`).
+   Delivery is at least once.
+3. **Order by `sequence`** when order matters: it orders one run's events;
+   deliveries can arrive out of order.
+4. **Answer `2xx` within 10 seconds**, and do slow work afterwards. Answer
+   `5xx` when your own downstream call failed, so the event comes back.
+
+Payloads hold identifiers, recipients, links and facts about the event,
+never credentials or secrets. An agent launcher mints execution credentials
+with its own service token (see [Your own
+agent](/agents/custom/#start-agents-from-a-webhook)).
+
+## Manage
+
+| Task | Command |
+| --- | --- |
+| List subscriptions | `runbook webhook list --project <p>` |
+| Change events, filters or URL | `runbook webhook update <whk> --project <p> --event …` |
+| Pause or resume | `runbook webhook update <whk> --project <p> --disable` / `--enable` |
+| Send one event again | `runbook webhook redeliver <whd> --webhook <whk> --project <p>` |
+| Rotate the secret | `runbook webhook rotate-secret <whk> --project <p>` |
+| Delete | `runbook webhook delete <whk> --project <p>` |
+
+<CardGrid>
+  <LinkCard title="Event reference" description="Every event type and its payload." href="/reference/webhook-events/" />
+  <LinkCard title="Verifying signatures" description="TypeScript, Python and Go, with a test vector." href="/webhooks/signatures/" />
+  <LinkCard title="Delivery and retries" description="What counts as delivered, the backoff, and when a subscription is disabled." href="/webhooks/retries/" />
+</CardGrid>

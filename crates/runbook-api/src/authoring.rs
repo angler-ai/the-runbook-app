@@ -15,6 +15,7 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 mod context;
 mod reads;
+mod sync;
 pub use context::validate;
 use context::*;
 type Error = Response;
@@ -122,7 +123,15 @@ impl<D: DirectoryOperations, C: CredentialStore, F: AuthoringFactory> AuthoringS
                 }
             } else if r.method == "GET" || route.path == "/v1/validate" && project.is_some() {
                 Scope::RunbooksRead
-            } else if route.path.ends_with("/versions") {
+            } else if route.path.ends_with("/sync")
+                && r.body.get("dry_run").and_then(Value::as_bool) == Some(true)
+            {
+                // A dry run changes nothing, so a read-only token (a PR check) may ask.
+                Scope::RunbooksRead
+            } else if route.path.ends_with("/versions")
+                || route.path.ends_with("/sync")
+                || route.path.ends_with("/detach")
+            {
                 Scope::RunbooksPublish
             } else {
                 Scope::RunbooksWrite
@@ -180,6 +189,22 @@ impl<D: DirectoryOperations, C: CredentialStore, F: AuthoringFactory> AuthoringS
                     .read(r, route, &p, rb.as_ref(), &store, &principal, with_runs)
                     .await;
             }
+            if route.path == "/v1/runbooks/{rb}/detach" {
+                let rb = rb
+                    .as_ref()
+                    .ok_or_else(|| error(r, 404, "resource.not_found"))?;
+                catalog
+                    .detach_git(rb)
+                    .await
+                    .map_err(|e| store_error(r, e))?;
+                return Ok(response(
+                    200,
+                    json!(DetachView {
+                        runbook_id: rb.clone(),
+                        origin: "ui".into(),
+                    }),
+                ));
+            }
             let replay = if r.method == "POST" {
                 let key = r
                     .idempotency_key
@@ -216,6 +241,15 @@ impl<D: DirectoryOperations, C: CredentialStore, F: AuthoringFactory> AuthoringS
                 None
             };
             let command = match route.path {
+                "/v1/projects/{p}/sync" => {
+                    let project = project
+                        .as_ref()
+                        .ok_or_else(|| error(r, 404, "resource.not_found"))?;
+                    match self.sync_plan(r, &s, project, &store).await? {
+                        sync::SyncPlan::Answer(answer) => return Ok(answer),
+                        sync::SyncPlan::Commit(command) => command,
+                    }
+                }
                 "/v1/projects/{p}/runbooks" => {
                     let b: CreateRunbookRequest = parse(r, &r.body)?;
                     self.source_limit(r, &b.source)?;

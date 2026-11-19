@@ -111,7 +111,7 @@ fn snapshot_reads(org: &str) -> Vec<Statement> {
         prepare("SELECT title FROM organization WHERE org_id = ?").bind(org),
         prepare("SELECT revision FROM directory_revision WHERE org_id = ?").bind(org),
         prepare("SELECT user_id, name, active, org_role FROM org_user WHERE org_id = ?").bind(org),
-        prepare("SELECT project_id, slug, title FROM project WHERE org_id = ?").bind(org),
+        prepare("SELECT project_id, slug, title, archived FROM project WHERE org_id = ?").bind(org),
         prepare("SELECT team_id, slug, title FROM team WHERE org_id = ?").bind(org),
         prepare("SELECT project_id, user_id, role FROM project_member WHERE org_id = ?").bind(org),
         prepare("SELECT team_id, user_id FROM team_member WHERE org_id = ?").bind(org),
@@ -146,7 +146,11 @@ fn decode_snapshot(
         users.insert(user.id.clone(), user);
     }
     let mut projects = BTreeMap::new();
+    let mut archived_projects = BTreeSet::new();
     for row in &rows[3].rows {
+        if row.flag(3).map_err(err)? {
+            archived_projects.insert(row.parse(0).map_err(err)?);
+        }
         let project = ProjectRecord {
             id: row.parse(0).map_err(err)?,
             org_id: org_id.clone(),
@@ -188,6 +192,7 @@ fn decode_snapshot(
         teams,
         project_members,
         team_members,
+        archived_projects,
     }))
 }
 
@@ -365,6 +370,7 @@ fn plan_against(
                 teams: BTreeMap::new(),
                 project_members: BTreeMap::new(),
                 team_members: BTreeSet::new(),
+                archived_projects: Default::default(),
             });
             continue;
         }
@@ -466,6 +472,25 @@ fn plan_against(
                         .bind(org_role_label(*role))
                         .bind(org)
                         .bind(user_id.as_str()),
+                );
+            }
+            DirectoryMutation::SetProjectArchived {
+                project_id,
+                archived,
+            } => {
+                if !s.projects.contains_key(project_id) {
+                    return Err(DirectoryError::NotFound);
+                }
+                if *archived {
+                    s.archived_projects.insert(project_id.clone());
+                } else {
+                    s.archived_projects.remove(project_id);
+                }
+                statements.push(
+                    prepare("UPDATE project SET archived = ? WHERE org_id = ? AND project_id = ?")
+                        .bind(*archived)
+                        .bind(org)
+                        .bind(project_id.as_str()),
                 );
             }
             DirectoryMutation::SetProjectTitle { project_id, title } => {

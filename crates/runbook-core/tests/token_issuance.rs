@@ -38,6 +38,7 @@ fn snapshot() -> DirectorySnapshot {
         teams: Default::default(),
         project_members: Default::default(),
         team_members: Default::default(),
+        archived_projects: Default::default(),
     };
     for (n, role) in [(1, OrgRole::Owner), (2, OrgRole::Member)] {
         s.users.insert(

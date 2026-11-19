@@ -1,0 +1,103 @@
+---
+title: Storage
+description: PostgreSQL for state, and blobs in PostgreSQL, Google Cloud Storage or S3.
+sidebar:
+  order: 4
+---
+
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+## PostgreSQL
+
+<Aside type="note" title="Docker/Kubernetes">
+The Cloudflare edition keeps state in D1 and Durable Objects and blobs in
+R2; there is nothing to choose. Everything below is for the container
+edition.
+</Aside>
+
+All state lives in PostgreSQL 14 or newer: the directory, runbooks and
+their versions, runs and their events, webhook deliveries and, by default,
+blobs. Any PostgreSQL works: your own, RDS, Cloud SQL, Neon and others.
+
+| Variable | |
+| --- | --- |
+| `DATABASE_URL` | The connection URL. Add `?sslmode=verify-full` for a managed database, and `sslrootcert=<file>` for a CA that isn't public |
+| `DATABASE_URL_DIRECT` | A direct connection for the live-event listener (`LISTEN`), when `DATABASE_URL` goes through a transaction-mode pooler |
+| `RUNBOOK_DATABASE_POOL_SIZE` | Most pooled connections (default 16); keep it at 12 or more. Each live event stream holds one more |
+
+The role in `DATABASE_URL` needs `CREATE` on the database: the server
+creates its `runbook` schema and the sign-in service its `auth` schema. The
+server applies its migrations at start, under an advisory lock, so any
+number of instances can start together.
+
+Any number of instances can share one database: leases, event IDs and
+shared rate limits keep work single.
+
+## Blobs
+
+Blobs are run archives, evidence uploads and their thumbnails, and
+snapshots. By default they live in PostgreSQL, in chunks. To keep the
+database small, put them in a bucket instead:
+
+<Tabs>
+<TabItem label="PostgreSQL (default)">
+
+```sh
+RUNBOOK_BLOB_STORE=postgres
+```
+
+Nothing else to set. Backups of the database include every blob.
+
+</TabItem>
+<TabItem label="Google Cloud Storage">
+
+```sh
+RUNBOOK_BLOB_STORE=gcs
+RUNBOOK_BLOB_BUCKET=my-runbook-blobs
+RUNBOOK_BLOB_PREFIX=runbook/        # the default
+```
+
+The instance's service account (or Workload Identity) needs
+`roles/storage.objectAdmin` on that bucket only; no HMAC keys. The GKE
+Terraform module creates a private, versioned bucket with
+`blob_store = "gcs"`.
+
+</TabItem>
+<TabItem label="S3 or compatible">
+
+```sh
+RUNBOOK_BLOB_STORE=s3
+RUNBOOK_BLOB_BUCKET=my-runbook-blobs
+RUNBOOK_S3_REGION=eu-west-1
+# MinIO, LocalStack and other compatible stores:
+RUNBOOK_S3_ENDPOINT=https://minio.internal:9000
+RUNBOOK_S3_FORCE_PATH_STYLE=true
+```
+
+The instance's IAM role needs `s3:GetObject`, `s3:PutObject`,
+`s3:DeleteObject` and `s3:ListBucket` on the bucket and prefix.
+
+</TabItem>
+</Tabs>
+
+PostgreSQL stays the authority either way: each blob keeps a row with its
+location, size and SHA-256, so ownership, tenancy and immutability are
+checked in the database. A background sweeper removes objects older than an
+hour that have no row (from deleted runs or interrupted writes).
+
+### Moving existing blobs
+
+Switching to a bucket doesn't move the blobs already in PostgreSQL: they
+keep being read from there, while new ones go to the bucket. To move them,
+run the copy job once with the new store configured. It copies each blob,
+verifies its hash, switches its location and drops its chunks, and is safe
+to rerun:
+
+```sh
+RUNBOOK_BLOB_STORE=gcs RUNBOOK_BLOB_BUCKET=my-runbook-blobs runbook-server copy-blobs
+```
+
+<Aside type="caution">
+With blobs in a bucket, a database backup no longer contains them. Back up
+the bucket too, or turn on its versioning, and restore the two together.
+</Aside>

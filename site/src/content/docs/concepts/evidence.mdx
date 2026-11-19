@@ -1,0 +1,62 @@
+---
+title: Evidence
+description: Links, logs, files and screenshots attached to steps as proof of what was done.
+sidebar:
+  order: 8
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+A step can require or accept **evidence** of what was done: a link to a
+dashboard, a log, a file, a screenshot. A report missing required evidence
+is refused, so "I checked it" always comes with something a person can open.
+
+```yaml title="verify-dashboards.yaml"
+metadata: { id: verify-dashboards }
+spec:
+  steps:
+    - id: error_rate
+      actor: agent
+      check: true
+      instructions: Check the 5xx rate on the errors dashboard for the last hour.
+      evidence: { required: [link], accepted: [screenshot] }
+    - id: smoke_test
+      actor: human
+      instructions: Click through checkout on production.
+      evidence: { required: [screenshot] }
+```
+
+| Kind | What it is |
+| --- | --- |
+| `link` | A URL |
+| `log` | Log text |
+| `file` | An uploaded file |
+| `screenshot` | An uploaded image |
+
+```sh
+runbook step report "$SR" --status succeeded --verdict pass \
+  --evidence https://grafana.example.com/d/errors?from=now-1h \
+  --evidence ./checkout.png
+runbook step evidence "$SR" ./trace.json      # upload separately
+```
+
+`--evidence` takes a URL, an evidence ID, or a local file, which it uploads.
+`--resize` shrinks an image that's over the server's limits.
+
+## Uploads
+
+Files and screenshots are uploads, finalized by size and type:
+
+- PNG, JPEG, WebP, GIF, PDF, text and JSON are accepted; HEIC and SVG are
+  refused.
+- Images are re-encoded, which removes EXIF and location data, and get a
+  thumbnail.
+- Files are served only from a **separate origin**, sandboxed and without
+  cookies, so a malicious file can never act as the app.
+
+<Aside type="note" title="Docker/Kubernetes">
+Uploads are off until both `RUNBOOK_UPLOAD_SIGNING_KEY` and
+`RUNBOOK_USERCONTENT_ORIGIN` are set; see [Install and
+configure](/operating/install/#evidence-uploads). `/v1/meta` reports
+`capabilities.uploads: true` once they are.
+</Aside>

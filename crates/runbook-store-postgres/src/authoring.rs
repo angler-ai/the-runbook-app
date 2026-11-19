@@ -272,6 +272,15 @@ impl AuthoringStore for PostgresAuthoringCatalog {
      match s.save_draft_in(c,&runbook_id,revision,source.clone()).await? {CommitResult::Conflict=>return Err(StoreError::InvalidBatch("catalog.draft_conflict")),CommitResult::Committed(next)=>draft_response(crate::publish::draft_view(&runbook_id,source,int(next)?)?,diagnostics,200)}
     },
     AuthoringCommand::Publish{runbook_id,revision,prepared}=>StoredResponse{status:201,body:serde_json::json!(s.publish_in(c,&runbook_id,revision,*prepared).await?),etag:None},
+    AuthoringCommand::Sync{ops,archive,branch,commit_sha}=>{
+     let mut published=Vec::with_capacity(ops.len());
+     for op in &ops {
+      if let Some(record)=&op.create {s.create_runbook_in(c,record.clone(),op.prepared.source.clone()).await?;}
+      published.push(s.publish_git_in(c,&op.runbook_id,(*op.prepared).clone(),branch.clone(),commit_sha.clone()).await?);
+     }
+     for (_,id) in &archive {s.archive_git_in(c,id).await?;}
+     runbook_core::authoring::sync_response(&ops,&published,&archive,branch,commit_sha)
+    },
     AuthoringCommand::Skill{version}=>{let version=s.record_skill_in(c,version).await?;let latest=s.is_latest_skill_in(c,&version).await?;StoredResponse{status:201,body:serde_json::json!(skill_view(version,latest)),etag:None}},
    };
    if self.fail.replace(false){return Err(StoreError::Backend("injected.authoring_before_replay"));}

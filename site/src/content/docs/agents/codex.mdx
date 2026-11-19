@@ -1,0 +1,110 @@
+---
+title: Codex
+description: Give Codex the therunbook skill and the Runbook MCP server.
+sidebar:
+  order: 4
+---
+
+import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Codex runs shell commands, so it works best through the `runbook` CLI,
+guided by the `therunbook` skill.
+
+## With the CLI and the skill (recommended)
+
+<Steps>
+
+1. **Install the CLI** and sign in:
+
+   ```sh
+   cargo build --release --locked -p runbook-cli
+   export PATH="$PWD/target/release:$PATH"
+   runbook login https://runbooks.example.com
+   ```
+
+2. **Install the skill** where Codex reads skills:
+
+   ```sh
+   runbook skill install --agent codex --therunbook
+   ```
+
+   That writes `~/.agents/skills/therunbook/`; `--scope project` writes
+   `.agents/skills/therunbook/` in this repository instead.
+
+3. **Give Codex its own credential**, an agent-kind token, so its work is
+   recorded as an agent's and it can't decide human approvals:
+
+   ```sh
+   runbook token create --agent --name codex --expires-in 30d \
+     --scope runbooks:read --scope executions:read --scope executions:act --json
+   ```
+
+   Export the secret as `RUNBOOK_TOKEN` in the environment Codex runs in.
+
+4. **Try it:**
+
+   ```sh
+   codex "Work the next agent step of run exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7."
+   ```
+
+</Steps>
+
+<Aside type="caution" title="Sandboxing">
+Codex's sandbox may block network access. The CLI needs to reach your
+server, so allow it for the session (for example with
+`--sandbox workspace-write` and network access enabled in your Codex
+configuration).
+</Aside>
+
+## Over MCP
+
+<Tabs>
+<TabItem label="Local (stdio)">
+
+```toml title="~/.codex/config.toml"
+[mcp_servers.runbook]
+command = "runbook"
+args = ["mcp", "serve"]
+```
+
+The server uses the CLI's current context and login.
+
+</TabItem>
+<TabItem label="Remote, with OAuth">
+
+```toml title="~/.codex/config.toml"
+[mcp_servers.runbook]
+url = "https://runbooks.example.com/mcp"
+```
+
+Then sign in once:
+
+```sh
+codex mcp login runbook
+```
+
+Codex registers itself with your server; you sign in with an email code and
+tick the scopes it may use.
+
+</TabItem>
+<TabItem label="Remote, with a token">
+
+```toml title="~/.codex/config.toml"
+[mcp_servers.runbook]
+url = "https://runbooks.example.com/mcp"
+bearer_token_env_var = "RUNBOOK_TOKEN"
+```
+
+</TabItem>
+</Tabs>
+
+## Running Codex unattended
+
+`codex exec` runs one task headless, which is what a launcher needs:
+
+```sh
+codex exec "Work every ready agent step of run $EXE, then stop."
+```
+
+See [Your own agent](/agents/custom/#start-agents-from-a-webhook) for the
+launcher that starts it when work is available.

@@ -80,6 +80,7 @@ fn snapshot(role: OrgRole, projects: &[(u8, ProjectRole)]) -> DirectorySnapshot 
         teams: BTreeMap::new(),
         project_members: BTreeMap::new(),
         team_members: BTreeSet::new(),
+        archived_projects: Default::default(),
     };
     for (n, project_role) in projects {
         s.projects.insert(

@@ -1,0 +1,74 @@
+---
+title: Skills
+description: Agent skills attached to steps, uploaded to a project and pinned when you publish.
+sidebar:
+  order: 7
+---
+
+import { FileTree, Steps } from '@astrojs/starlight/components';
+
+A **skill** is a folder of instructions and files that teaches an agent how
+to do something: check error rates, roll back a service, query the billing
+database. Attach skills to the steps that need them, and every agent that
+claims the step gets the same, pinned version.
+
+<FileTree>
+- skills/check-error-rates/
+  - SKILL.md the instructions, with a name and description
+  - queries/
+    - errors-by-region.promql
+  - thresholds.md
+</FileTree>
+
+<Steps>
+
+1. **Upload** the skill to the project:
+
+   ```sh
+   runbook skill push skills/check-error-rates --project prod
+   runbook skill list --project prod
+   ```
+
+2. **Declare and attach** it in the runbook:
+
+   ```yaml title="error-check.yaml"
+   metadata: { id: error-check }
+   spec:
+     skills:
+       error_rates: ./skills/check-error-rates
+     steps:
+       - id: check_errors
+         actor: agent
+         check: true
+         skill: error_rates
+         instructions: Follow the skill to compare error rates before and after the deploy.
+   ```
+
+   `skill: name` attaches one; `skills: [a, b]` attaches up to 8.
+
+3. **Publish.** Each alias is pinned to the latest uploaded version of the
+   skill named by the path's last segment, so a run always uses the version
+   that was current when the runbook was published. Uploading a new version
+   changes nothing until you publish again.
+
+</Steps>
+
+## How an agent uses it
+
+`runbook step get` returns the step's pinned skill (its `SKILL.md`), and the
+agent fetches the other files as it needs them:
+
+```sh
+runbook step skill-file "$SR" queries/errors-by-region.promql
+```
+
+## Installing skills into an agent
+
+`runbook skill install` copies a project's skills into an agent's own skill
+directory, so they're available outside runs too:
+
+```sh
+runbook skill install --agent claude --project prod          # ~/.claude/skills/
+runbook skill install --agent codex --project prod --scope project   # .agents/skills/
+runbook skill install --agent cursor --therunbook            # the therunbook skill itself
+```

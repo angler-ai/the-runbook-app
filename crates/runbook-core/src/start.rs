@@ -615,6 +615,7 @@ where
             teams: Default::default(),
             project_members: Default::default(),
             team_members: Default::default(),
+            archived_projects: Default::default(),
         },
         Err(_) => return Err(StoreError::Backend("actor.directory_unavailable")),
     };

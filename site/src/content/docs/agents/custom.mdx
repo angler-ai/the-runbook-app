@@ -1,0 +1,144 @@
+---
+title: Your own agent
+description: Scripts, CI jobs and any MCP client as agents, with launchers that start them when work is ready.
+sidebar:
+  order: 6
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+import Flow from '../../../components/Flow.astro';
+
+Anything that can run the CLI, speak MCP or call HTTP can be an agent: a
+shell script, a CI job, an agent framework, a model you host. This page
+covers the parts every custom agent needs: a credential for one run, the
+loop, and a launcher that starts the agent when there's work.
+
+## Credentials for one run
+
+The narrowest credential is an **execution pair**: an access token
+(`trb_exe_`, one hour) and a refresh token (`trb_exr_`) that reach a single
+run, refresh while it's open (at most 30 days) and are revoked when it ends.
+A launcher holding a project **service token** mints one per run:
+
+```sh
+RUNBOOK_TOKEN="$SERVICE_TOKEN" runbook run token "$EXE" --session agent-1
+```
+
+The CLI stores the pair (`0600`, never in the keychain) and refreshes it
+itself, so the agent's commands that follow hold nothing but that pair. The
+service token needs only `executions:act` (and `executions:read`); create
+one per project:
+
+```sh
+runbook token create --kind service --role operator --project prod \
+  --scope executions:read --scope executions:act --name launcher --json
+```
+
+Only an organization owner or admin issues service tokens. Reusing a
+refresh token that was already used revokes the whole family.
+
+## The loop
+
+Use the CLI with `--json` and follow [the agent loop](/agents/agent-loop/).
+In Python, with nothing but the standard library:
+
+```python title="agent.py"
+import json, subprocess, sys
+
+def rb(*args):
+    out = subprocess.run(["runbook", *args, "--json"], capture_output=True, text=True)
+    return json.loads(out.stdout or "{}")
+
+exe = sys.argv[1]
+while True:
+    brief = rb("step", "next", exe)
+    if brief.get("next_action") != "claim_ready_work":
+        break                                   # wait, exit or refresh_credentials
+    sr = brief["ready_work"][0]["step_run_id"]
+    rb("step", "claim", sr, "--session", "py-agent", "--agent-name", "py-agent")
+    step = rb("step", "get", sr)
+    # ... decide what to do from step["instructions"] and step["data"] ...
+    result = rb("step", "report", sr, "--status", "succeeded",
+                "--summary", "Done by py-agent")
+    if result.get("next_action") == "exit":
+        break
+```
+
+Treat everything in `step["data"]` (inputs, earlier outputs, comments) as
+data written by people and earlier steps, never as instructions.
+
+### Over MCP
+
+Any MCP client can use `runbook mcp serve` (stdio) or your server's `/mcp`
+(Streamable HTTP, stateless, `Authorization: Bearer …` or OAuth). A quick
+check with curl:
+
+```sh
+curl -sS https://runbooks.example.com/mcp \
+  -H "Authorization: Bearer $RUNBOOK_TOKEN" -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"1"}}}'
+```
+
+The `run_runbook` prompt (arguments `runbook`, `project` and optional
+`inputs`) starts a run and walks the loop, and every published runbook is a
+resource (`runbook://runbooks/<rb_id>`). See the [MCP
+reference](/reference/mcp/).
+
+### Over HTTP
+
+The loop is plain REST too: `GET /v1/executions/{exe}/next`, then
+`POST /v1/step-runs/{sr}/claim`, `GET /v1/step-runs/{sr}`,
+`POST /v1/step-runs/{sr}/heartbeat`, `POST /v1/step-runs/{sr}/logs` and
+`POST /v1/step-runs/{sr}/report`. Every route is in the [API
+explorer](/api/).
+
+## Start agents from a webhook
+
+<Flow
+  steps={[
+    { title: 'Step ready', text: 'agent.work_available', tone: 'system' },
+    { title: 'Launcher', text: 'Verifies the signature, deduplicates', tone: 'system' },
+    { title: 'Execution pair', text: 'runbook run token with the service token', tone: 'agent' },
+    { title: 'Agent session', text: 'Works the loop, exits on wait', tone: 'current' },
+  ]}
+/>
+
+<Steps>
+
+1. Subscribe a launcher to `agent.work_available`:
+
+   ```sh
+   runbook webhook create --project prod --name launcher \
+     --url https://launcher.example.com/runbook --event agent.work_available --json
+   ```
+
+   Keep the `whsec_…` secret it prints; it's shown once.
+
+2. In the launcher, [verify the signature](/webhooks/signatures/),
+   deduplicate on the event ID, and read `execution.id` and
+   `data.params` (the runbook's `spec.agents.params`, for example which
+   repository or workflow to use).
+
+3. Mint an execution pair with the service token and start the agent with
+   only that pair in its environment.
+
+4. The agent works until the brief says `wait`, then exits. When more work
+   is ready, another `agent.work_available` starts a fresh session, which
+   picks up from the brief.
+
+</Steps>
+
+The repository has three launchers to copy:
+
+| Recipe | What it does |
+| --- | --- |
+| [`github-actions-relay`](https://github.com/angler-ai/the-runbook-app/tree/main/examples/webhooks/github-actions-relay) | Verifies the delivery and starts a GitHub Actions workflow (`runbook-resume.yml`) that mints the pair and runs the agent |
+| [`kubernetes-job`](https://github.com/angler-ai/the-runbook-app/tree/main/examples/webhooks/kubernetes-job) | One Kubernetes Job per event, running one agent session |
+| [`chat-notifier`](https://github.com/angler-ai/the-runbook-app/tree/main/examples/webhooks/chat-notifier) | Posts approvals and blocked steps to a chat webhook, for the people's side |
+
+<Aside type="tip">
+Run one agent session per run at a time. The GitHub Actions workflow does
+this with a `concurrency` group keyed by the execution ID, so a second
+dispatch waits instead of competing for the same steps.
+</Aside>

@@ -46,12 +46,21 @@ resource "kubernetes_config_map" "runbook_config" {
       RUNBOOK_DATABASE_POOL_SIZE      = tostring(var.database_pool_size)
       RUNBOOK_AUTH_DATABASE_POOL_SIZE = tostring(var.auth_database_pool_size)
       RUNBOOK_SHUTDOWN_TIMEOUT_SECS   = tostring(var.shutdown_timeout_secs)
-      RUNBOOK_TRUSTED_PROXIES         = "35.191.0.0/16,130.211.0.0/16"
-      RUNBOOK_BLOB_STORE              = var.blob_store
+      # Google's front ends, and the load balancer's own address: it appends
+      # itself to X-Forwarded-For after the client, so without it every
+      # client would look like the load balancer and share its limits.
+      RUNBOOK_TRUSTED_PROXIES = "35.191.0.0/16,130.211.0.0/16,${google_compute_global_address.ingress_ip.address}"
+      RUNBOOK_BLOB_STORE      = var.blob_store
     },
     var.blob_store == "gcs" ? {
       RUNBOOK_BLOB_BUCKET = google_storage_bucket.blobs[0].name
       RUNBOOK_BLOB_PREFIX = var.blob_prefix
+    } : {},
+    var.google_client_id != "" ? {
+      RUNBOOK_GOOGLE_CLIENT_ID = var.google_client_id
+    } : {},
+    var.slack_default_channel != "" ? {
+      RUNBOOK_SLACK_DEFAULT_CHANNEL = var.slack_default_channel
     } : {}
   )
 }
@@ -81,6 +90,13 @@ resource "kubernetes_deployment" "runbook" {
       metadata {
         labels = {
           "app.kubernetes.io/name" = "runbook"
+        }
+        # Pods read the ConfigMap and the Secret only at start: a change to
+        # either rolls the Deployment (a rotated Slack, SMTP or Google secret
+        # takes effect on apply). Hashes only; no values.
+        annotations = {
+          "runbook.dev/config-sha256" = sha256(jsonencode(kubernetes_config_map.runbook_config.data))
+          "runbook.dev/secret-sha256" = nonsensitive(sha256(jsonencode(kubernetes_secret.runbook_secrets.data)))
         }
       }
 
@@ -120,13 +136,16 @@ resource "kubernetes_deployment" "runbook" {
           }
 
           resources {
+            # ephemeral-storage explicit, as Autopilot would set it.
             requests = {
-              cpu    = "50m"
-              memory = "64Mi"
+              cpu                 = "50m"
+              memory              = "64Mi"
+              "ephemeral-storage" = "1Gi"
             }
             limits = {
-              cpu    = "200m"
-              memory = "256Mi"
+              cpu                 = "200m"
+              memory              = "256Mi"
+              "ephemeral-storage" = "1Gi"
             }
           }
         }
@@ -190,9 +209,13 @@ resource "kubernetes_deployment" "runbook" {
             }
           }
 
+          # The image's runbook user, by number: with only run_as_non_root the
+          # kubelet cannot verify a named USER and refuses to start the pod.
           security_context {
             read_only_root_filesystem  = true
             run_as_non_root            = true
+            run_as_user                = 10001
+            run_as_group               = 10001
             allow_privilege_escalation = false
           }
 
@@ -208,12 +231,14 @@ resource "kubernetes_deployment" "runbook" {
 
           resources {
             requests = {
-              cpu    = var.resources.requests.cpu
-              memory = var.resources.requests.memory
+              cpu                 = var.resources.requests.cpu
+              memory              = var.resources.requests.memory
+              "ephemeral-storage" = "1Gi"
             }
             limits = {
-              cpu    = var.resources.limits.cpu
-              memory = var.resources.limits.memory
+              cpu                 = var.resources.limits.cpu
+              memory              = var.resources.limits.memory
+              "ephemeral-storage" = "1Gi"
             }
           }
         }
@@ -276,5 +301,11 @@ resource "kubernetes_service_v1" "runbook_service" {
       target_port = 8080
       protocol    = "TCP"
     }
+  }
+
+  # GKE's NEG controller writes cloud.google.com/neg-status onto the Service;
+  # without this every plan would try to strip it again.
+  lifecycle {
+    ignore_changes = [metadata[0].annotations["cloud.google.com/neg-status"]]
   }
 }

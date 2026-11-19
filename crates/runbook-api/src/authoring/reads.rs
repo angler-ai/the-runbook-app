@@ -106,24 +106,42 @@ impl<D: DirectoryOperations, C: CredentialStore, F: AuthoringFactory> AuthoringS
                         if r.query.contains_key("branch") {
                             return Err(error(r, 400, "request.invalid_query"));
                         }
-                        catalog
+                        let versions = catalog
                             .list_versions(rb)
                             .await
+                            .map_err(|e| store_error(r, e))?;
+                        // Git sync: a Git-managed runbook's versions say
+                        // which branch and commit published them.
+                        let git = catalog
+                            .read_runbook(rb)
+                            .await
                             .map_err(|e| store_error(r, e))?
-                            .into_iter()
-                            .map(|v| {
-                                (
-                                    format!("{:010}", v.runbook_version),
-                                    json!(VersionView {
-                                        runbook_id: v.runbook_id,
-                                        runbook_version_id: v.runbook_version_id,
-                                        runbook_version: Some(v.runbook_version),
-                                        branch: None,
-                                        commit_sha: None
-                                    }),
-                                )
-                            })
-                            .collect()
+                            .is_some_and(|record| record.origin == RunbookOrigin::Git);
+                        let mut rows = vec![];
+                        for v in versions {
+                            let (branch, commit_sha) = if git {
+                                catalog
+                                    .version_record(rb, &v.runbook_version_id)
+                                    .await
+                                    .map_err(|e| store_error(r, e))?
+                                    .map_or((None, None), |record| {
+                                        (record.branch, record.commit_sha)
+                                    })
+                            } else {
+                                (None, None)
+                            };
+                            rows.push((
+                                format!("{:010}", v.runbook_version),
+                                json!(VersionView {
+                                    runbook_id: v.runbook_id,
+                                    runbook_version_id: v.runbook_version_id,
+                                    runbook_version: Some(v.runbook_version),
+                                    branch,
+                                    commit_sha
+                                }),
+                            ));
+                        }
+                        rows
                     }
                     Some("true") => catalog
                         .list_previews(rb)

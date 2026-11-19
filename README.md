@@ -140,7 +140,7 @@ Over MCP, an agent can draft a runbook (`save_runbook_draft`), validate it and s
 - **MCP server:** local over stdio, or remote at `/mcp` with OAuth sign-in for Claude, Cursor and other clients.
 - **Webhooks:** signed, with delivery logs, redelivery and secret rotation.
 - **Reports:** JSON, Markdown, JUnit and PDF.
-- **CLI:** for scripts, CI and agents. `runbook login https://your-server` asks nothing else; contexts hold several servers, each with a default project. `runbook push`, `diff` and `publish` keep runbooks in git.
+- **CLI:** for scripts, CI and agents. `runbook login https://your-server` asks nothing else; contexts hold several servers, each with a default project. `runbook push`, `diff` and `publish` keep runbooks in git. Install it on macOS or Linux with `curl -fsSL https://github.com/angler-ai/the-runbook-app/releases/latest/download/install.sh | sh`.
 - **REST API:** full, with an OpenAPI contract (`api/openapi.draft.json`).
 
 **Security and control**
@@ -170,6 +170,8 @@ Over MCP, an agent can draft a runbook (`save_runbook_draft`), validate it and s
 | Run it on your Cloudflare account | [`cloudflare/README.md`](cloudflare/README.md) |
 | Set up people, sign-in and agents | [`docs/install.md`](docs/install.md) |
 | Learn the runbook language | [`docs/pilot-profile.md`](docs/pilot-profile.md) |
+| Keep runbooks in a Git repository | [`docs/git-sync.md`](docs/git-sync.md) |
+| Approve from Slack | [`docs/slack.md`](docs/slack.md) |
 | Teach your agent | [`skills/therunbook/`](skills/therunbook/), or the Claude Code plugin in [`plugins/claude-code/`](plugins/claude-code/) |
 
 ## Develop

@@ -1,0 +1,120 @@
+---
+title: Expressions
+description: What ${{ … }} can read, the operators it supports, and where expressions are used.
+sidebar:
+  order: 2
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+`${{ … }}` holds an expression. Expressions use a small, bounded profile of
+[CEL](https://cel.dev) named `runbook-cel/1`: enough to read the run's data
+and make decisions, and nothing that loops forever or reaches outside the
+run. Every expression is type-checked when you validate or publish, so a
+wrong name or type is a diagnostic, not a surprise mid-run.
+
+## Two ways to use one
+
+A value that is **only** an expression keeps the expression's type. A value
+with text around an expression is a string, with the result interpolated:
+
+```yaml
+if: "${{ steps.check.verdict == 'pass' }}"      # a boolean
+instructions: Roll out ${{ inputs.version }}.   # a string
+```
+
+<Aside type="tip" title="Quoting">
+In YAML, quote a value that starts with `${{` and use single quotes for
+strings inside the expression: `"${{ inputs.env == 'prod' }}"`.
+</Aside>
+
+## What an expression can read
+
+| Name | What it is | Example |
+| --- | --- | --- |
+| `inputs.<name>` | The run's inputs | `inputs.service` |
+| `vars.<name>` | The run's variables | `vars.result` |
+| `fields.<name>` | The run's fields | `fields.severity` |
+| `steps.<id>.outputs.<name>` | A step's reported outputs | `steps.measure.outputs.error_rate` |
+| `steps.<id>.verdict` | A check's verdict: `pass`, `warn` or `fail` | `steps.check.verdict == 'fail'` |
+| `steps.<id>.status` | The step's status (`succeeded`, `failed`, `skipped`, …) | `steps.migrate.status == 'failed'` |
+| `steps.<id>.attempts` | How many attempts it took | `steps.flaky.attempts > 1` |
+| `steps.<id>.actor`, `started_at`, `finished_at` | Who did it and when | `steps.review.actor` |
+| `steps.<id>.outputs.decision`, `.comment`, `.decided_by` | An approval's result | `steps.go.outputs.decision == 'ship'` |
+| `steps.<id>.items` | A `foreach`'s iterations, each with its steps | `steps.regions.items[0].deploy.status` |
+| `steps.<id>.iterations`, `.satisfied`, `.exhausted` | A `loop`'s iterations and how it ended | `steps.stabilize.exhausted` |
+| `item` (or the `as` name), `index` | Inside a `foreach`: the current item and its position | `region`, `index` |
+| `iteration` | Inside a `loop`: the iteration, from 0 | `iteration > 0` |
+| `payload.<name>` | In a webhook trigger: the declared payload fields | `payload.status` |
+
+A step's record is available once the step has run; a value that may be
+missing (a skipped step's outputs, an optional output) is `null`.
+
+## Operators
+
+| | |
+| --- | --- |
+| Compare | `==`, `!=`, `<`, `<=`, `>`, `>=` on numbers, strings, booleans and timestamps |
+| Combine | `&&`, `\|\|`, `!` |
+| Choose | `cond ? a : b` |
+| Index | `list[0]`, `object.property` |
+| Negate | `-x` for numbers |
+| Time | `now()`, and `timestamp('2026-12-01T09:00:00Z')` for a literal time |
+| Search | `list.exists(x, x.status == 'failed')`, once per expression |
+
+That is the whole profile. There is no arithmetic, no string functions,
+and no list or map literals (`expression.unsupported`). When you need a
+computed value, have a step report it as an output and read the output.
+
+## Where expressions go
+
+- **Conditions:** `if`, `switch.cases[].when`, `loop.until` and
+  `loop.while`, and a webhook trigger's `when`. These must be booleans.
+- **Values:** `set.vars` and `set.fields`, `spec.vars` starting values,
+  `spec.outputs`, `call.with`, `with`, `foreach.items` (a list) and
+  `foreach.key`, a webhook trigger's `inputs` and `dedupe`.
+- **Text:** `instructions`, titles, `approval.prompt`, `end.message`,
+  `spec.execution.title` and `tags`, `spec.report`, `assignee`.
+
+## Worked example
+
+```yaml title="rollout-gate.yaml"
+metadata: { id: rollout-gate }
+spec:
+  inputs:
+    service: { type: string, required: true }
+    max_error_rate: { type: number, default: 0.01 }
+  vars:
+    outcome: pending
+  steps:
+    - id: measure
+      actor: agent
+      check: true
+      instructions: Measure ${{ inputs.service }}'s 5xx rate over 15 minutes.
+      outputs:
+        error_rate: { type: number, required: true }
+    - id: decide
+      switch:
+        cases:
+          - when: "${{ steps.measure.outputs.error_rate > inputs.max_error_rate }}"
+            steps:
+              - id: hold
+                set: { vars: { outcome: held } }
+        default:
+          steps:
+            - id: proceed
+              set: { vars: { outcome: proceeded } }
+  outputs:
+    outcome: "${{ vars.outcome }}"
+    error_rate: "${{ steps.measure.outputs.error_rate }}"
+  report: |
+    ${{ inputs.service }}: ${{ vars.outcome }}
+    (error rate ${{ steps.measure.outputs.error_rate }})
+```
+
+## Limits
+
+An expression's source is at most 4,096 bytes, 256 nodes and 32 levels
+deep, and its evaluation has a fixed cost budget. A runbook with more than
+256 steps with IDs, or `foreach` and `loop` nested more than four deep, is
+too large to type (`expression.schema_limit`).

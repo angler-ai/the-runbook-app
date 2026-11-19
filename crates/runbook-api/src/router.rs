@@ -148,6 +148,7 @@ impl<B: Backends> Router<B> {
             Area::Tokens => Box::pin(crate::tokens::handle(b, r)),
             Area::UniversalSearch => Box::pin(crate::universal::handle(b, r)),
             Area::Slack => Box::pin(crate::slack::handle(b, r)),
+            Area::SlackInteractions => Box::pin(crate::slack_app::handle(b, r)),
             Area::Pictures => Box::pin(crate::pictures::handle(b, r)),
             Area::Me => Box::pin(crate::me::handle(b, r)),
             Area::MeTasks => Box::pin(crate::me_tasks::handle(b, r)),
@@ -255,6 +256,8 @@ pub enum Area {
     Tokens,
     Me,
     Slack,
+    /// SLACK1 stage 2: Slack's signed button clicks.
+    SlackInteractions,
     Pictures,
     UniversalSearch,
     MeTasks,
@@ -289,6 +292,8 @@ pub fn area(method: &str, path: &str, execution_bearer: bool) -> Area {
         Area::Tokens
     } else if crate::universal::recognizes(path) {
         Area::UniversalSearch
+    } else if crate::slack_app::recognizes(path) {
+        Area::SlackInteractions
     } else if crate::slack::recognizes(path) {
         Area::Slack
     } else if crate::pictures::recognizes(path) {

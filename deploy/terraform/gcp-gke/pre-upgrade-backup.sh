@@ -1,11 +1,13 @@
 #!/bin/sh
-# Create and await one named on-demand Cloud SQL backup before applying an
-# upgrade. The finished backup id is the only line written to stdout, so a
-# caller can record it with: BACKUP_ID=$(./pre-upgrade-backup.sh ID)
+# Create and await one labelled on-demand Cloud SQL backup before applying an
+# upgrade. Cloud SQL assigns backup ids itself (numbers), so the label goes in
+# the backup's description and the assigned id is read back from it. The
+# finished backup's id is the only line written to stdout, so a caller can
+# record it with: BACKUP_ID=$(./pre-upgrade-backup.sh LABEL)
 set -eu
 
 usage() {
-  echo "usage: $0 [backup-id]" >&2
+  echo "usage: $0 [label]" >&2
   echo "Run from an initialized copy of this Terraform module." >&2
 }
 
@@ -23,15 +25,15 @@ done
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cd "$SCRIPT_DIR"
 
-BACKUP_ID=${1:-runbook-pre-upgrade-$(date -u +%Y%m%d%H%M%S)}
-case "$BACKUP_ID" in
+LABEL=${1:-runbook-pre-upgrade-$(date -u +%Y%m%d%H%M%S)}
+case "$LABEL" in
   [a-z]*[!a-z0-9_-]* | '' | *[!a-z0-9_-]*)
-    echo "error: backup id must start with a lowercase letter and contain only lowercase letters, digits, hyphens and underscores" >&2
+    echo "error: the label must start with a lowercase letter and contain only lowercase letters, digits, hyphens and underscores" >&2
     exit 2
     ;;
 esac
-if [ "${#BACKUP_ID}" -gt 100 ]; then
-  echo "error: backup id must be at most 100 characters" >&2
+if [ "${#LABEL}" -gt 100 ]; then
+  echo "error: the label must be at most 100 characters" >&2
   exit 2
 fi
 
@@ -43,22 +45,25 @@ if [ -z "$PROJECT" ] || [ -z "$INSTANCE" ] || [ "$PROJECT" = "$CONNECTION_NAME" 
   exit 1
 fi
 
-EXISTING=$(gcloud sql backups list \
-  --instance="$INSTANCE" \
-  --project="$PROJECT" \
-  --filter="id=$BACKUP_ID" \
-  --format='value(id)')
-if [ -n "$EXISTING" ]; then
-  echo "error: backup $BACKUP_ID already exists; choose a new id for this upgrade" >&2
+# The backups carrying this label: none before the create, one after.
+labelled() {
+  gcloud sql backups list \
+    --instance="$INSTANCE" \
+    --project="$PROJECT" \
+    --filter="description=$LABEL" \
+    --format='value(id)'
+}
+if [ -n "$(labelled)" ]; then
+  echo "error: a backup labelled $LABEL already exists; choose a new label for this upgrade" >&2
   exit 1
 fi
 
-echo "Creating Cloud SQL backup $BACKUP_ID for $INSTANCE..." >&2
+echo "Creating Cloud SQL backup $LABEL for $INSTANCE..." >&2
 gcloud sql backups create \
   --instance="$INSTANCE" \
   --project="$PROJECT" \
-  --backup-id="$BACKUP_ID" \
-  --description='Runbook pre-upgrade backup' >&2
+  --description="$LABEL" \
+  --async >&2
 
 POLL_SECONDS=${RUNBOOK_BACKUP_POLL_SECONDS:-10}
 TIMEOUT_SECONDS=${RUNBOOK_BACKUP_TIMEOUT_SECONDS:-1800}
@@ -70,23 +75,39 @@ case "$POLL_SECONDS:$TIMEOUT_SECONDS" in
 esac
 
 elapsed=0
+BACKUP_ID=
+STATUS=
 while :; do
-  STATUS=$(gcloud sql backups describe "$BACKUP_ID" \
-    --instance="$INSTANCE" \
-    --project="$PROJECT" \
-    --format='value(status)')
-  case "$STATUS" in
-    SUCCESSFUL)
-      printf '%s\n' "$BACKUP_ID"
-      exit 0
-      ;;
-    FAILED | DELETION_FAILED)
-      echo "error: Cloud SQL backup $BACKUP_ID finished with status $STATUS" >&2
-      exit 1
-      ;;
-  esac
+  if [ -z "$BACKUP_ID" ]; then
+    # The new backup may take a moment to be listed.
+    IDS=$(labelled)
+    case "$IDS" in
+      '') ;;
+      *[!0-9]*)
+        echo "error: expected one numeric backup id labelled $LABEL, got: $IDS" >&2
+        exit 1
+        ;;
+      *) BACKUP_ID=$IDS ;;
+    esac
+  fi
+  if [ -n "$BACKUP_ID" ]; then
+    STATUS=$(gcloud sql backups describe "$BACKUP_ID" \
+      --instance="$INSTANCE" \
+      --project="$PROJECT" \
+      --format='value(status)')
+    case "$STATUS" in
+      SUCCESSFUL)
+        printf '%s\n' "$BACKUP_ID"
+        exit 0
+        ;;
+      FAILED | DELETION_FAILED)
+        echo "error: Cloud SQL backup $BACKUP_ID ($LABEL) finished with status $STATUS" >&2
+        exit 1
+        ;;
+    esac
+  fi
   if [ "$elapsed" -ge "$TIMEOUT_SECONDS" ]; then
-    echo "error: timed out waiting for Cloud SQL backup $BACKUP_ID; last status: ${STATUS:-unknown}" >&2
+    echo "error: timed out waiting for Cloud SQL backup $LABEL (id ${BACKUP_ID:-not yet listed}); last status: ${STATUS:-unknown}" >&2
     exit 1
   fi
   sleep "$POLL_SECONDS"

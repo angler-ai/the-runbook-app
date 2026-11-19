@@ -20,6 +20,7 @@ pub mod router;
 pub mod routes;
 pub mod session;
 pub mod slack;
+pub mod slack_app;
 pub mod sse;
 pub mod step_reads;
 pub mod tokens;

@@ -86,6 +86,9 @@ pub struct ProjectView {
     pub org_id: OrganizationId,
     pub slug: String,
     pub title: String,
+    /// Archived (2026-11-18): hidden in the app and read-only.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub archived: bool,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct TeamView {

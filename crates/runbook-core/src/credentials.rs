@@ -234,6 +234,15 @@ pub fn authorize(
     {
         return Err(AuthError::Forbidden);
     }
+    // An archived project is read-only for everyone (2026-11-18).
+    if s.archived_projects.contains(project)
+        && !matches!(
+            action,
+            Scope::RunbooksRead | Scope::ExecutionsRead | Scope::SkillsRead
+        )
+    {
+        return Err(AuthError::Forbidden);
+    }
     let (role, principal) = match &r.principal {
         CredentialPrincipal::User { user_id, actor } => {
             if !s.users.get(user_id).is_some_and(|u| u.active) {

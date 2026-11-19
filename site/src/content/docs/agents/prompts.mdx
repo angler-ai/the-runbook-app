@@ -1,0 +1,191 @@
+---
+title: Prompt library
+description: Ready-to-paste prompts for working runs, writing and reviewing runbooks, and summarizing runs with your agent.
+sidebar:
+  order: 7
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Prompts to paste into Claude Code, Codex, Cursor or any agent connected to
+The Runbook ([set one up](/agents/)). They assume the `therunbook` skill is
+installed; with MCP only, they work the same through the MCP tools. Replace
+the `<…>` parts.
+
+<Aside type="tip">
+Every prompt keeps the agent inside what the server enforces: it claims
+before it works, reports honestly, and hands judgment to people. None of
+them asks an agent to decide an approval or publish a runbook.
+</Aside>
+
+## Working runs
+
+### Work the next step of a run
+
+```text title="Prompt"
+Work the next agent step of run <exe_…> on The Runbook.
+
+Read the resume brief first and don't redo completed work. Claim exactly one
+ready step before reading it, do only what its instructions say, and report
+it: status for whether you did the work, a verdict for what a check found,
+outputs matching its schema, a one-paragraph summary, and evidence links
+where it asks. If you're unsure, lack access, or the step needs judgment,
+use request-human with a clear question instead of guessing. Then tell me
+what you did and what the brief says next.
+```
+
+### Work every ready step until the run waits
+
+```text title="Prompt"
+Run the agent loop on The Runbook for run <exe_…> until there is no agent
+work left.
+
+Repeat: read the brief, claim one ready step, read it, do it, report it.
+Heartbeat during long work. When a step is a single command whose exit code
+is its result, use `runbook step exec`. Stop as soon as the brief says wait
+or exit; don't poll or sleep. If you lose a claim, stop work on that step and
+reconcile from the brief. At the end, list each step you reported with its
+status, verdict and a one-line summary.
+```
+
+### Start the right runbook for an alert
+
+```text title="Prompt"
+This alert just fired:
+
+<paste the alert: title, service, labels, link>
+
+Find the runbook in project <project> that fits it (list the runbooks and
+read the likely ones). Tell me which one you'd run and with which inputs,
+and why. Don't start it until I confirm; then start it with those inputs and
+work its agent steps.
+```
+
+### Summarize a run
+
+```text title="Prompt"
+Summarize run <exe_…> on The Runbook for <the incident channel | a
+postmortem | my manager>.
+
+Read the run and its report. Write: the outcome and how long it took; each
+step in one line with who did it (person or agent) and what they found;
+every approval with who decided what and their comment; failures, handoffs
+and retries; and links to the evidence. Quote outputs and summaries as
+recorded, mark anything you infer as an inference, and don't include tokens,
+secrets or personal data.
+```
+
+You can also export the report directly: `runbook run report <exe> --format md`
+(or `json`, `junit`, `pdf`).
+
+### Explain why a run failed
+
+```text title="Prompt"
+Run <exe_…> on The Runbook failed. Find out why.
+
+Read the run, its failed steps (status, failure type, summary, logs and
+outputs) and any catch or finally steps that ran. Tell me the first thing
+that went wrong, what happened after it because of it, and whether the
+failure came from the work itself (a check that found a problem), the
+runbook (a wrong expression, a missing input), or the environment (a
+timeout, access, a lost lease). Suggest what to change, and say which
+suggestions would need a runbook edit and which a rerun.
+```
+
+## Writing runbooks
+
+### Draft a runbook from an incident doc
+
+```text title="Prompt"
+Draft a runbook for The Runbook from this incident write-up:
+
+<paste the postmortem, wiki page or Slack thread>
+
+Turn the steps people actually took into a runbook in project <project>:
+- one step per action, with an id in snake_case and instructions a newcomer
+  could follow;
+- `actor: agent` for steps an agent can do with a shell or API, `actor:
+  human` for steps that need judgment or access agents shouldn't have;
+- `check: true` with declared outputs for anything that measures something;
+- an approval with named approvers before anything destructive, and
+  `destructive: true` on the destructive step;
+- inputs for what changes between incidents (service, region, version).
+
+Validate it with `runbook spec validate` until it's clean, save it as a
+draft, and show me the YAML and what you assumed. Don't publish it.
+```
+
+### Turn a script or checklist into a runbook
+
+```text title="Prompt"
+Turn <path/to/script.sh | this checklist> into a runbook for The Runbook.
+
+Keep each command that does one thing as its own agent step, so it can run
+with `runbook step exec`. Group steps that belong together, add a `finally`
+step for cleanup the script does in a trap, and make anything the script
+asks a person (a prompt, a "press enter to continue") an approval or a
+human step. Validate it, then show me the runbook and a table of script
+line ranges to step ids.
+```
+
+### Fix validation errors
+
+```text title="Prompt"
+`runbook spec validate <file>` reports errors. Fix them.
+
+For each diagnostic, look up its code in the docs' diagnostics reference,
+explain the cause in one line, and make the smallest change that fixes it
+without changing what the runbook does. Don't weaken approvals, destructive
+flags or auto-decision settings to get past an error; ask me instead.
+Re-validate until it's clean and show me the diff.
+```
+
+## Reviewing runbooks
+
+### Review a runbook for agent safety
+
+```text title="Prompt"
+Review runbook <id> in project <project> (or <file>) for agent safety. Don't
+change it; report findings.
+
+Check:
+1. Every step that changes something hard to undo is `destructive: true`,
+   and a human approval with named approvers stands before it.
+2. No approval that agents may decide (`allow_agents`) or that decides on
+   its own at a timeout (`on_timeout: decide`) can lead to a destructive
+   step, unless that step deliberately sets `allow_auto_decision`.
+3. Agent steps have clear instructions, declared outputs for what they
+   measure, and evidence where a person will want proof.
+4. Timeouts, retries and `on_failure` make sense: nothing retries a
+   destructive step, and failures that need a person use `handoff`.
+5. Nothing relies on `agent.hints` to restrict an agent: hints aren't
+   enforced. Say what access the agent's token should have instead.
+6. Inputs that end up in commands are typed and constrained (enum, pattern).
+7. No secrets in the runbook source, vars or `with`.
+
+For each finding give the step id, the risk, and the change you'd make.
+```
+
+### Review a runbook for people
+
+```text title="Prompt"
+Read runbook <id> as the on-call engineer who will be paged at 3 a.m. and
+has never seen it. Report: steps whose instructions are ambiguous, missing
+context (links, dashboards, who to call), approvals whose prompt doesn't say
+what the options do, steps that should remind or escalate and don't, and
+anything that would leave the run waiting with nobody told. Suggest the
+wording you'd use. Don't change the runbook.
+```
+
+## Memory
+
+### Save what this run taught us
+
+```text title="Prompt"
+Look back at run <exe_…>. Did we learn anything a future run of this
+runbook would need: an access path, a normal baseline, a known false alarm,
+a slow dashboard? For each, propose one memory entry (one fact, written so
+it makes sense without this run) with `--propose`, so a person reviews it.
+Never save secrets, personal data, or anything that only describes this
+run.
+```

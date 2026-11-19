@@ -141,27 +141,7 @@ impl runbook_core::archives::job::ReportSource for ArchiveReports {
     }
 }
 
-/// SLACK1: one JSON POST to the project's incoming webhook.
-struct SlackHttp;
-impl runbook_core::slack::SlackTransport for SlackHttp {
-    async fn post_slack(&self, url: &str, text: &str) -> Result<(), String> {
-        let url = url.to_owned();
-        let text = text.to_owned();
-        tokio::task::spawn_blocking(move || {
-            ureq::post(&url)
-                .timeout(std::time::Duration::from_secs(10))
-                .set("content-type", "application/json")
-                .send_string(&serde_json::json!({ "text": text }).to_string())
-                .map(|_| ())
-                .map_err(|error| match error {
-                    ureq::Error::Status(code, _) => format!("slack_{code}"),
-                    _ => "slack_unreachable".to_owned(),
-                })
-        })
-        .await
-        .map_err(|_| "slack_join".to_owned())?
-    }
-}
+pub(crate) use crate::slack_http::SlackHttp;
 
 fn fanout_step_title(intent: &runbook_engine::NotificationIntent) -> Option<&str> {
     let first = intent.step_run_ids.first()?;
@@ -549,6 +529,7 @@ impl Drainer {
         let _ = runbook_core::slack::fan_out_slack(
             &self.notify,
             &SlackHttp,
+            self.config.slack.as_ref(),
             scope,
             intent,
             &title,

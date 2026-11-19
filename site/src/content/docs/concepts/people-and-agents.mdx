@@ -1,0 +1,122 @@
+---
+title: People, agents and anyone
+description: Who may do a step, how assignees and strict assignment work, and how the server tells people from agents.
+sidebar:
+  order: 2
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+## Actors
+
+Each task says who may claim it with `actor`:
+
+| `actor` | Who may claim it |
+| --- | --- |
+| `any` (the default) | A person or an agent, whoever gets there first |
+| `human` | A person |
+| `agent` | An agent, through the CLI or MCP; a person may [take it over](/concepts/leases/#take-over) |
+
+```yaml title="mixed-work.yaml"
+metadata: { id: mixed-work }
+spec:
+  defaults: { actor: agent }
+  steps:
+    - id: gather_logs
+      instructions: Collect the last hour of error logs.
+    - id: diagnose
+      actor: any
+      instructions: Find the likely cause.
+    - id: decide_fix
+      actor: human
+      instructions: Choose a fix and write it in the summary.
+```
+
+## Assignees
+
+`assignee` names the person or team a step is **for**: it puts the step in
+their inbox and notifications. On its own it's guidance; anyone `actor`
+allows may still claim the step. `assignment: strict` makes it binding:
+
+| | `assignment: guidance` (default) | `assignment: strict` |
+| --- | --- | --- |
+| `human` or `any` step | Anyone may claim it; it's in the assignee's inbox | Only the assignees (and the step's escalation) may claim it; agents can't |
+| `agent` step | An agent claims it | It limits who may take it over |
+
+```yaml title="finance-sign-off.yaml"
+metadata: { id: finance-sign-off }
+spec:
+  steps:
+    - id: approve_spend
+      actor: human
+      assignee: team:finance
+      assignment: strict
+      instructions: Confirm the vendor invoice matches the purchase order.
+```
+
+The assignee can also be an expression, such as
+`assignee: "${{ inputs.on_call }}"`.
+
+## How the server tells them apart
+
+The server decides whether a caller is a person or an agent from the
+**kind of credential**, never from what the caller says:
+
+| Credential | Recorded as |
+| --- | --- |
+| A personal access token or a browser session | A person |
+| An agent-kind token (`runbook token create --agent`) | An agent, sponsored by the person who made it |
+| An execution pair (`runbook run token`) | An agent, working that one run |
+| An OAuth grant to an MCP client | An agent, sponsored by the person who consented |
+| A service token | The project's automation |
+
+An agent declares a session, a name and a model when it claims a step, and
+those go on the record too.
+
+<Aside type="caution">
+Give an agent an execution pair or an agent-kind token, never a person's
+token: with a person's token the agent **is** that person. Agents never cast
+human approvals.
+</Aside>
+
+## When an agent needs a person
+
+- **`on_failure: handoff`** (often under `spec.defaults`) hands a failed task
+  to a person instead of failing the run.
+- **`runbook step request-human`** lets an agent ask for help with a reason
+  and a question.
+
+Either way the step becomes a person's, a `step.blocked` notification goes
+out, and the run waits for them.
+
+```yaml title="careful-agent.yaml"
+metadata: { id: careful-agent }
+spec:
+  defaults: { actor: agent, on_failure: handoff }
+  steps:
+    - id: rotate_certificate
+      instructions: Rotate the TLS certificate for api.example.com.
+```
+
+## Reminders and escalation
+
+A step left open can remind its people and escalate to others:
+
+```yaml title="nudge.yaml"
+metadata: { id: nudge }
+spec:
+  defaults:
+    remind_after: 2h
+    remind_every: 4h
+    escalate_after: 1d
+    escalate_to: [team:eng-leads]
+  steps:
+    - id: review
+      actor: human
+      assignee: team:oncall
+```
+
+Reminders (`step.reminder`) go to the step's people: approvers, the
+assignee, whoever claimed it; with none, the runbook's owners. An
+escalation (`step.escalated`) goes once to `escalate_to`, who may then claim
+the step even under strict assignment.

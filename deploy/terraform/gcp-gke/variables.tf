@@ -166,6 +166,49 @@ variable "smtp_url" {
   description = "Optional SMTP connection URL (e.g. smtps://user:pass@smtp.example.com:465) for email sign-in codes."
 }
 
+variable "google_client_id" {
+  type        = string
+  default     = ""
+  description = "Google OAuth web client ID for Google sign-in (auth_methods including 'google'). Its redirect URI is https://<app_domain>/api/auth/callback/google."
+}
+
+variable "google_client_secret" {
+  type        = string
+  default     = ""
+  sensitive   = true
+  description = "Google OAuth web client secret, with google_client_id. Kept in Secret Manager and the workload's Secret."
+
+  validation {
+    condition     = (var.google_client_secret == "") == (var.google_client_id == "")
+    error_message = "Set google_client_id and google_client_secret together, or neither."
+  }
+}
+
+variable "slack_bot_token" {
+  type        = string
+  default     = ""
+  sensitive   = true
+  description = "Bot token (xoxb-...) of The Runbook's Slack app (deploy/slack/manifest.yaml, docs/slack.md): approval buttons in Slack. With slack_signing_secret."
+}
+
+variable "slack_signing_secret" {
+  type        = string
+  default     = ""
+  sensitive   = true
+  description = "The Slack app's signing secret, with slack_bot_token."
+
+  validation {
+    condition     = (var.slack_signing_secret == "") == (var.slack_bot_token == "")
+    error_message = "Set slack_bot_token and slack_signing_secret together, or neither."
+  }
+}
+
+variable "slack_default_channel" {
+  type        = string
+  default     = ""
+  description = "Optional Slack channel ID for projects that name none."
+}
+
 variable "smtp_from" {
   type        = string
   default     = "The Runbook <login@example.com>"
@@ -176,6 +219,12 @@ variable "step_runs_limit" {
   type        = string
   default     = "off"
   description = "Most step runs one run may open (RUNBOOK_LIMIT_STEP_RUNS): a positive number, or 'off' for no cap."
+}
+
+variable "ssl_policy" {
+  type        = string
+  default     = ""
+  description = "Optional name of a Compute Engine SSL policy (for example TLS 1.2 minimum, MODERN profile) for the HTTPS load balancer, set through the FrontendConfig."
 }
 
 variable "cloud_armor_policy" {

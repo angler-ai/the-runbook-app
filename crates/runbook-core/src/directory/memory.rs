@@ -65,6 +65,7 @@ impl Database {
                         teams: BTreeMap::new(),
                         project_members: BTreeMap::new(),
                         team_members: BTreeSet::new(),
+                        archived_projects: Default::default(),
                     },
                 );
                 continue;
@@ -136,6 +137,19 @@ impl Database {
                         .get_mut(&user_id)
                         .ok_or(DirectoryError::NotFound)?
                         .active = active
+                }
+                DirectoryMutation::SetProjectArchived {
+                    project_id,
+                    archived,
+                } => {
+                    if !s.projects.contains_key(&project_id) {
+                        return Err(DirectoryError::NotFound);
+                    }
+                    if archived {
+                        s.archived_projects.insert(project_id);
+                    } else {
+                        s.archived_projects.remove(&project_id);
+                    }
                 }
                 DirectoryMutation::SetProjectTitle { project_id, title } => {
                     if title.trim().is_empty() {

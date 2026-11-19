@@ -4,17 +4,19 @@ name: Release
 # - the container image ghcr.io/angler-ai/runbook, tagged X.Y.Z, and
 #   X.Y / latest when it is the newest of its line / of all, for
 #   linux/amd64 and linux/arm64, with a build provenance attestation;
-# - a GitHub Release with the CLI and server binaries, the Cloudflare
-#   edition bundle (built Workers, web UI, migrations, templates; its
+# - a GitHub Release with the CLI and server binaries (the CLI for Linux
+#   and macOS, x86_64 and arm64), install.sh, the Cloudflare edition bundle (built Workers, web UI, migrations, templates; its
 #   RELEASE.json names the image digest and the rollback floors),
 #   SHA256SUMS and release notes, each asset attested.
 # deploy/update.sh and cloudflare/scripts/update.mjs install from these and
 # verify the attestations (gh attestation verify).
 #
-# Two jobs (review #9): `build` holds no write permission and pushes
-# nothing (it checks the tag is a release on main, builds the image into an
-# OCI archive and the assets); `publish` only pushes what `build` made, by
-# digest, attests it, creates the release and then moves X.Y / latest.
+# Three jobs (review #9): `build` and `macos` hold no write permission and
+# push nothing (`build` checks the tag is a release on main, builds the image
+# into an OCI archive and the assets; `macos` builds the macOS CLI on a
+# GitHub-hosted macOS runner, free for a public repository); `publish` only
+# pushes what they made, by digest, attests it, creates the release and then
+# moves X.Y / latest.
 #
 # Like the other workflows, it runs on the default self-hosted runner while
 # the repository is private and on GitHub's runners once it is public.
@@ -128,11 +130,11 @@ jobs:
           (cd web && npm ci --ignore-scripts --no-audit --no-fund && node scripts/build-wasm.mjs && npm run build)
           (cd cloudflare && node scripts/build-worker.mjs worker && node scripts/build-worker.mjs auth)
           node scripts/release/release.mjs cloudflare-bundle dist "$DIGEST"
-      - name: Notes and checksums
+      - name: Notes and install.sh
         run: |
           mkdir -p notes
           node scripts/release/release.mjs notes "$TAG" > notes/notes.md
-          node scripts/release/release.mjs checksums dist
+          install -m 755 install.sh dist/install.sh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release
@@ -148,8 +150,31 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
-  publish:
+  macos:
     needs: build
+    runs-on: macos-15
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Toolchain (rust-toolchain.toml)
+        run: rustup toolchain install
+      - name: The CLI for macOS, both architectures
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: scripts/release/macos.sh "$VERSION" dist
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: macos
+          path: dist/
+          if-no-files-found: error
+          retention-days: 3
+
+  publish:
+    needs: [build, macos]
     # A protected environment (required reviewers, tags v* only), set up in
     # the repository's settings.
     environment: publish
@@ -176,6 +201,18 @@ jobs:
         with:
           name: image
           path: image
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: macos
+          path: dist
+      # Every asset is in dist now: SHA256SUMS covers all of them (the same
+      # format as release.mjs checksums: sorted, two spaces).
+      - name: SHA256SUMS
+        run: |
+          cd dist
+          rm -f SHA256SUMS
+          LC_ALL=C sha256sum -- $(LC_ALL=C ls -1 | grep -vx SHA256SUMS) > SHA256SUMS
+          cat SHA256SUMS
       - name: Refuse a version that already exists
         run: |
           printf '%s' "$GH_TOKEN" | skopeo login ghcr.io --username "$ACTOR" --password-stdin

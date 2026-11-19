@@ -52,6 +52,19 @@ pub struct Fake {
     /// MCP2: the auth service's connected-app routes: each call
     /// (route, body), and what the next one answers.
     pub apps: Rc<std::cell::RefCell<FakeApps>>,
+    /// SLACK1 stage 2: the app, `users.info`'s answer, and replies sent.
+    pub slack: Rc<std::cell::RefCell<FakeSlack>>,
+    /// What `published_versions` answers (schedule passes).
+    pub published: Rc<std::cell::RefCell<Vec<runbook_core::triggers::PublishedVersion>>>,
+}
+
+#[derive(Default)]
+pub struct FakeSlack {
+    pub app: Option<runbook_core::slack::SlackApp>,
+    pub users_info: Option<Value>,
+    /// `auth.test`'s `team_id`: the bot token's workspace (`T1` when unset).
+    pub team_id: Option<String>,
+    pub replies: Vec<(String, Value)>,
 }
 
 /// The connected-app calls made, and the next answer.
@@ -85,6 +98,8 @@ impl Fake {
             notify: runbook_core::notify::memory::MemoryNotify::new(1_000_000),
             random: Rc::default(),
             apps: Rc::default(),
+            slack: Rc::default(),
+            published: Rc::default(),
         }
     }
 }
@@ -410,7 +425,7 @@ impl Backends for Fake {
     async fn published_versions(
         &self,
     ) -> Result<Vec<runbook_core::triggers::PublishedVersion>, runbook_core::StoreError> {
-        Ok(vec![])
+        Ok(self.published.borrow().clone())
     }
     fn auth_methods(&self) -> Vec<String> {
         vec!["email".into()]
@@ -433,6 +448,32 @@ impl Backends for Fake {
     }
     fn wall_clock_ms(&self) -> i64 {
         1_000
+    }
+    fn slack_app(&self) -> Option<runbook_core::slack::SlackApp> {
+        self.slack.borrow().app.clone()
+    }
+    async fn slack_api(
+        &self,
+        _: &str,
+        method: &str,
+        _: &[(&str, &str)],
+        _: Option<&Value>,
+    ) -> Result<Value, String> {
+        let slack = self.slack.borrow();
+        match (method, slack.users_info.clone()) {
+            ("auth.test", _) => Ok(
+                serde_json::json!({"ok": true, "team_id": slack.team_id.as_deref().unwrap_or("T1")}),
+            ),
+            ("users.info", Some(info)) => Ok(info),
+            _ => Err("slack_fake".into()),
+        }
+    }
+    async fn slack_respond(&self, url: &str, body: &Value) -> Result<(), String> {
+        self.slack
+            .borrow_mut()
+            .replies
+            .push((url.to_owned(), body.clone()));
+        Ok(())
     }
     fn fill_random(&self, bytes: &mut [u8]) -> Result<(), NoEntropy> {
         for b in bytes.iter_mut() {

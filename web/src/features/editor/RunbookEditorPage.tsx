@@ -47,6 +47,7 @@ import {
   patchDraft,
   problemDiagnostics,
   runbookQueryOptions,
+  detachFromGit,
   useCreateRunbook,
   useDraft,
   usePublish,
@@ -965,11 +966,39 @@ function EditorSession({
 
       {readOnly ? (
         <p className="mb-4 rounded-md border border-border p-3 text-sm" data-testid="read-only">
-          {gitManaged
-            ? 'Read only: this runbook is managed in Git. Change it through a pull request to its repository; the builder shows it as it is.'
-            : checkingOrigin && scopeWrite && !refused.write
-              ? 'Read only while checking whether this runbook is managed in Git…'
-              : 'Read only: your token or project role does not allow editing runbooks (runbooks:write).'}
+          {gitManaged ? (
+            <>
+              Read only: this runbook is managed in Git. Change it through a pull request to its
+              repository; the builder shows it as it is.
+              {scopePublish && runbookId ? (
+                <>
+                  {' '}
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      if (
+                        !globalThis.confirm(
+                          'Edit this runbook here instead of in Git? The next sync of its file takes it back.',
+                        )
+                      )
+                        return;
+                      void detachFromGit(runbookId).then(() =>
+                        queryClient.invalidateQueries({ queryKey: queryKeys.runbook(runbookId) }),
+                      );
+                    }}
+                  >
+                    Edit here instead
+                  </Button>
+                </>
+              ) : null}
+            </>
+          ) : checkingOrigin && scopeWrite && !refused.write ? (
+            'Read only while checking whether this runbook is managed in Git…'
+          ) : (
+            'Read only: your token or project role does not allow editing runbooks (runbooks:write).'
+          )}
         </p>
       ) : null}
 

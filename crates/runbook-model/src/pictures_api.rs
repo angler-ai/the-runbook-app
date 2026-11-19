@@ -73,5 +73,10 @@ pub struct PictureView {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct UpdateProjectRequest {
     /// Display name (1 to 100 characters).
-    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// Archive (true) or restore (false) the project: org owners and
+    /// admins only. Archived projects are hidden and read-only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived: Option<bool>,
 }

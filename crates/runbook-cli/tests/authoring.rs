@@ -437,3 +437,74 @@ fn list_and_get_show_the_catalog() {
         json!({"steps": [{"id": "smoke", "title": "Smoke tests", "kind": "task", "steps": []}], "finally": []})
     );
 }
+
+const TWO_STEPS: &str = "apiVersion: therunbook.app/v1\nkind: Runbook\nmetadata:\n  id: post-deploy\n  title: Post deploy\nspec:\n  steps:\n    - id: check\n      title: Check\n    - id: again\n      title: Again\n";
+
+#[test]
+fn push_warns_when_the_worst_case_is_over_the_servers_step_cap() {
+    let home = tmp();
+    let file = spec_file(home.path(), TWO_STEPS);
+    let (host, server) = serve(vec![
+        reply(200, page(vec![entry(RB, "post-deploy")])),
+        problem(428, "request.if_match_required"),
+        draft(3, "old"),
+        with_etag(
+            200,
+            json!({"runbook_id": RB, "source": TWO_STEPS, "revision": 4, "diagnostics": []}),
+            &format!("\"draft-{RB}-4\""),
+        ),
+        draft(4, TWO_STEPS),
+        reply(201, published()),
+        reply(
+            200,
+            json!({"edition": "self_hosted", "limits": {"step_runs": 1}}),
+        ),
+    ]);
+    let o = cli(
+        &host,
+        home.path(),
+        &["push", &file, "--project", "ops", "--json"],
+        &[("RUNBOOK_TOKEN", PAT)],
+    );
+    let seen = server.join().unwrap();
+    assert_eq!(o.status.code(), Some(0), "{}", err(&o));
+    assert!(lines(&seen).last().unwrap().starts_with("GET /v1/meta"));
+    assert!(
+        err(&o).contains("warning: worst case 2 step runs is over this server's limit of 1"),
+        "{}",
+        err(&o)
+    );
+    let out: Value = serde_json::from_slice(&o.stdout).unwrap();
+    assert!(
+        out["step_cap_warning"]
+            .as_str()
+            .unwrap()
+            .contains("limit of 1")
+    );
+}
+
+#[test]
+fn push_under_the_cap_says_nothing() {
+    let home = tmp();
+    let file = spec_file(home.path(), TWO_STEPS);
+    let (host, server) = serve(vec![
+        reply(200, page(vec![entry(RB, "post-deploy")])),
+        problem(428, "request.if_match_required"),
+        draft(4, TWO_STEPS),
+        draft(4, TWO_STEPS),
+        reply(201, published()),
+        reply(
+            200,
+            json!({"edition": "self_hosted", "limits": {"step_runs": 5}}),
+        ),
+    ]);
+    let o = cli(
+        &host,
+        home.path(),
+        &["push", &file, "--project", "ops"],
+        &[("RUNBOOK_TOKEN", PAT)],
+    );
+    server.join().unwrap();
+    assert_eq!(o.status.code(), Some(0), "{}", err(&o));
+    assert!(!err(&o).contains("warning"), "{}", err(&o));
+}

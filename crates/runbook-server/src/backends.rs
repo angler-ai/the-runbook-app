@@ -43,6 +43,8 @@ pub struct PostgresBackends {
     pub(crate) objects: Option<Arc<runbook_store_objects::ObjectStorage>>,
     /// NOTIFY1: the app's public origin, for links in email.
     pub(crate) origin: String,
+    /// SLACK1 stage 2: the operator's Slack app.
+    pub(crate) slack: Option<runbook_core::slack::SlackApp>,
 }
 
 impl PostgresBackends {
@@ -63,6 +65,7 @@ impl PostgresBackends {
             refused: Arc::default(),
             objects,
             origin: server.origin.clone(),
+            slack: server.slack.clone(),
         }
     }
 }
@@ -210,6 +213,24 @@ impl Backends for PostgresBackends {
             Some(sessions) => sessions.oauth_apps(route, &body).await,
             None => Ok(None),
         }
+    }
+    fn slack_app(&self) -> Option<runbook_core::slack::SlackApp> {
+        self.slack.clone()
+    }
+    async fn slack_api(
+        &self,
+        token: &str,
+        method: &str,
+        query: &[(&str, &str)],
+        body: Option<&serde_json::Value>,
+    ) -> Result<serde_json::Value, String> {
+        use runbook_core::slack::SlackTransport;
+        crate::slack_http::SlackHttp
+            .slack_api(token, method, query, body)
+            .await
+    }
+    async fn slack_respond(&self, url: &str, body: &serde_json::Value) -> Result<(), String> {
+        crate::slack_http::SlackHttp.respond(url, body).await
     }
     fn wall_clock_ms(&self) -> i64 {
         std::time::SystemTime::now()

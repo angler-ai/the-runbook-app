@@ -1026,6 +1026,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{p}/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Public authoring and catalog operation
+         * @description Current PAT/service authorization intersects project role, scope and project allow-list. Mutating POST replay lasts 24h and includes If-Match; authorization precedes replay and replay precedes stale preconditions. Compilation and immutable blobs precede a short atomic catalog/replay transaction. Execution credentials cannot use authoring routes. Draft save accepts invalid YAML and returns diagnostics; publication requires validity and the fixed slug. Source size overflow returns 413 spec.source_limit. No UI-only handlers.
+         */
+        post: operations["post_v1_projects__p__sync"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{p}/vars": {
         parameters: {
             query?: never;
@@ -1274,6 +1294,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/runbooks/{rb}/detach": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Public authoring and catalog operation
+         * @description Current PAT/service authorization intersects project role, scope and project allow-list. Mutating POST replay lasts 24h and includes If-Match; authorization precedes replay and replay precedes stale preconditions. Compilation and immutable blobs precede a short atomic catalog/replay transaction. Execution credentials cannot use authoring routes. Draft save accepts invalid YAML and returns diagnostics; publication requires validity and the fixed slug. Source size overflow returns 413 spec.source_limit. No UI-only handlers.
+         */
+        post: operations["post_v1_runbooks__rb__detach"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/runbooks/{rb}/draft": {
         parameters: {
             query?: never;
@@ -1400,6 +1440,26 @@ export interface paths {
         get: operations["get_v1_runbooks__rb__versions__version__form"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/slack/interactions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Slack button clicks (the Slack app)
+         * @description Implemented. Slack posts here (application/x-www-form-urlencoded, signed with X-Slack-Signature and X-Slack-Request-Timestamp) when someone clicks an approval button. The signature over the exact body, made with RUNBOOK_SLACK_SIGNING_SECRET, is the credential; older than five minutes is 401 slack.invalid_signature. The clicking user is matched by email and votes with their own permissions; the answer to them goes to the interaction's response_url. 404 when the server has no Slack app. Not for API clients.
+         */
+        post: operations["post_v1_slack_interactions"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2196,6 +2256,12 @@ export interface components {
             state: components["schemas"]["DeliveryState"];
             webhook_id: components["schemas"]["WebhookId"];
         };
+        /** @description `POST /v1/runbooks/{rb}/detach`: the runbook, now authored in the app. */
+        DetachView: {
+            /** @description Always `ui`. */
+            origin: string;
+            runbook_id: components["schemas"]["RunbookId"];
+        };
         /**
          * @description `POST /v1/device/approve`: a signed-in person (session plus CSRF) approves
          *     or denies a code. Every grant field narrows the approver's own access.
@@ -2959,11 +3025,30 @@ export interface components {
             user_id: components["schemas"]["UserId"];
         };
         ProjectRole: ("viewer" | "operator" | "admin") | "editor";
+        /**
+         * @description Either a Slack incoming-webhook URL (stage 1: plain messages), or a
+         *     channel ID for the server's Slack app (stage 2: approve and reject
+         *     buttons). Exactly one.
+         */
         ProjectSlackRequest: {
+            /** @description A Slack channel ID (`C…` or `G…`, from the channel's details). */
+            channel?: string | null;
             /** @description A Slack incoming-webhook URL (https://hooks.slack.com/…). */
-            url: string;
+            url?: string | null;
         };
         ProjectSlackView: {
+            /**
+             * @description Whether this server has a Slack app (bot token and signing secret),
+             *     which channels and approval buttons need.
+             * @default false
+             */
+            app: boolean;
+            /**
+             * @description SLACK1 stage 2: the channel the server's Slack app posts to, when
+             *     the project uses one (channel IDs are not secrets; a webhook URL is
+             *     never read back).
+             */
+            channel?: string | null;
             configured: boolean;
         };
         ProjectVariable: {
@@ -2979,6 +3064,8 @@ export interface components {
             };
         };
         ProjectView: {
+            /** @description Archived (2026-11-18): hidden in the app and read-only. */
+            archived?: boolean;
             id: components["schemas"]["ProjectId"];
             org_id: components["schemas"]["OrganizationId"];
             slug: string;
@@ -3533,6 +3620,62 @@ export interface components {
             /** @description The principal who started the replacing run (`user:…`, `service:…`). */
             started_by: string;
         };
+        /**
+         * @description One file of a Git sync: its path in the repository (reported back, never
+         *     stored) and its runbook source, whose `metadata.id` names the runbook.
+         */
+        SyncFile: {
+            path: string;
+            source: string;
+        };
+        /** @description A refused sync: each file with errors, and its diagnostics. */
+        SyncFileErrors: {
+            errors: components["schemas"]["Diagnostic"][];
+            path: string;
+        };
+        /**
+         * @description `POST /v1/projects/{p}/sync` (2026-11-17, PRD §12 open-source path):
+         *     a repository folder's runbooks, published as a batch. Every file is
+         *     compiled first; any error refuses the whole batch with nothing changed.
+         */
+        SyncRequest: {
+            branch?: string | null;
+            /** @description Recorded on each new version. */
+            commit_sha?: string | null;
+            /**
+             * @description Validate and report what would change, changing nothing (for pull
+             *     request checks).
+             */
+            dry_run?: boolean;
+            files: components["schemas"]["SyncFile"][];
+            /** @description Archive this project's Git-managed runbooks that have no file here. */
+            prune?: boolean;
+        };
+        /** @description What a sync did (or, with `dry_run`, would do) to one runbook. */
+        SyncRunbookView: {
+            /**
+             * @description `create`, `adopt` (a UI-authored runbook becomes Git-managed),
+             *     `update`, `unchanged` or `archive`.
+             */
+            action: string;
+            /** @description The file's path; absent for an archived runbook. */
+            path?: string | null;
+            /** @description Absent for a runbook a dry run would create. */
+            runbook_id?: components["schemas"]["RunbookId"] | null;
+            /**
+             * Format: uint32
+             * @description The published version (absent on a dry run and for `archive`).
+             */
+            runbook_version?: number | null;
+            runbook_version_id?: components["schemas"]["VersionId"] | null;
+            slug: string;
+        };
+        SyncView: {
+            branch?: string | null;
+            commit_sha?: string | null;
+            dry_run: boolean;
+            runbooks: components["schemas"]["SyncRunbookView"][];
+        };
         /** @description LANG7: a person took over an agent task. */
         TakenOverView: {
             /** Format: int64 */
@@ -3702,8 +3845,13 @@ export interface components {
         };
         /** @description `PATCH /v1/projects/{p}`: a project's settings (project admins). */
         UpdateProjectRequest: {
+            /**
+             * @description Archive (true) or restore (false) the project: org owners and
+             *     admins only. Archived projects are hidden and read-only.
+             */
+            archived?: boolean | null;
             /** @description Display name (1 to 100 characters). */
-            title: string;
+            title?: string | null;
         };
         UpdateUserRequest: {
             active: boolean;
@@ -10394,6 +10542,151 @@ export interface operations {
             };
         };
     };
+    post_v1_projects__p__sync: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                p: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SyncRequest"];
+            };
+        };
+        responses: {
+            /** @description Typed public response */
+            200: {
+                headers: {
+                    "X-RateLimit-Limit"?: string;
+                    "X-Request-ID"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncView"];
+                };
+            };
+            /** @description Stable problem details and X-Request-ID. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details and X-Request-ID. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details and X-Request-ID. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details and X-Request-ID. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details and X-Request-ID. */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details and X-Request-ID. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details and X-Request-ID. */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details and X-Request-ID. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details and X-Request-ID. */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid request, including incompatible rerun inputs. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details and X-Request-ID. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details and X-Request-ID. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Response details will be finalized with the durable API implementation. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     get_v1_projects__p__vars: {
         parameters: {
             query?: never;
@@ -12352,6 +12645,147 @@ export interface operations {
             };
         };
     };
+    post_v1_runbooks__rb__detach: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                rb: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Typed public response */
+            200: {
+                headers: {
+                    "X-RateLimit-Limit"?: string;
+                    "X-Request-ID"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DetachView"];
+                };
+            };
+            /** @description Stable problem details and X-Request-ID. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details and X-Request-ID. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details and X-Request-ID. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details and X-Request-ID. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details and X-Request-ID. */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details and X-Request-ID. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details and X-Request-ID. */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details and X-Request-ID. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details and X-Request-ID. */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid request, including incompatible rerun inputs. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details and X-Request-ID. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details and X-Request-ID. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Response details will be finalized with the durable API implementation. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     get_v1_runbooks__rb__draft: {
         parameters: {
             query?: never;
@@ -13476,6 +13910,33 @@ export interface operations {
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
+            };
+        };
+    };
+    post_v1_slack_interactions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Invalid request, including incompatible rerun inputs. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Response details will be finalized with the durable API implementation. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

@@ -241,6 +241,31 @@ pub trait CatalogStore {
         branch: Option<String>,
         commit_sha: Option<String>,
     ) -> impl Future<Output = Result<runbook_model::VersionView, StoreError>>;
+    /// Git sync (2026-11-17): the runbook becomes Git-managed (and not
+    /// archived), its draft becomes the file's source, and that source is
+    /// published as the next numbered version recording the branch and
+    /// commit. A semantic duplicate of the latest version returns it, with
+    /// no new version and no event, as [`Self::publish_revision`] does.
+    fn publish_git(
+        &self,
+        runbook_id: &runbook_model::RunbookId,
+        prepared: crate::publish::PreparedPublication,
+        branch: Option<String>,
+        commit_sha: Option<String>,
+    ) -> impl Future<Output = Result<runbook_model::PublishedVersionView, StoreError>>;
+    /// Git sync: archive a Git-managed runbook whose file is gone (its
+    /// versions and runs are kept). A UI-authored runbook is refused with
+    /// `runbook.not_git_managed`.
+    fn archive_git(
+        &self,
+        runbook_id: &runbook_model::RunbookId,
+    ) -> impl Future<Output = Result<(), StoreError>>;
+    /// Git sync: make a Git-managed runbook editable in the app again (its
+    /// draft and versions stay; the next sync of its file adopts it back).
+    fn detach_git(
+        &self,
+        runbook_id: &runbook_model::RunbookId,
+    ) -> impl Future<Output = Result<(), StoreError>>;
     /// Omitted selector: highest published number. Foreign and nonexistent
     /// versions are the same NotFound.
     fn resolve_version(

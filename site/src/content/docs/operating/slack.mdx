@@ -1,0 +1,83 @@
+---
+title: Slack and email
+description: Notifications by email and in Slack, and approving from Slack with the Runbook's Slack app.
+sidebar:
+  order: 11
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+People are told about work three ways: the web app's inbox, email, and
+Slack. Webhooks reach your own systems the same way.
+
+## Email
+
+Approvals, assignments and handoffs, reminders, escalations and failed runs
+go by email to people with a verified address, as text and HTML, with a link
+into the app and a one-click unsubscribe. Each person picks `all`,
+`approvals_only`, `daily_summary` or `none` in their account settings.
+Email uses the same SMTP settings as sign-in codes (`RUNBOOK_SMTP_URL`,
+`RUNBOOK_SMTP_FROM`). Mail goes through a durable outbox: a failed send is
+retried and never holds up a run.
+
+## Slack
+
+A project can post its approvals, handoffs, reminders and failed runs to a
+Slack channel, two ways:
+
+| | Incoming webhook | The Runbook's Slack app |
+| --- | --- | --- |
+| Set up by | A project admin | The operator once, then project admins |
+| Messages | A line linking to the run | The same, with a button per approval option |
+| Decide from Slack | No | Yes, as the person who clicks |
+
+### Incoming webhook
+
+In **Project settings → Slack notifications**, paste an incoming-webhook
+URL (`https://hooks.slack.com/…`). It's stored and never shown again.
+
+### The Slack app
+
+<Steps>
+
+1. **Create the app** from
+   [`deploy/slack/manifest.yaml`](https://github.com/angler-ai/the-runbook-app/blob/main/deploy/slack/manifest.yaml):
+   at api.slack.com/apps choose **Create New App → From a manifest**, after
+   replacing `runbook.example.com` with your host, so Slack sends clicks to
+   `https://<host>/v1/slack/interactions`. Install it to your workspace.
+
+2. **Give the server its secrets:**
+
+   | Docker/Kubernetes | Cloudflare | |
+   | --- | --- | --- |
+   | `RUNBOOK_SLACK_BOT_TOKEN` | the same, as a secret | The Bot User OAuth Token (`xoxb-…`) |
+   | `RUNBOOK_SLACK_SIGNING_SECRET` | the same, as a secret | **Basic Information → Signing Secret** |
+   | `RUNBOOK_SLACK_DEFAULT_CHANNEL` | the same, as a var | Optional: a channel ID for projects that name none |
+
+   Both secrets or neither. With the GKE Terraform module, use
+   `slack_bot_token`, `slack_signing_secret` and `slack_default_channel`.
+
+3. **Pick each project's channel.** Invite the app to the channel
+   (`/invite @The Runbook`), then enter the channel's ID (`C…` or `G…`) in
+   **Project settings → Slack notifications**.
+
+</Steps>
+
+### How a click becomes a decision
+
+- Each click is checked against Slack's signature, made with your signing
+  secret; requests more than five minutes old are refused.
+- The person who clicked is looked up in Slack and matched to a Runbook
+  account **by email**. That account must be an active member of the
+  organization.
+- The decision goes through the normal decision route with that person's
+  own permissions: approver rules, minimums and one vote per person apply
+  exactly as in the app. The credential used lasts one minute and is revoked
+  straight away.
+- The person gets a reply only they can see, such as "Your vote (approve)
+  is recorded." or "You are not an approver for this step."
+
+<Aside type="note">
+Slack is best effort. Email, webhooks and the inbox stay the record, and a
+Slack outage never holds up a run.
+</Aside>

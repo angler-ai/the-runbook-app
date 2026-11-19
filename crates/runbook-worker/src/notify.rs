@@ -242,8 +242,93 @@ fn salt() -> String {
 }
 
 /// SLACK1: Slack posts ride the same fetch as everything else here.
-struct SlackFetch;
+pub(crate) struct SlackFetch;
+impl SlackFetch {
+    async fn send(
+        url: &str,
+        method: Method,
+        token: Option<&str>,
+        body: Option<String>,
+    ) -> Result<worker::Response, String> {
+        let mut init = RequestInit::new();
+        init.with_method(method);
+        let headers = worker::Headers::new();
+        if body.is_some() {
+            headers
+                .set("content-type", "application/json; charset=utf-8")
+                .map_err(|_| "slack_headers".to_owned())?;
+        }
+        if let Some(token) = token {
+            headers
+                .set("authorization", &format!("Bearer {token}"))
+                .map_err(|_| "slack_headers".to_owned())?;
+        }
+        init.with_headers(headers);
+        init.with_body(body.map(Into::into));
+        let request = Request::new_with_init(url, &init).map_err(|_| "slack_url".to_owned())?;
+        let response = Fetch::Request(request)
+            .send()
+            .await
+            .map_err(|_| "slack_unreachable".to_owned())?;
+        if response.status_code() >= 300 {
+            return Err(format!("slack_{}", response.status_code()));
+        }
+        Ok(response)
+    }
+    /// A JSON POST to an interaction's `response_url`.
+    pub(crate) async fn respond(&self, url: &str, body: &serde_json::Value) -> Result<(), String> {
+        Self::send(url, Method::Post, None, Some(body.to_string()))
+            .await
+            .map(|_| ())
+    }
+}
 impl runbook_core::slack::SlackTransport for SlackFetch {
+    async fn slack_api(
+        &self,
+        token: &str,
+        method: &str,
+        query: &[(&str, &str)],
+        body: Option<&serde_json::Value>,
+    ) -> Result<serde_json::Value, String> {
+        let mut url = format!("https://slack.com/api/{method}");
+        if !query.is_empty() {
+            url.push('?');
+            let encode = |v: &str| {
+                v.bytes()
+                    .map(|b| {
+                        if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) {
+                            (b as char).to_string()
+                        } else {
+                            format!("%{b:02X}")
+                        }
+                    })
+                    .collect::<String>()
+            };
+            let pairs: Vec<String> = query
+                .iter()
+                .map(|(k, v)| format!("{}={}", encode(k), encode(v)))
+                .collect();
+            url.push_str(&pairs.join("&"));
+        }
+        let mut response = match body {
+            Some(body) => {
+                Self::send(&url, Method::Post, Some(token), Some(body.to_string())).await?
+            }
+            None => Self::send(&url, Method::Get, Some(token), None).await?,
+        };
+        let value: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|_| "slack_invalid_reply".to_owned())?;
+        if value["ok"] == serde_json::json!(true) {
+            Ok(value)
+        } else {
+            Err(format!(
+                "slack_{}",
+                value["error"].as_str().unwrap_or("not_ok")
+            ))
+        }
+    }
     async fn post_slack(&self, url: &str, text: &str) -> Result<(), String> {
         let mut init = RequestInit::new();
         init.with_method(Method::Post);
@@ -285,6 +370,7 @@ pub async fn consume_batch(
     // NOTIFY1: email fan-out + send, best-effort beside webhooks. Mail
     // rows are idempotent, so a queue retry re-records nothing.
     let mail_sessions = crate::auth::WorkersSessions::from_env(env, &crate::edge::origin(env));
+    let slack = crate::edge::slack_app(env);
     for message in batch.messages()? {
         let body = message.body().clone();
         if let (Some(shards), Ok(origin)) = (
@@ -306,6 +392,7 @@ pub async fn consume_batch(
             let _ = runbook_core::slack::fan_out_slack(
                 &notify,
                 &SlackFetch,
+                slack.as_ref(),
                 &body.scope,
                 &body.intent,
                 &body.meta.title,

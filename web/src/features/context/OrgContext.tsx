@@ -26,7 +26,10 @@ export interface DirectoryCache {
 export interface OrgContextValue {
   /** The signed-in organization, once /v1/orgs confirms it. */
   org: OrganizationView | undefined;
+  /** The org's projects, without archived ones. */
   projects: ProjectView[];
+  /** Archived projects (2026-11-18): hidden and read-only until restored. */
+  archivedProjects: ProjectView[];
   directory: DirectoryCache;
   isLoading: boolean;
   /** Route params may carry a project slug or ID; resolve either. */
@@ -48,10 +51,12 @@ export function OrgProvider({ children }: { children: ReactNode }) {
     const teamList = teams.data ?? [];
     const usersById = new Map(userList.map((u) => [u.id, u]));
     const teamsById = new Map(teamList.map((t) => [t.id, t]));
-    const projectList = projects.data ?? [];
+    const allProjects = projects.data ?? [];
+    const projectList = allProjects.filter((p) => !p.archived);
     return {
       org: orgs.data?.find((o) => o.id === orgId),
       projects: projectList,
+      archivedProjects: allProjects.filter((p) => p.archived),
       directory: {
         users: userList,
         teams: teamList,
@@ -60,7 +65,7 @@ export function OrgProvider({ children }: { children: ReactNode }) {
       },
       isLoading: me.isLoading || orgs.isLoading || projects.isLoading,
       resolveProject: (ref) =>
-        ref ? projectList.find((p) => p.id === ref || p.slug === ref) : undefined,
+        ref ? allProjects.find((p) => p.id === ref || p.slug === ref) : undefined,
     };
   }, [
     me.isLoading,

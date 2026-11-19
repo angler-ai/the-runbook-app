@@ -32,6 +32,7 @@ fn snapshot() -> DirectorySnapshot {
         teams: Default::default(),
         project_members: Default::default(),
         team_members: Default::default(),
+        archived_projects: Default::default(),
     };
     for (n, role, active) in [
         (1, OrgRole::Admin, true),

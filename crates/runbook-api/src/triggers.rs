@@ -98,7 +98,32 @@ pub async fn due_schedules<B: Backends>(
 ) -> Result<Vec<DueStart>, StoreError> {
     let executions = backends.executions();
     let mut due = vec![];
+    // Archived projects' schedules are off (2026-11-18): one directory read
+    // per organization per pass. A failed read skips that organization's
+    // schedules this pass (fail closed); the next pass tries again.
+    let directory = backends.directory();
+    let mut archived: std::collections::BTreeMap<
+        runbook_model::OrganizationId,
+        Option<std::collections::BTreeSet<runbook_model::ProjectId>>,
+    > = Default::default();
     for version in backends.published_versions().await? {
+        let org = &version.scope.org_id;
+        if !archived.contains_key(org) {
+            let set = runbook_core::directory::DirectoryStore::snapshot(&directory, org)
+                .await
+                .map(|s| s.archived_projects)
+                .ok();
+            archived.insert(org.clone(), set);
+        }
+        match &archived[org] {
+            None => {
+                pass.failed
+                    .push((version.runbook_id.to_string(), "storage.unavailable"));
+                continue;
+            }
+            Some(set) if set.contains(&version.scope.project_id) => continue,
+            Some(_) => {}
+        }
         let store = backends.execution(version.scope.clone());
         let triggers =
             match runbook_core::triggers::triggers_of(&store, version.snapshot_digest).await {

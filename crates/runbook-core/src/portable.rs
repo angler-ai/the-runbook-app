@@ -257,6 +257,16 @@ pub struct BlobRow {
     pub key: BlobKey,
     pub bytes: Vec<u8>,
 }
+/// The project's line in the archive: its record, plus `archived` only when
+/// set, so archives of live projects stay byte-identical to older ones.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct ProjectLine {
+    #[serde(flatten)]
+    record: ProjectRecord,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    archived: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct BlobIndexRow {
     key: BlobKey,
@@ -271,6 +281,9 @@ struct BlobIndexRow {
 pub struct DirectorySlice {
     pub organization: OrganizationRecord,
     pub project: ProjectRecord,
+    /// The project is archived: an import keeps it archived (read-only,
+    /// triggers off) instead of bringing it back live.
+    pub archived: bool,
     pub users: Vec<UserRecord>,
     pub teams: Vec<TeamRecord>,
     pub project_members: Vec<ProjectMember>,
@@ -461,6 +474,7 @@ pub fn directory_slice(
         .collect();
     let mut slice = DirectorySlice {
         organization: snapshot.organization.clone(),
+        archived: snapshot.archived_projects.contains(project_id),
         project,
         users,
         teams,
@@ -529,6 +543,12 @@ pub fn directory_commit(
     }
     if !project_exists {
         mutations.push(DirectoryMutation::CreateProject(slice.project.clone()));
+        if slice.archived {
+            mutations.push(DirectoryMutation::SetProjectArchived {
+                project_id: slice.project.id.clone(),
+                archived: true,
+            });
+        }
     }
     for member in &slice.project_members {
         let key = (slice.project.id.clone(), member.user_id.clone());
@@ -689,7 +709,10 @@ pub fn encode(data: &ProjectData, created_at_ms: i64) -> Result<Archive, Portabl
         .collect::<Result<Vec<_>, PortableError>>()?;
     let tables = [
         ndjson([&d.organization])?,
-        ndjson([&d.project])?,
+        ndjson([ProjectLine {
+            record: d.project.clone(),
+            archived: d.archived,
+        }])?,
         ndjson(&d.users)?,
         ndjson(&d.teams)?,
         ndjson(&d.project_members)?,
@@ -878,13 +901,17 @@ pub fn decode(archive: &Archive) -> Result<(Manifest, ProjectData), PortableErro
         project_id: manifest.project_id.clone(),
     };
     let organization: Vec<OrganizationRecord> = rows!(0);
-    let project: Vec<ProjectRecord> = rows!(1);
+    let project: Vec<ProjectLine> = rows!(1);
     let (Ok([organization]), Ok([project])) = (
         <[_; 1]>::try_from(organization),
         <[_; 1]>::try_from(project),
     ) else {
         return Err(PortableError::archive("archive.invalid_directory"));
     };
+    let ProjectLine {
+        record: project,
+        archived,
+    } = project;
     if organization.id != scope.org_id
         || project.id != scope.project_id
         || project.org_id != scope.org_id
@@ -898,6 +925,7 @@ pub fn decode(archive: &Archive) -> Result<(Manifest, ProjectData), PortableErro
     let directory = DirectorySlice {
         organization,
         project,
+        archived,
         users: rows!(2),
         teams,
         project_members: rows!(4),

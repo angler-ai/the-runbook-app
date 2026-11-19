@@ -170,7 +170,9 @@ pub fn anonymous_body_refused(method: &str, path: &str) -> bool {
         && crate::directory::match_path(runbook_model::TRIGGER_PATH, path).is_some();
     // NOTIFY1: the one-click unsubscribe body is its credential.
     let unsubscribe = method == "POST" && path == "/v1/unsubscribe";
-    !refresh && !device_poll && !trigger && !unsubscribe
+    // SLACK1 stage 2: Slack's signature over the body is the credential.
+    let slack = method == "POST" && path == runbook_model::SLACK_INTERACTIONS;
+    !refresh && !device_poll && !trigger && !unsubscribe && !slack
 }
 
 /// The API request from a read body: `Content-Type: application/json`
@@ -187,6 +189,29 @@ pub fn decode(
     nonce: String,
 ) -> Result<crate::Request, crate::problem::Response> {
     use crate::problem::Response;
+    // SLACK1 stage 2: Slack posts a signed form; the API checks the
+    // signature over these exact bytes, so they pass through verbatim.
+    let slack = method == "POST" && path == runbook_model::SLACK_INTERACTIONS;
+    if slack {
+        let raw = std::str::from_utf8(bytes)
+            .map_err(|_| Response::error(400, "slack.invalid_request", request_id))?;
+        return Ok(crate::Request {
+            method: method.to_owned(),
+            path: path.to_owned(),
+            query: Default::default(),
+            body: serde_json::json!(runbook_model::SlackInteractionEnvelope {
+                raw: raw.to_owned(),
+                timestamp: headers.get("x-slack-request-timestamp").map(str::to_owned),
+                signature: headers.get("x-slack-signature").map(str::to_owned),
+            }),
+            credential,
+            idempotency_key: None,
+            if_match: None,
+            client_ip: None,
+            request_id: request_id.into(),
+            new_id: nonce,
+        });
+    }
     if !bytes.is_empty() && !is_json(headers) {
         return Err(Response::error(415, "request.content_type", request_id));
     }

@@ -1,0 +1,85 @@
+---
+title: Monitoring
+description: Health endpoints, structured logs, the doctor command, and what to alert on.
+sidebar:
+  order: 8
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+## Health
+
+| Check | Answers | Use it for |
+| --- | --- | --- |
+| `GET /health/live` | `200` while the process runs | Liveness probes |
+| `GET /health/ready` | `200` when the database is reachable too | Readiness probes and load balancers |
+| `GET /v1/meta` | The release (`version`), the schema, limits and capabilities | Checking what's deployed |
+| `runbook-server doctor` | The database connection, schema version and blob store | After installs and updates, and when something's off |
+
+```sh
+curl -fsS https://runbooks.example.com/health/ready
+curl -s https://runbooks.example.com/v1/meta | jq '{version, schema, capabilities}'
+```
+
+The compose file and the GKE module wire these into the container's
+healthcheck and the Kubernetes probes.
+
+## Logs
+
+<Tabs syncKey="edition">
+<TabItem label="Docker/Kubernetes">
+
+```sh
+RUNBOOK_LOG_FORMAT=json
+```
+
+writes one JSON object per line, for your log pipeline. Logs carry error
+codes, never URLs or secrets.
+Lines worth alerting on:
+
+- `auth service ready` missing after a start: sign-in is down
+  (`auth.unavailable` on `/api/auth/*`);
+- repeated `storage.unavailable` or `postgres.*` codes: the database is
+  unhealthy;
+- `postgres.schema_newer_than_code`: an older release was started on a newer
+  schema without `RUNBOOK_ALLOW_NEWER_SCHEMA=true`.
+
+</TabItem>
+<TabItem label="Cloudflare">
+
+Use the Workers dashboard's logs and metrics, or stream them:
+
+```sh
+npx wrangler tail -c wrangler.prod.jsonc
+```
+
+Webhook notifications go through the `runbook-notifications` queue; messages
+that exhaust their retries land in `runbook-notifications-dlq`. Watch its
+depth, and redrive it once the cause is fixed:
+
+```sh
+npx wrangler queues redrive runbook-notifications-dlq --queue runbook-notifications
+```
+
+</TabItem>
+</Tabs>
+
+## In the product
+
+Some problems show up where people work, not in logs:
+
+- **Webhooks:** a subscription that has failed for three days is disabled,
+  with a notice for project admins. `runbook webhook deliveries` shows
+  each attempt.
+- **Notices that reached no one:** when an approval or handoff notice
+  reached no subscriber, the run page says so.
+- **Stuck work:** reminders and escalations (`remind_after`,
+  `escalate_after`) tell people about steps that wait too long; set them in
+  `spec.defaults`.
+
+## Graceful shutdown
+
+On `SIGTERM` the server stops accepting connections and finishes in-flight
+requests for up to `RUNBOOK_SHUTDOWN_TIMEOUT_SECS`. Leases, timers and
+webhook deliveries live in the database, so another instance (or the same
+one after a restart) picks them up.

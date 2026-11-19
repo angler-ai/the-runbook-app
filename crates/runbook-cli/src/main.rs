@@ -87,6 +87,11 @@ pub enum Commands {
     Mcp(runbook_cli::mcp::McpCommands),
     #[command(subcommand, about = "Manage and install agent skills")]
     Skill(runbook_cli::skill::SkillCommands),
+    #[command(
+        subcommand,
+        about = "Sync a repository folder of runbooks with a project (push from CI, pull to start)"
+    )]
+    Sync(runbook_cli::sync::SyncCommands),
     #[command(about = "Show this CLI's release and the server's release and schema")]
     Version(runbook_cli::version::VersionArgs),
 }
@@ -209,6 +214,8 @@ impl Commands {
             },
             Commands::Mcp(_) => false,
             Commands::Skill(cmd) => cmd.is_json(),
+            Commands::Sync(runbook_cli::sync::SyncCommands::Push(args)) => args.json,
+            Commands::Sync(runbook_cli::sync::SyncCommands::Pull(args)) => args.json,
             Commands::Version(args) => args.json,
         }
     }
@@ -1332,6 +1339,18 @@ fn context_project_env() {
 }
 
 fn run() -> i32 {
+    // DOCS1: `runbook __docs-reference` prints the CLI and MCP reference as
+    // JSON for the docs site (site/scripts/generate.mjs). It is not a clap
+    // subcommand, so it never shows in help or in the reference itself.
+    if env::args().nth(1).as_deref() == Some("__docs-reference") {
+        use clap::CommandFactory;
+        let reference = runbook_cli::docgen::reference(&Cli::command());
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&reference).expect("reference serializes")
+        );
+        return 0;
+    }
     context_project_env();
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
@@ -1617,6 +1636,7 @@ fn run() -> i32 {
             Err(code) => code,
         },
         Commands::Skill(cmd) => with_env(&cli_env, |env| runbook_cli::skill::handle(env, cmd)),
+        Commands::Sync(cmd) => with_env(&cli_env, |env| runbook_cli::sync::handle(env, cmd)),
         Commands::Version(args) => match agent_env(
             host_flag.as_deref(),
             context_flag.as_deref(),

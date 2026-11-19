@@ -1376,6 +1376,10 @@ fn publishing_a_new_version_emits_runbook_published_without_source() {
     .unwrap();
     assert_eq!(pending.len(), 1, "{pending:?}");
     assert_eq!(pending[0].event_type, "runbook.published");
+    // A webhook created after the publish, while its event still waits in
+    // the outbox, does not receive it when the drain catches up.
+    let at_ms = pending[0].at_ms;
+    env.subscribe(4, &["runbook.published"], |s| s.created_at_ms = at_ms + 1);
     let duplicate = publish("rbv_00000000000000000000000003");
     assert_eq!(duplicate, v2);
     assert_eq!(
@@ -1425,6 +1429,7 @@ fn publishing_a_new_version_emits_runbook_published_without_source() {
     // Runbook and tag filters apply.
     assert!(env.receiver.received("https://hooks.example/2").is_empty());
     assert!(env.receiver.received("https://hooks.example/3").is_empty());
+    assert!(env.receiver.received("https://hooks.example/4").is_empty());
 }
 
 #[test]

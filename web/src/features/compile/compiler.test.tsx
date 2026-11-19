@@ -2,7 +2,7 @@
 // `npm run wasm:build`; these tests skip without it, as src/wasm's do):
 // editing the flagship updates the Outline view, and a stale directory gives
 // provisional diagnostics that the server's save verdict replaces (F99).
-import { fireEvent, screen, within } from '@testing-library/react';
+import { configure, fireEvent, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -54,6 +54,10 @@ beforeEach(async () => {
 afterEach(() => tokenStore.clear());
 
 const diagnosticsHeading = () => within(screen.getByTestId('diagnostics')).getByRole('heading');
+
+// The real compiler runs in the test: on a shared CI runner its first
+// compile can take longer than findBy's default second.
+configure({ asyncUtilTimeout: 10_000 });
 
 describe.skipIf(!isBuilt)('editor over the built compiler', () => {
   it('editing the flagship updates the outline', async () => {

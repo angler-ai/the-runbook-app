@@ -433,10 +433,34 @@ fn push(b: &mut dyn Backend, a: &PushArgs, store: Option<&StateDir>) -> Result<i
         }
         out["published"] = published;
     }
+    if problems == 0
+        && let Some(warning) = step_cap_warning(b, &source)
+    {
+        eprintln!("warning: {warning}");
+        out["step_cap_warning"] = json!(warning);
+    }
     if a.json {
         print_json(&out);
     }
     Ok(exit)
+}
+
+/// The step cap warning (2026-11-17): a runbook whose worst case is over
+/// this server's `limits.step_runs` still publishes, but a run that reaches
+/// the cap stops. `None` when there is no cap, the budget is unknown, or it
+/// fits. `/v1/meta` failing is not an error here.
+fn step_cap_warning(b: &mut dyn Backend, source: &str) -> Option<String> {
+    let budget = crate::validate::validate_source(source).worst_case_step_runs?;
+    let meta = b
+        .call(runbook_mcp::backend::HttpCall::get("/v1/meta"))
+        .ok()?
+        .body;
+    let cap = meta["limits"]["step_runs"].as_u64()?;
+    (budget > cap).then(|| {
+        format!(
+            "worst case {budget} step runs is over this server's limit of {cap}: a run that reaches it stops"
+        )
+    })
 }
 
 /// Any runbook of the project, to confirm publish permission in it.
@@ -451,7 +475,14 @@ fn any_runbook(b: &mut dyn Backend, project: &str) -> Result<Option<String>, Bac
 fn publish(b: &mut dyn Backend, a: &PublishArgs) -> Result<i32, BackendError> {
     let rb = ops::resolve_runbook(b, &a.runbook, a.project.as_deref())?;
     let key = base_key(&a.idempotency_key)?;
-    let (revision, published) = ops::publish(b, &rb, a.revision, &key)?;
+    let (revision, mut published) = ops::publish(b, &rb, a.revision, &key)?;
+    let warning = ops::get_draft(b, &rb)
+        .ok()
+        .and_then(|draft| step_cap_warning(b, &draft.source));
+    if let Some(warning) = &warning {
+        eprintln!("warning: {warning}");
+        published["step_cap_warning"] = json!(warning);
+    }
     if a.json {
         print_json(&published);
     } else {
