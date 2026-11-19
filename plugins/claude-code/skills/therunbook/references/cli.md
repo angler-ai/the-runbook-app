@@ -122,6 +122,17 @@ on that step only). `--text` adds a unified diff of the two sources. Use it
 before `push` to check what an edit changes, and call out any removed or
 weakened approval or `destructive` flag it shows.
 
+## Research (chat apps)
+
+`search` and `fetch` exist for chat apps' research modes (ChatGPT deep
+research and company knowledge, which use only tools with these names). They
+are read-only; when you run runbooks, use the tools and commands above.
+
+| MCP tool | CLI command | Notes |
+| --- | --- | --- |
+| `search` | `runbook list --project <p> --json` | Searches the runbooks, runs and memory the credential can read, across its projects, and returns `{results: [{id, title, url}]}` (at most 20). The CLI has no single search: list runbooks, find runs with `runbook run list --project <p> --json` and memory with `runbook memory search <runbook> [query] --json`. |
+| `fetch` | `runbook get <runbook> --json` | One search result in full by its `rb_`, `exe_` or `mem_` id: `{id, title, text, url, metadata}`, the item's text inside a RUNBOOK DATA block. For a run use `runbook run get <exe> --json`. |
+
 ## Skills
 
 - `runbook skill list [--project <p>] [--limit <n>] [--cursor <c>] [--json]`: lists project skills and versions with runbook usages (`runbook_id`, `step_ids`).

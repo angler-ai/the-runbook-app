@@ -5,7 +5,7 @@
 //! The trace: `initialize`, `notifications/initialized`, `tools/list`,
 //! `start_execution`, `get_next_steps`, `claim_step`, `get_step`,
 //! `report_step`, `resources/list`, `resources/read`, `prompts/list` and
-//! `prompts/get`. Each transport starts its own run, so IDs, data-block
+//! `prompts/get`; then `search` and `fetch`. Each transport starts its own run, so IDs, data-block
 //! nonces, idempotency keys and timestamps are normalized before comparing.
 //!
 //! Ignored by default: needs DATABASE_URL and creates/drops its own
@@ -24,7 +24,7 @@ use std::time::{Duration, Instant};
 
 const SPEC: &str = r#"apiVersion: therunbook.app/v1
 kind: Runbook
-metadata: {id: parity, title: Parity}
+metadata: {id: parity, title: Parity, description: Checks a service health endpoint}
 spec:
   inputs:
     service: {type: string, required: true}
@@ -401,6 +401,78 @@ fn stdio_and_remote_mcp_give_the_same_trace() {
         assert_eq!(a.len(), b.len());
         for (i, (a, b)) in a.iter().zip(&b).enumerate() {
             assert_eq!(a, b, "response {i} differs between stdio and HTTP");
+        }
+
+        // The research tools, once both runs exist: the same results, links
+        // (the CLI's host is the server's origin) and documents.
+        let exe = control(&over_stdio[2])["execution_id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let research = |t: &mut dyn Transport| {
+            let found = t
+                .send(&tool(20, "search", json!({"query": "parity"})))
+                .unwrap();
+            let results: Value =
+                serde_json::from_str(found["result"]["content"][0]["text"].as_str().unwrap())
+                    .unwrap();
+            let rb = results["results"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|r| r["id"].as_str().unwrap().starts_with("rb_"))
+                .unwrap_or_else(|| panic!("no runbook in {results}"))["id"]
+                .clone();
+            // Runbooks match on their description too.
+            let by_description = t
+                .send(&tool(23, "search", json!({"query": "health endpoint"})))
+                .unwrap();
+            assert_eq!(
+                by_description["result"]["structuredContent"]["results"][0]["id"], rb,
+                "{by_description}"
+            );
+            let runbook = t.send(&tool(21, "fetch", json!({"id": rb}))).unwrap();
+            let run = t.send(&tool(22, "fetch", json!({"id": exe}))).unwrap();
+            vec![found, runbook, run]
+        };
+        let over_stdio = research(&mut stdio);
+        let over_http = research(&mut http);
+        for responses in [&over_stdio, &over_http] {
+            let found = &responses[0]["result"]["structuredContent"]["results"];
+            assert_eq!(
+                found[0]["url"].as_str().unwrap().split("/p/").next(),
+                Some(stack.host.as_str()),
+                "{found}"
+            );
+            let runbook = &responses[1]["result"]["structuredContent"];
+            assert!(
+                runbook["text"]
+                    .as_str()
+                    .unwrap()
+                    .contains("metadata: {id: parity"),
+                "{runbook}"
+            );
+            assert_eq!(
+                runbook["url"].as_str().unwrap(),
+                format!(
+                    "{}/p/default/runbooks/{}",
+                    stack.host,
+                    runbook["id"].as_str().unwrap()
+                )
+            );
+            let run = &responses[2]["result"]["structuredContent"];
+            assert_eq!(run["url"], format!("{}/x/{exe}", stack.host));
+            assert!(
+                run["text"]
+                    .as_str()
+                    .unwrap()
+                    .contains("\"service\": \"api\""),
+                "{run}"
+            );
+        }
+        let (a, b) = (normalize(&over_stdio), normalize(&over_http));
+        for (i, (a, b)) in a.iter().zip(&b).enumerate() {
+            assert_eq!(a, b, "research response {i} differs between stdio and HTTP");
         }
     });
 }
