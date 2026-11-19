@@ -116,13 +116,15 @@ pub(crate) async fn run<B: runbook_api::backends::Backends>(
             permit,
             reply,
         } => {
-            let _permit = permit;
             let expired = move || Instant::now() >= deadline;
             let slots = WorkerSlots { permits, deadline };
             let response = runbook_api::mcp::answer(
                 router, secret, &id, auth, &message, max_calls, &expired, &slots,
             )
             .await;
+            // The work is done: free the slot before answering, so a client
+            // that sends its next message on the reply finds it free.
+            drop(permit);
             let _ = reply.send(response);
         }
     }
