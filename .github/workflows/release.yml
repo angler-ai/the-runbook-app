@@ -229,6 +229,9 @@ jobs:
       - name: Refuse a version that already exists
         run: |
           printf '%s' "$GH_TOKEN" | skopeo login ghcr.io --username "$ACTOR" --password-stdin
+          # attest-build-provenance pushes the image attestation with Docker's
+          # credentials, not skopeo's (v0.1.0's first publish failed here).
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$ACTOR" --password-stdin
           if gh release view "$TAG" --repo "$REPOSITORY" >/dev/null 2>&1; then echo "release $TAG exists" >&2; exit 1; fi
           if skopeo inspect --raw "docker://$IMAGE:$VERSION" >/dev/null 2>&1; then echo "$IMAGE:$VERSION exists" >&2; exit 1; fi
       - name: Push the image by digest (untagged)
