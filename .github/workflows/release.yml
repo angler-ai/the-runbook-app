@@ -137,11 +137,17 @@ jobs:
           (cd web && npm ci --ignore-scripts --no-audit --no-fund && node scripts/build-wasm.mjs && npm run build)
           (cd cloudflare && node scripts/build-worker.mjs worker && node scripts/build-worker.mjs auth)
           node scripts/release/release.mjs cloudflare-bundle dist "$DIGEST"
-      - name: Notes and install.sh
+      - name: Notes, install.sh and the skill zip
         run: |
           mkdir -p notes
           node scripts/release/release.mjs notes "$TAG" > notes/notes.md
           install -m 755 install.sh dist/install.sh
+          # The skill folder as Claude and ChatGPT take it: one top-level
+          # therunbook/ folder holding SKILL.md, with its license.
+          skill=$(mktemp -d)
+          cp -R skills/therunbook "$skill/therunbook"
+          cp skills/LICENSE "$skill/therunbook/LICENSE.txt"
+          (cd "$skill" && zip -qrX "$GITHUB_WORKSPACE/dist/therunbook-skill.zip" therunbook)
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release

@@ -15,13 +15,15 @@ CLI.
 
 <Steps>
 
-1. **Install the CLI** and sign it in to your server. From a checkout:
+1. **Install the CLI** and sign it in to your server:
 
    ```sh
-   cargo build --release --locked -p runbook-cli
-   export PATH="$PWD/target/release:$PATH"
+   curl -fsSL https://github.com/angler-ai/the-runbook-app/releases/latest/download/install.sh | sh
    runbook login https://runbooks.example.com
    ```
+
+   [Installing the CLI](/getting-started/cli/) has the other ways, such as
+   building from source.
 
    `runbook login` opens the browser to approve the CLI and stores a
    personal access token for that host (in the macOS Keychain or Windows
@@ -31,12 +33,14 @@ CLI.
    person, and how to treat runbook data:
 
    ```sh
-   runbook skill install --agent claude --therunbook
+   runbook skill install --therunbook
    ```
 
-   That writes `~/.claude/skills/therunbook/`. Add `--scope project` to
-   install it into this repository's `.claude/skills/` instead, so everyone
-   who works here gets it.
+   That writes `~/.claude/skills/therunbook/`, and the same skill for Codex
+   and Cursor if they are set up on this machine (`--agent claude` limits it
+   to Claude Code). Add `--scope project` to install it into this
+   repository's `.claude/skills/` instead, so everyone who works here gets
+   it. Run it again after upgrading the CLI to update the skill.
 
 3. **Give the agent its own credential.** Claude acting on your login is
    recorded as you. For agent work, mint an agent-kind token and hand it to
@@ -75,8 +79,10 @@ The CLI serves MCP over stdio with its own stored credentials:
 claude mcp add runbook -- runbook mcp serve
 ```
 
-This uses the CLI's current context (`runbook context use …`) and its login,
-so nothing else needs configuring.
+This uses the CLI's current context (`runbook context use …`). Like the
+`step` commands, it never acts with your own `runbook login`: give it the
+agent token from step 3 in `RUNBOOK_TOKEN` (or a stored execution pair from
+`runbook run token`).
 
 </TabItem>
 <TabItem label="Remote, with OAuth">
@@ -119,10 +125,21 @@ browser `Origin` other than your server's is refused.
 
 ## The plugin
 
-The repository also packages the skill and the stdio MCP server as a Claude
-Code plugin, in [`plugins/claude-code/`](https://github.com/angler-ai/the-runbook-app/tree/main/plugins/claude-code).
+The skill and the stdio MCP server also come as a Claude Code plugin, from
+this repository's marketplace. In Claude Code:
+
+```text
+/plugin install therunbook --marketplace angler-ai/the-runbook-app
+```
+
+Claude Code before 2.1.275 needs two steps:
+`/plugin marketplace add angler-ai/the-runbook-app`, then
+`/plugin install therunbook@the-runbook`.
+
 It contains the same `therunbook` skill as `runbook skill install` and an
-`.mcp.json` that runs `runbook mcp serve`.
+`.mcp.json` that runs `runbook mcp serve`, so it needs the CLI installed and
+an agent token in `RUNBOOK_TOKEN`. `/plugin marketplace update the-runbook` picks up new versions.
+The plugin lives in [`plugins/claude-code/`](https://github.com/angler-ai/the-runbook-app/tree/main/plugins/claude-code).
 
 ## Running Claude Code unattended
 

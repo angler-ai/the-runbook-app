@@ -91,3 +91,4 @@ case ":$PATH:" in
   *) say "$dir is not on your PATH; add it, for example: export PATH=\"$dir:\$PATH\"" ;;
 esac
 say "next: runbook login https://your-server"
+say "then: runbook skill install --therunbook   (adds the agent skill to Claude Code, Codex and Cursor)"

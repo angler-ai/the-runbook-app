@@ -207,6 +207,7 @@ fn whoami_reports_a_personal_token_and_its_organizations() {
     assert_eq!(o.status.code(), Some(0), "{}", err(&o));
     let v: Value = serde_json::from_str(&out(&o)).unwrap();
     assert_eq!(v["credential"], "personal");
+    assert_eq!(v["source"], "env");
     assert_eq!(v["authenticated"], true);
     assert_eq!(v["organizations"][0]["title"], "Acme");
     assert!(!out(&o).contains("trb_pat_secret"));
@@ -258,6 +259,7 @@ fn whoami_uses_stored_execution_credentials() {
     assert_eq!(o.status.code(), Some(0), "{}", err(&o));
     let v: Value = serde_json::from_str(&out(&o)).unwrap();
     assert_eq!(v["credential"], "execution");
+    assert_eq!(v["source"], "pair");
     assert_eq!(v["execution_id"], EXE);
     assert_no_secrets(&o);
     let seen = server.join().unwrap();

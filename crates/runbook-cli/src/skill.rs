@@ -130,8 +130,12 @@ pub struct SkillPullArgs {
 
 #[derive(Args, Debug)]
 pub struct SkillInstallArgs {
-    #[arg(long, value_enum, help = "Target agent: claude, codex, or cursor")]
-    pub agent: AgentKind,
+    #[arg(
+        long,
+        value_enum,
+        help = "Target agent: claude, codex, or cursor (default: every one of them set up in your home directory)"
+    )]
+    pub agent: Option<AgentKind>,
     #[arg(
         long,
         value_enum,
@@ -754,99 +758,170 @@ fn pull(env: &Env, a: SkillPullArgs) -> Exit<i32> {
     Ok(OK)
 }
 
-fn install(env: &Env, a: SkillInstallArgs) -> Exit<i32> {
-    let base_dir = agent_skills_base_dir(a.agent, a.scope).map_err(usage)?;
-    let existed_before = base_dir.exists();
+/// The bundled skill's files, as `runbook skill install --therunbook` writes them.
+fn therunbook_files() -> Vec<SkillFileData> {
+    vec![
+        (
+            "SKILL.md".to_string(),
+            THERUNBOOK_SKILL_MD.as_bytes().to_vec(),
+        ),
+        (
+            "references/cli.md".to_string(),
+            THERUNBOOK_CLI_MD.as_bytes().to_vec(),
+        ),
+        (
+            "references/authoring.md".to_string(),
+            THERUNBOOK_AUTHORING_MD.as_bytes().to_vec(),
+        ),
+    ]
+}
 
-    if a.therunbook {
-        let target_dir = base_dir.join("therunbook");
-        let files = vec![
-            (
-                "SKILL.md".to_string(),
-                THERUNBOOK_SKILL_MD.as_bytes().to_vec(),
-            ),
-            (
-                "references/cli.md".to_string(),
-                THERUNBOOK_CLI_MD.as_bytes().to_vec(),
-            ),
-            (
-                "references/authoring.md".to_string(),
-                THERUNBOOK_AUTHORING_MD.as_bytes().to_vec(),
-            ),
-        ];
+/// The agents whose configuration folder exists in `home`: what
+/// `runbook skill install` targets when no `--agent` is given. Codex reads
+/// skills from ~/.agents/skills and keeps its settings in ~/.codex.
+pub fn detected_agents(home: &Path) -> Vec<AgentKind> {
+    let mut agents = Vec::new();
+    if home.join(".claude").is_dir() {
+        agents.push(AgentKind::Claude);
+    }
+    if home.join(".codex").is_dir() || home.join(".agents").is_dir() {
+        agents.push(AgentKind::Codex);
+    }
+    if home.join(".cursor").is_dir() {
+        agents.push(AgentKind::Cursor);
+    }
+    agents
+}
 
-        safe_write_skill_files(&target_dir, &files, a.force)?;
-
-        if a.json {
-            print_json(&json!({
-                "agent": a.agent,
-                "scope": a.scope,
-                "skill": "therunbook",
-                "installed_to": target_dir.display().to_string(),
-                "files": ["SKILL.md", "references/cli.md", "references/authoring.md"],
-            }));
-        } else {
-            println!("installed therunbook to {}", target_dir.display());
-            if let Some(hint) = agent_hint(a.agent, existed_before) {
-                println!("{hint}");
+/// True when `dir` holds nothing but files of the bundled skill: an earlier
+/// `--therunbook` install, which a new one may replace without `--force`.
+pub fn is_bundled_install(dir: &Path) -> bool {
+    let known: Vec<String> = therunbook_files().into_iter().map(|(p, _)| p).collect();
+    fn walk(dir: &Path, base: &Path, known: &[String]) -> bool {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return false;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Ok(meta) = std::fs::symlink_metadata(&path) else {
+                return false;
+            };
+            if meta.is_dir() {
+                if !walk(&path, base, known) {
+                    return false;
+                }
+            } else {
+                let rel = path.strip_prefix(base).unwrap_or(&path);
+                let rel = rel.to_string_lossy().replace('\\', "/");
+                if !meta.is_file() || !known.contains(&rel) {
+                    return false;
+                }
             }
         }
-        return Ok(OK);
+        true
     }
+    dir.is_dir() && walk(dir, dir, &known)
+}
 
-    let project = resolve_project(a.project.as_deref())?;
-    let client = client(env)?;
-
-    let skills_to_install: Vec<InstallItem> = if let Some(skill_name) = &a.skill {
-        let (name, version_spec) = parse_skill_selector(skill_name);
-        let (view, files) =
-            fetch_skill_version_and_files(&client, &project, name, version_spec, a.json)?;
-        vec![(name.to_string(), view, files)]
-    } else {
-        let items = list_all_skills(&client, &project, a.json)?;
-        let mut out = Vec::new();
-        for item in items.iter().filter(|i| i["latest"].as_bool() == Some(true)) {
-            let malformed = || crate::cliutil::fail("malformed server response");
-            let name = item["name"].as_str().ok_or_else(malformed)?;
-            let hash = item["hash"].as_str().ok_or_else(malformed)?;
-            let files = fetch_skill_files(&client, &project, hash, a.json)?;
-            out.push((name.to_string(), item.clone(), files));
+fn install(env: &Env, a: SkillInstallArgs) -> Exit<i32> {
+    let agents = match a.agent {
+        Some(agent) => vec![agent],
+        None => {
+            let home = std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .ok_or_else(|| usage("HOME environment variable not set"))?;
+            let found = detected_agents(&home);
+            if found.is_empty() {
+                return Err(usage(
+                    "no agent found (looked for ~/.claude, ~/.codex or ~/.agents, and ~/.cursor); \
+                     name one with --agent claude, --agent codex or --agent cursor",
+                ));
+            }
+            found
         }
-        out
     };
 
-    let mut installed_records = Vec::new();
-    for (name, view, files) in skills_to_install {
-        let target_dir = base_dir.join(&name);
-        safe_write_skill_files(&target_dir, &files, a.force)?;
-        let hash = view["hash"].as_str().unwrap_or("").to_string();
-        installed_records.push((name, hash, target_dir));
+    let mut records = Vec::new();
+    if a.therunbook {
+        for agent in &agents {
+            let base_dir = agent_skills_base_dir(*agent, a.scope).map_err(usage)?;
+            let existed_before = base_dir.exists();
+            let target_dir = base_dir.join("therunbook");
+            // An earlier install of the bundled skill is replaced: that is how
+            // it is updated after upgrading the CLI.
+            let force = a.force || is_bundled_install(&target_dir);
+            safe_write_skill_files(&target_dir, &therunbook_files(), force)?;
+            records.push((
+                *agent,
+                "therunbook".to_string(),
+                String::new(),
+                target_dir,
+                existed_before,
+            ));
+        }
+    } else {
+        let project = resolve_project(a.project.as_deref())?;
+        let client = client(env)?;
+        let skills_to_install: Vec<InstallItem> = if let Some(skill_name) = &a.skill {
+            let (name, version_spec) = parse_skill_selector(skill_name);
+            let (view, files) =
+                fetch_skill_version_and_files(&client, &project, name, version_spec, a.json)?;
+            vec![(name.to_string(), view, files)]
+        } else {
+            let items = list_all_skills(&client, &project, a.json)?;
+            let mut out = Vec::new();
+            for item in items.iter().filter(|i| i["latest"].as_bool() == Some(true)) {
+                let malformed = || crate::cliutil::fail("malformed server response");
+                let name = item["name"].as_str().ok_or_else(malformed)?;
+                let hash = item["hash"].as_str().ok_or_else(malformed)?;
+                let files = fetch_skill_files(&client, &project, hash, a.json)?;
+                out.push((name.to_string(), item.clone(), files));
+            }
+            out
+        };
+        for agent in &agents {
+            let base_dir = agent_skills_base_dir(*agent, a.scope).map_err(usage)?;
+            let existed_before = base_dir.exists();
+            for (name, view, files) in &skills_to_install {
+                let target_dir = base_dir.join(name);
+                safe_write_skill_files(&target_dir, files, a.force)?;
+                let hash = view["hash"].as_str().unwrap_or("").to_string();
+                records.push((*agent, name.clone(), hash, target_dir, existed_before));
+            }
+        }
     }
 
     if a.json {
-        let summary = installed_records
+        let installed = records
             .iter()
-            .map(|(name, hash, path)| {
-                json!({
+            .map(|(agent, name, hash, path, _)| {
+                let mut v = json!({
+                    "agent": agent,
                     "skill": name,
-                    "hash": hash,
                     "installed_to": path.display().to_string(),
-                })
+                });
+                if !hash.is_empty() {
+                    v["hash"] = json!(hash);
+                }
+                v
             })
             .collect::<Vec<_>>();
-        print_json(&json!({
-            "agent": a.agent,
-            "scope": a.scope,
-            "installed": summary,
-        }));
+        print_json(&json!({ "scope": a.scope, "installed": installed }));
     } else {
-        for (name, hash, path) in &installed_records {
-            println!("installed {name} ({hash}) to {}", path.display());
-        }
-        if let Some(hint) = agent_hint(a.agent, existed_before) {
-            println!("{hint}");
+        let mut hinted = Vec::new();
+        for (agent, name, hash, path, existed_before) in &records {
+            if hash.is_empty() {
+                println!("installed {name} to {}", path.display());
+            } else {
+                println!("installed {name} ({hash}) to {}", path.display());
+            }
+            if !hinted.contains(agent) {
+                hinted.push(*agent);
+                if let Some(hint) = agent_hint(*agent, *existed_before) {
+                    println!("{hint}");
+                }
+            }
         }
     }
-
     Ok(OK)
 }

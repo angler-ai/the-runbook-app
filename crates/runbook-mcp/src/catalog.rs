@@ -358,7 +358,7 @@ fn run_text(slug: &str, runbook_id: &str, project: &str, start: &Value) -> Strin
     format!(
         "Run the runbook `{slug}` ({runbook_id}) in project `{project}` on The Runbook, doing its agent steps one at a time.
 
-Interface: if the `runbook` CLI is installed and `runbook whoami --json` succeeds, use the CLI with --json for the whole session instead of these tools (`runbook run start {slug} --project {project} --input k=v --json`, then the same loop with `runbook step …`). Otherwise use the MCP tools below. Do not switch interfaces mid-session.
+Interface: if the `runbook` CLI is installed and `runbook whoami --json` succeeds with `source` `env` or `pair` (not `login`, the person's own sign-in), use the CLI with --json for the whole session instead of these tools (`runbook run start {slug} --project {project} --input k=v --json`, then the same loop with `runbook step …`). Otherwise use the MCP tools below. Do not switch interfaces mid-session.
 
 1. Start it once: call start_execution with exactly these arguments, and keep the execution_id it returns. If the call fails with a network error, retry it with the same idempotency_key so only one execution starts.
 ```json
