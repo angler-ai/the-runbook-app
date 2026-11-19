@@ -57,7 +57,10 @@ impl RpcError {
 type Rpc<T> = Result<T, RpcError>;
 
 /// Every item of a paginated REST collection (`items`, `next_cursor`).
-async fn walk<B: AsyncBackend + ?Sized>(b: &mut B, path: &str) -> Result<Vec<Value>, BackendError> {
+pub(crate) async fn walk<B: AsyncBackend + ?Sized>(
+    b: &mut B,
+    path: &str,
+) -> Result<Vec<Value>, BackendError> {
     let mut items = vec![];
     let mut cursor: Option<String> = None;
     for _ in 0..MAX_PAGES {
@@ -78,7 +81,7 @@ async fn walk<B: AsyncBackend + ?Sized>(b: &mut B, path: &str) -> Result<Vec<Val
 /// A collection this credential may not read is simply not listed. A 401
 /// is not "hidden": the credential itself stopped working, which is an
 /// error the caller must see.
-fn hidden(e: &BackendError) -> bool {
+pub(crate) fn hidden(e: &BackendError) -> bool {
     matches!(e.status(), Some(403 | 404))
 }
 

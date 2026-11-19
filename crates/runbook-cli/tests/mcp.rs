@@ -342,3 +342,56 @@ fn cli_and_mcp_send_the_same_requests_for_next_claim_and_report() {
         json!({"id": CLAIM, "generation": 1})
     );
 }
+
+#[test]
+fn search_and_fetch_link_to_the_host_over_stdio() {
+    const ORG: &str = "org_01JABCDEFGHJKMNPQRSTVWXYZ7";
+    let home = tmp();
+    let (host, server) = serve(vec![
+        reply(200, json!({"items": [{"id": ORG}], "next_cursor": null})),
+        reply(
+            200,
+            json!({"runbooks": [{"project_id": "prj_1", "project_slug": "ops", "runbook_id": RB, "slug": "disk-full", "title": "Disk full"}],
+                   "runs": [{"project_id": "prj_1", "project_slug": "ops", "id": EXE, "runbook_id": RB, "status": "running",
+                             "title": "Disk full on db-2", "tags": [], "fields": {}, "created_by": "user:x", "created_at_ms": 1, "completed_at_ms": null}],
+                   "steps": [], "memory": [], "skills": []}),
+        ),
+        reply(
+            200,
+            json!({"id": EXE, "runbook_id": RB, "runbook_version_id": RBV, "runbook_version": 2, "title": "Disk full on db-2",
+                   "status": "running", "phase": "active", "inputs": {"host": "db-2"}, "fields": {}, "tags": [], "steps": []}),
+        ),
+    ]);
+    let (responses, raw) = mcp(
+        &host,
+        home.path(),
+        &[("RUNBOOK_TOKEN", PAT)],
+        &[
+            initialize(),
+            call(1, "search", json!({"query": "disk full"})),
+            call(2, "fetch", json!({"id": EXE})),
+        ],
+    );
+    let seen = server.join().unwrap();
+    assert!(request_line(&seen[0]).starts_with("GET /v1/orgs?"));
+    assert!(request_line(&seen[1]).starts_with(&format!("GET /v1/orgs/{ORG}/search?q=disk")));
+    assert!(request_line(&seen[2]).starts_with(&format!("GET /v1/executions/{EXE} ")));
+    let found: Value = serde_json::from_str(&text(&responses[1])).unwrap();
+    assert_eq!(found, responses[1]["result"]["structuredContent"]);
+    assert_eq!(
+        found["results"],
+        json!([
+            {"id": RB, "title": "Disk full (runbook)", "url": format!("{host}/p/ops/runbooks/{RB}")},
+            {"id": EXE, "title": "Disk full on db-2 (run, running)", "url": format!("{host}/x/{EXE}")}
+        ])
+    );
+    let doc: Value = serde_json::from_str(&text(&responses[2])).unwrap();
+    assert_eq!(doc["url"], format!("{host}/x/{EXE}"));
+    assert!(
+        doc["text"]
+            .as_str()
+            .unwrap()
+            .contains("-----BEGIN RUNBOOK DATA ")
+    );
+    assert!(!raw.contains(PAT));
+}

@@ -628,6 +628,17 @@ impl<B: Backends, S: CallSlots> AsyncBackend for RouterBackend<'_, B, S> {
         self.finished.insert(execution_id.to_owned(), finished);
     }
 
+    fn web_origin(&self) -> Option<String> {
+        Some(
+            self.router
+                .config
+                .discovery
+                .origin
+                .trim_end_matches('/')
+                .to_owned(),
+        )
+    }
+
     fn finished(&mut self, execution_id: &str) -> bool {
         self.finished.get(execution_id).copied().unwrap_or(false)
             || (self.auth.ended && self.auth.execution.as_deref() == Some(execution_id))

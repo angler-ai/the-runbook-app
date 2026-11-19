@@ -105,20 +105,33 @@ async fn dispatch<B: Backends>(backends: &B, r: &Request) -> Result<serde_json::
         let store = factory.scoped(scope.clone());
         let catalog = store.catalog();
 
-        // Runbooks: slug or draft title.
+        // Runbooks: slug, draft title or draft description (the MCP
+        // `search` tool's runbooks match on what a person reads about them).
         if view.runbooks.len() < PER_KIND {
             for record_rb in store.catalog_runbooks().await.map_err(unavailable)? {
                 if record_rb.archived {
                     continue;
                 }
-                let title = match store.catalog().get_draft(&record_rb.runbook_id).await {
-                    Ok(Some(draft)) => runbook_spec::parse(&draft.source)
-                        .map(|spec| spec.metadata.title)
-                        .unwrap_or_else(|_| record_rb.slug.clone()),
-                    _ => record_rb.slug.clone(),
-                };
+                let (title, description) =
+                    match store.catalog().get_draft(&record_rb.runbook_id).await {
+                        Ok(Some(draft)) => match runbook_spec::parse(&draft.source) {
+                            Ok(spec) => {
+                                let description = spec
+                                    .metadata
+                                    .extra
+                                    .get("description")
+                                    .and_then(serde_json::Value::as_str)
+                                    .unwrap_or_default()
+                                    .to_lowercase();
+                                (spec.metadata.title, description)
+                            }
+                            Err(_) => (record_rb.slug.clone(), String::new()),
+                        },
+                        _ => (record_rb.slug.clone(), String::new()),
+                    };
                 if record_rb.slug.to_lowercase().contains(&needle)
                     || title.to_lowercase().contains(&needle)
+                    || description.contains(&needle)
                 {
                     view.runbooks.push(UniversalRunbookHit {
                         project_id: project.id.clone(),
