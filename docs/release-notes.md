@@ -4,6 +4,20 @@ Changes an operator should read before upgrading, newest first.
 
 ## Unreleased
 
+Nothing yet.
+
+## 0.1.0
+
+The first release of The Runbook: the server and web UI (one container
+image), the Cloudflare edition, the CLI for Linux and macOS, and the
+deployment modules for Docker, Cloud Run-style platforms, GKE and
+Cloudflare. Install the CLI with
+`curl -fsSL https://github.com/angler-ai/the-runbook-app/releases/latest/download/install.sh | sh`;
+start a server from `site/` (Getting started) or `docs/install.md`.
+
+A new install needs nothing below. The rest is for anyone running a build
+from before this release.
+
 ### Strict assignment and take-over (LANG7)
 
 - A task may set `assignment: strict`: only its assignee may claim it
