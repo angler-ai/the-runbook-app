@@ -210,7 +210,7 @@ pub async fn search<B: AsyncBackend + ?Sized>(
     let mut seen = std::collections::BTreeSet::new();
     let results: Vec<Value> = hits
         .into_iter()
-        .filter(|h| seen.insert(h.result["id"].to_string()))
+        .filter(|h| seen.insert(str_of(&h.result, "id").to_owned()))
         .take(MAX_RESULTS)
         .map(|h| h.result)
         .collect();
@@ -364,7 +364,7 @@ async fn fetch_runbook<B: AsyncBackend + ?Sized>(
     if !tags.is_empty() {
         body.push_str(&format!("Tags: {tags}\n"));
     }
-    if view["archived"] == json!(true) {
+    if view["archived"] == true {
         body.push_str("Archived: yes\n");
     }
     body.push_str(&format!("{source_label}\n{source}"));
@@ -417,11 +417,11 @@ async fn fetch_run<B: AsyncBackend + ?Sized>(b: &mut B, exe: &str, nonce: &str) 
     if let Some(reason) = view["terminal_reason"].as_str() {
         body.push_str(&format!("Ended because: {reason}\n"));
     }
-    let steps = view["steps"].as_array().cloned().unwrap_or_default();
+    let steps = view["steps"].as_array().map(Vec::as_slice).unwrap_or(&[]);
     if !steps.is_empty() {
         body.push_str("Steps:\n");
     }
-    for step in &steps {
+    for step in steps {
         let mut line = format!("- {}: {}", str_of(step, "path"), str_of(step, "status"));
         if let Some(verdict) = step["verdict"].as_str() {
             line.push_str(&format!(", verdict {verdict}"));
