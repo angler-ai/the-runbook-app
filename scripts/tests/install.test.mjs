@@ -151,3 +151,11 @@ test('the release ships the therunbook skill as a zip for Claude and ChatGPT', (
   const notes = readFileSync(join(repo, 'scripts/release/release.mjs'), 'utf8');
   assert.match(notes, /releases\/latest\/download\/therunbook-skill\.zip/);
 });
+
+test('publish logs Docker in to ghcr.io before attesting the image', () => {
+  const workflow = readFileSync(join(repo, '.github/workflows/release.yml'), 'utf8');
+  const publish = workflow.slice(workflow.indexOf('\n  publish:'));
+  const login = publish.indexOf('docker login ghcr.io --username "$ACTOR" --password-stdin');
+  assert.ok(login > 0, 'docker login missing');
+  assert.ok(login < publish.indexOf('push-to-registry: true'));
+});
