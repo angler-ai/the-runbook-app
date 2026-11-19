@@ -61,8 +61,8 @@ below.
    progress with `runbook step log <sr>` (`append_log`). On long work, send
    a heartbeat (`runbook step heartbeat <sr>`, `heartbeat_step`) well before
    the lease ends. Read pinned skill files with `step skill-file`
-   (`get_skill_file`) when the step points to them; a step with several
-   skills names which one with `--skill <alias>`. When the whole step is one local command (run the
+   (`get_skill_file`) when the step points to them; when the step has
+   several skills, pick one with `--skill <alias>`. When the whole step is one local command (run the
    tests, check the migration), `runbook step exec <sr> --json -- <command>`
    runs it, logs its output, heartbeats and reports by exit code for you.
 4. **Report** with `runbook step report <sr> --status … --json`

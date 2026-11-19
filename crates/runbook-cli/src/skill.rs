@@ -801,7 +801,11 @@ pub fn is_bundled_install(dir: &Path) -> bool {
         let Ok(entries) = std::fs::read_dir(dir) else {
             return false;
         };
-        for entry in entries.flatten() {
+        for entry in entries {
+            // An entry that can't be read is not known to be ours: keep it.
+            let Ok(entry) = entry else {
+                return false;
+            };
             let path = entry.path();
             let Ok(meta) = std::fs::symlink_metadata(&path) else {
                 return false;
