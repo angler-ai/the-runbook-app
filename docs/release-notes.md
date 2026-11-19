@@ -2,6 +2,10 @@
 
 Changes an operator should read before upgrading, newest first.
 
+## Unreleased
+
+Nothing yet.
+
 ## 0.1.0
 
 The first release of The Runbook: the server and web UI (one container
