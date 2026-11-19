@@ -130,3 +130,12 @@ test('the release builds the macOS CLI and ships install.sh, and SHA256SUMS cove
   assert.match(macos, /runbook-cli-\$version-macos-\$arch\.tar\.gz/);
   assert.match(macos, /codesign --force --sign -/);
 });
+
+test('the binaries step reuses the image build: both use the same cargo cache id', () => {
+  const workflow = readFileSync(join(repo, '.github/workflows/release.yml'), 'utf8');
+  const image = workflow.slice(workflow.indexOf('docker/build-push-action'), workflow.indexOf('name: The image digest'));
+  assert.match(image, /build-args: \|\n\s+RUNBOOK_CACHE_ID=release\n/);
+  const binaries = workflow.slice(workflow.indexOf('name: CLI and server binaries'), workflow.indexOf('name: Cloudflare edition bundle'));
+  assert.match(binaries, /RUNBOOK_CACHE_ID: release\n/);
+  assert.match(readFileSync(join(repo, 'scripts/release/binaries.sh'), 'utf8'), /RUNBOOK_CACHE_ID="\$\{RUNBOOK_CACHE_ID:-release\}"/);
+});
