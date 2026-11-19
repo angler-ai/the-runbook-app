@@ -356,6 +356,7 @@ export function notes(tag, { root = REPO } = {}) {
     `- Image: \`${IMAGE_REPOSITORY}:${version}\` (linux/amd64, linux/arm64).`,
     `- \`runbook-cli-${version}-{linux,macos}-{x86_64,aarch64}.tar.gz\`, \`runbook-server-${version}-linux-{x86_64,aarch64}.tar.gz\`.`,
     `- \`install.sh\`: installs the CLI for this machine, checked against SHA256SUMS: \`curl -fsSL https://github.com/angler-ai/the-runbook-app/releases/latest/download/install.sh | sh\`.`,
+    '- `therunbook-skill.zip`: the therunbook agent skill, to upload to Claude or ChatGPT as a skill: <https://github.com/angler-ai/the-runbook-app/releases/latest/download/therunbook-skill.zip>.',
     `- \`runbook-cloudflare-${version}.tar.gz\`: the Cloudflare edition (built Workers, web UI, migrations, templates).`,
     '- Verify downloads with `sha256sum -c SHA256SUMS`.',
     '',

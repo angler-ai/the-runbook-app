@@ -1,0 +1,19 @@
+{
+  "name": "the-runbook",
+  "owner": {
+    "name": "Angler AI"
+  },
+  "metadata": {
+    "description": "The Runbook's plugin for Claude Code: the therunbook agent skill and the runbook CLI's MCP server."
+  },
+  "plugins": [
+    {
+      "name": "therunbook",
+      "source": "./plugins/claude-code",
+      "description": "The Runbook agent skill and CLI MCP server",
+      "homepage": "https://docs.therunbook.app/agents/claude-code/",
+      "repository": "https://github.com/angler-ai/the-runbook-app",
+      "category": "productivity"
+    }
+  ]
+}

@@ -104,7 +104,11 @@ fn two_contexts_on_one_host_keep_separate_logins() {
         "",
         &[],
     ));
-    ok(&run(home.path(), &["whoami", "--json"], "", &[]));
+    let o = run(home.path(), &["whoami", "--json"], "", &[]);
+    ok(&o);
+    // A stored login is the person's own credential: agents check this.
+    let v: Value = serde_json::from_str(&out(&o)).unwrap();
+    assert_eq!(v["source"], "login", "{v}");
 
     let seen = server.join().unwrap();
     assert_eq!(seen.len(), 4, "{seen:?}");

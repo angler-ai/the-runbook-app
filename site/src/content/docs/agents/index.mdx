@@ -31,7 +31,7 @@ loop](/agents/agent-loop/) explains it step by step.
 
 | | The CLI | MCP |
 | --- | --- | --- |
-| For | Agents with a shell: Claude Code, Codex, Cursor's agent, CI jobs, scripts | Clients that speak MCP, including ones with no shell |
+| For | Agents with a shell: Claude Code, Codex, Cursor's agent, CI jobs, scripts | Clients that speak MCP, including ones with no shell, such as Claude and ChatGPT |
 | How | `runbook … --json` commands | `runbook mcp serve` over stdio, or `/mcp` on your server |
 | Credentials | Kept by the CLI, out of the agent's context, refreshed for it | stdio: the CLI's; remote: OAuth sign-in or a bearer token |
 | Long commands | `runbook step exec` runs a command under the step's lease | The agent heartbeats itself |
@@ -68,8 +68,21 @@ credential.
   <LinkCard title="Claude Code" description="The skill, the stdio MCP server, or remote /mcp with OAuth." href="/agents/claude-code/" />
   <LinkCard title="Codex" description="The skill in ~/.agents/skills and MCP in config.toml." href="/agents/codex/" />
   <LinkCard title="Cursor" description="The skill in .cursor/skills and MCP in mcp.json." href="/agents/cursor/" />
+  <LinkCard title="Claude and ChatGPT" description="The remote connector with OAuth, and the skill as a zip upload." href="/agents/chat-apps/" />
   <LinkCard title="Your own agent" description="A script, a CI job or any MCP client, with a launcher." href="/agents/custom/" />
 </CardGrid>
+
+## The skill, for any agent
+
+The `therunbook` skill is a plain [Agent Skills](https://agentskills.io)
+folder, so any agent that reads skills can use it:
+
+| Agent | Install |
+| --- | --- |
+| Claude Code, Codex, Cursor | `runbook skill install --therunbook` (every one set up on this machine) |
+| Claude Code, as a plugin | `/plugin install therunbook --marketplace angler-ai/the-runbook-app` |
+| Other agents (Gemini CLI, GitHub Copilot, Windsurf, …) | `npx skills add angler-ai/the-runbook-app` |
+| Claude and ChatGPT apps | upload [`therunbook-skill.zip`](https://github.com/angler-ai/the-runbook-app/releases/latest/download/therunbook-skill.zip) ([how](/agents/chat-apps/)) |
 
 ## Telling agents there's work
 

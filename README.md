@@ -172,7 +172,7 @@ Over MCP, an agent can draft a runbook (`save_runbook_draft`), validate it and s
 | Learn the runbook language | [`docs/pilot-profile.md`](docs/pilot-profile.md) |
 | Keep runbooks in a Git repository | [`docs/git-sync.md`](docs/git-sync.md) |
 | Approve from Slack | [`docs/slack.md`](docs/slack.md) |
-| Teach your agent | [`skills/therunbook/`](skills/therunbook/), or the Claude Code plugin in [`plugins/claude-code/`](plugins/claude-code/) |
+| Teach your agent | `runbook skill install --therunbook` (Claude Code, Codex, Cursor), `npx skills add angler-ai/the-runbook-app` (other agents), the Claude Code plugin (`/plugin install therunbook --marketplace angler-ai/the-runbook-app`), or [`therunbook-skill.zip`](https://github.com/angler-ai/the-runbook-app/releases/latest/download/therunbook-skill.zip) for Claude and ChatGPT; the skill lives in [`skills/therunbook/`](skills/therunbook/) |
 
 ## Develop
 

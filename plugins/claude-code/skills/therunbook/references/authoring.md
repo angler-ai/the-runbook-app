@@ -41,15 +41,22 @@ spec:
 3. **Check it.** `runbook spec validate <file> --json` (MCP:
    `validate_runbook`) compiles the spec and reports its diagnostics and the
    worst-case step budget; review that budget as the plan. Fix every
-   diagnostic (path, code, message) before saving. The tool can also resolve
-   the project's skills, users, teams and variables (pass `project`).
+   diagnostic (path, code, message) about the spec itself. The CLI checks
+   offline, so it cannot resolve the project's teams, users, skills or
+   called runbooks (`spec.unresolved_*`, `spec.call_unresolved`) and skips
+   the checks made at publish. Never remove an assignee, approver,
+   `escalate_to`, skill or call just to clear one of those: get the
+   server's verdict from `validate_runbook` with `project`, or by saving
+   the draft (step 4), which reports them.
 4. **Save the draft.** `runbook push <file> --draft --project <p> --revision
-   <n>` (MCP: `save_runbook_draft` with `expected_revision`; `0` creates a new
-   runbook). The expected revision protects other people's edits: if the
+   <n>` (MCP: `save_runbook_draft` with `expected_revision`). For a new
+   runbook, leave `--revision` out on the CLI; over MCP pass
+   `expected_revision: 0`. The expected revision protects other people's edits: if the
    draft moved since you pulled it, the save fails with
    `catalog.draft_conflict` and nothing is written. Pull again, reapply your
    change and save with the new revision. Never overwrite blindly.
-5. **Publish.** Publish only if the credential has `runbooks:publish`:
+5. **Publish.** Publish only when the person explicitly asked you to and
+   the credential has `runbooks:publish`:
    `runbook publish <runbook> --project <p> --revision <n>` (MCP:
    `publish_runbook`). Otherwise report the draft revision and ask a human to
    publish it. A `403 auth.scope_missing` or `next_action:
@@ -57,19 +64,20 @@ spec:
    person which runbook and draft revision to publish.
 
 `runbook push <file> --project <p>` without `--draft` does steps 4 and 5
-together. It checks `runbooks:publish` first and, without it, fails before
-changing anything; then use `--draft` and hand the revision to a human.
+together, so always pass `--draft` unless you were asked to publish.
 
 ## Control flow worth knowing
 
-`spec validate` is the authority on what the server accepts. Beyond tasks,
+The server's validation is the authority on what it accepts. Beyond tasks,
 groups, `switch`, `wait`, `approval`, `set` and `end`:
 
 - `loop` takes `max_iterations` (at most 50) and either `until` or `while`.
   Both are checked after each pass, so the body runs at least once; `while`
   stops the loop when it is false.
-- `parallel` takes `join: all` (the default; `fail_fast: true` cancels the
-  rest on a failure), `join: any`, or `join: {at_least: n}`. With `any` or
+- A `parallel` step lists its branches under `parallel:`, and takes
+  `join:` and `fail_fast:` beside it (not inside the list): `join: all`
+  (the default; `fail_fast: true` cancels the rest on a failure),
+  `join: any`, or `join: {at_least: n}`. With `any` or
   `at_least`, the parallel finishes as soon as enough branches succeeded, or
   fails as soon as that can no longer happen, and the other branches are
   cancelled.
@@ -131,7 +139,7 @@ groups, `switch`, `wait`, `approval`, `set` and `end`:
 
 A task may declare skills that the agent loads when doing the step:
 - `skill: <name>`: shorthand for a single skill.
-- `skills: [<name1>, <name2>]` (LANG8): several skills on one step (at most 8, no duplicates). Mutually exclusive with `skill:`.
+- `skills: [<name1>, <name2>]`: several skills on one step (at most 8, no duplicates). Mutually exclusive with `skill:`.
 - Skills can be named by their alias declared under `spec.skills` or by their catalog reference.
 
 ## Signals with a payload
@@ -172,7 +180,7 @@ failed), or `call_failed` (a child runbook failed).
       catch_on: [timeout]   # other failures go to an outer catch, or fail the run
 ```
 
-Without `on` or `catch_on`, any failure is retried or caught, as before.
+Without `on` or `catch_on`, any failure is retried or caught.
 
 ## Starting runs on a schedule or from a webhook
 

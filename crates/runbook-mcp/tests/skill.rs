@@ -42,13 +42,24 @@ fn skill_states_the_cli_first_rule_whoami_check_and_mcp_fallback() {
     has(&s, "runbook whoami --json", "whoami check");
     has(
         &s,
-        "if runbook whoami --json succeeds, use the cli with --json for the whole session, even when runbook mcp tools are also installed",
+        "if it succeeds and its source is env or pair (an agent token, a service token or an execution pair), use the cli with --json for the whole session, even when runbook mcp tools are also installed",
         "CLI-first rule",
     );
-    // MCP only as the fallback, and no switching.
+    // A person's stored login is never used for agent work.
     has(
         &s,
-        "use the mcp tools only when the cli is missing or runbook whoami --json fails",
+        "if its source is login, the cli holds the person's own sign-in",
+        "login check",
+    );
+    has(
+        &s,
+        "never ask them to paste a token into the conversation",
+        "no pasted tokens",
+    );
+    // MCP as the fallback (chat apps included), and no switching.
+    has(
+        &s,
+        "use the mcp tools when there is no shell or no cli",
         "MCP fallback condition",
     );
     has(&s, "do not switch interfaces mid-session", "no switching");
@@ -91,8 +102,18 @@ fn authoring_reference_states_publish_scope_and_no_weakening_rules() {
     }
     has(
         &a,
-        "publish only if the credential has runbooks:publish",
+        "publish only when the person explicitly asked you to and the credential has runbooks:publish",
         "publish scope",
+    );
+    has(
+        &a,
+        "always pass --draft unless you were asked to publish",
+        "draft by default",
+    );
+    has(
+        &a,
+        "never remove an assignee, approver, escalate_to, skill or call just to clear one of those",
+        "offline validation",
     );
     has(
         &a,

@@ -922,3 +922,120 @@ fn push_refuses_a_symlink_in_the_skill_folder() {
     std::os::unix::fs::symlink(&sub, sub.join("loop")).unwrap();
     assert_eq!(validate_skill_dir(&sub).unwrap_err(), 2);
 }
+
+#[test]
+fn install_without_agent_targets_every_agent_found_and_updates_in_place() {
+    let home = tmp();
+    // Nothing set up yet: the CLI asks for --agent.
+    let none = cli(
+        "http://127.0.0.1:9",
+        home.path(),
+        &["skill", "install", "--therunbook"],
+        &[],
+    );
+    assert_eq!(none.status.code(), Some(2), "{}", err(&none));
+    assert!(err(&none).contains("no agent found"), "{}", err(&none));
+
+    // Claude Code and Codex are set up; Cursor is not.
+    std::fs::create_dir_all(home.path().join(".claude")).unwrap();
+    std::fs::create_dir_all(home.path().join(".codex")).unwrap();
+    let o = cli(
+        "http://127.0.0.1:9",
+        home.path(),
+        &["skill", "install", "--therunbook", "--json"],
+        &[],
+    );
+    assert_eq!(o.status.code(), Some(0), "{}", err(&o));
+    let v: Value = serde_json::from_str(&out(&o)).unwrap();
+    let agents: Vec<&str> = v["installed"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["agent"].as_str().unwrap())
+        .collect();
+    assert_eq!(agents, ["claude", "codex"]);
+    assert!(
+        home.path()
+            .join(".claude/skills/therunbook/SKILL.md")
+            .exists()
+    );
+    assert!(
+        home.path()
+            .join(".agents/skills/therunbook/SKILL.md")
+            .exists()
+    );
+    assert!(!home.path().join(".cursor").exists());
+
+    // Running it again (after an upgrade) replaces the earlier install.
+    let skill = home.path().join(".claude/skills/therunbook/SKILL.md");
+    std::fs::write(&skill, "old\n").unwrap();
+    let again = cli(
+        "http://127.0.0.1:9",
+        home.path(),
+        &["skill", "install", "--therunbook", "--agent", "claude"],
+        &[],
+    );
+    assert_eq!(again.status.code(), Some(0), "{}", err(&again));
+    assert_ne!(std::fs::read_to_string(&skill).unwrap(), "old\n");
+
+    // A file the bundled skill does not have is somebody's edit: keep it
+    // unless --force.
+    std::fs::write(
+        home.path().join(".claude/skills/therunbook/notes.md"),
+        "mine\n",
+    )
+    .unwrap();
+    let edited = cli(
+        "http://127.0.0.1:9",
+        home.path(),
+        &["skill", "install", "--therunbook", "--agent", "claude"],
+        &[],
+    );
+    assert_eq!(edited.status.code(), Some(2));
+    assert!(err(&edited).contains("--force"), "{}", err(&edited));
+}
+
+#[test]
+fn install_therunbook_writes_every_file_of_the_skill_folder() {
+    // A file added to skills/therunbook/ must also be embedded in the CLI.
+    fn files(dir: &Path, base: &Path, out: &mut Vec<String>) {
+        for entry in fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                files(&path, base, out);
+            } else {
+                out.push(
+                    path.strip_prefix(base)
+                        .unwrap()
+                        .to_string_lossy()
+                        .replace('\\', "/"),
+                );
+            }
+        }
+    }
+    let source = root_dir().join("skills/therunbook");
+    let mut expected = Vec::new();
+    files(&source, &source, &mut expected);
+    expected.sort();
+
+    let home = tmp();
+    let o = cli(
+        "http://127.0.0.1:9",
+        home.path(),
+        &["skill", "install", "--agent", "claude", "--therunbook"],
+        &[],
+    );
+    assert_eq!(o.status.code(), Some(0), "{}", err(&o));
+    let installed_dir = home.path().join(".claude/skills/therunbook");
+    let mut installed = Vec::new();
+    files(&installed_dir, &installed_dir, &mut installed);
+    installed.sort();
+    assert_eq!(installed, expected);
+    for rel in &expected {
+        assert_eq!(
+            fs::read(source.join(rel)).unwrap(),
+            fs::read(installed_dir.join(rel)).unwrap(),
+            "{rel} differs from the embedded copy"
+        );
+    }
+}
