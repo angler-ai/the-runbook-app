@@ -427,3 +427,26 @@ fn search_without_a_query_is_an_argument_error() {
     assert!(is_error(&result));
     assert_eq!(control(&result)["next_action"], "fix_arguments");
 }
+
+#[test]
+fn fetch_refuses_memory_that_is_not_active() {
+    for status in ["proposed", "archived"] {
+        let mut b = Fake::default().with(
+            &format!("/v1/memory/{MEM}"),
+            ok(
+                json!({"id": MEM, "scope": {"kind": "project"}, "step_id": null,
+                      "title": "Not yet reviewed", "body_markdown": "Secret-ish proposal body.",
+                      "tags": [], "status": status, "revision": 1}),
+            ),
+        );
+        let result = call_tool(&mut b, "fetch", &json!({"id": MEM}));
+        assert!(is_error(&result), "{status}: {result}");
+        assert!(
+            !text(&result).contains("proposal body"),
+            "{status}: {result}"
+        );
+        assert_eq!(control(&result)["next_action"], "check_ids", "{status}");
+        // Nothing past the read: no project lookup for an entry it refuses.
+        assert_eq!(b.paths(), vec![format!("/v1/memory/{MEM}")]);
+    }
+}

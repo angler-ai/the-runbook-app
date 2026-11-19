@@ -462,6 +462,15 @@ async fn fetch_memory<B: AsyncBackend + ?Sized>(
         .call(HttpCall::get(format!("/v1/memory/{mem}")))
         .await?
         .body;
+    // Only live memory: a proposal or an archived entry is for people
+    // reviewing it (agents already get 404 for one), never research.
+    if entry["status"] != "active" {
+        return Err(BackendError::problem(
+            404,
+            "resource.not_found",
+            format!("{mem} is not an active memory entry"),
+        ));
+    }
     let title = str_of(&entry, "title").to_owned();
     let scope = &entry["scope"];
     let runbook = (scope["kind"] == "runbook")

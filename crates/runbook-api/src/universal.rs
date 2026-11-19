@@ -14,8 +14,8 @@ use runbook_core::{
     search::RunFilters,
 };
 use runbook_model::{
-    RunSearchEntry, UniversalMemoryHit, UniversalRunHit, UniversalRunbookHit, UniversalSearchView,
-    UniversalSkillHit, UniversalStepHit,
+    MemoryStatus, RunSearchEntry, UniversalMemoryHit, UniversalRunHit, UniversalRunbookHit,
+    UniversalSearchView, UniversalSkillHit, UniversalStepHit,
 };
 use serde_json::json;
 
@@ -194,11 +194,16 @@ async fn dispatch<B: Backends>(backends: &B, r: &Request) -> Result<serde_json::
             }
         }
 
-        // Memory: the project memory store's own full-text search.
+        // Memory: the project memory store's own full-text search, over
+        // active, unexpired entries only, as the memory routes read by
+        // default: proposals and archived entries are for people reviewing
+        // them, and this search also serves agents (MCP `search`).
         if view.memory.len() < PER_KIND {
             let execution = backends.execution(scope.clone());
             let query = MemoryQuery {
                 text: Some(text.clone()),
+                status: Some(MemoryStatus::Active),
+                include_expired: false,
                 ..Default::default()
             };
             if let Ok(page) = execution
