@@ -182,6 +182,11 @@ pub trait Backend {
     fn finished(&mut self, _execution_id: &str) -> bool {
         false
     }
+    /// The web app's origin (`https://host`, no trailing slash), for the
+    /// links `search` and `fetch` return. `None` gives host-relative links.
+    fn web_origin(&self) -> Option<String> {
+        None
+    }
 }
 
 /// The tools' backend as the handlers use it (CF0): `call` and the step
@@ -204,6 +209,10 @@ pub trait AsyncBackend {
     /// See [`Backend::finished`].
     fn finished(&mut self, _execution_id: &str) -> bool {
         false
+    }
+    /// See [`Backend::web_origin`].
+    fn web_origin(&self) -> Option<String> {
+        None
     }
 }
 
@@ -229,6 +238,9 @@ impl<B: Backend + ?Sized> AsyncBackend for Blocking<'_, B> {
     }
     fn finished(&mut self, execution_id: &str) -> bool {
         self.0.finished(execution_id)
+    }
+    fn web_origin(&self) -> Option<String> {
+        self.0.web_origin()
     }
 }
 

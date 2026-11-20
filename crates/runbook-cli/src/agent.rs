@@ -1228,7 +1228,11 @@ fn token_kind(token: &str) -> &'static str {
 /// `GET /v1/orgs`: 200 lists its organizations, 403 means a valid credential
 /// without a directory scope, 401 means not authenticated. A stored
 /// execution pair is checked by reading its own run.
-pub fn handle_whoami(env: &Env, a: WhoamiArgs) -> i32 {
+///
+/// `source` says where the credential came from: `env` (`RUNBOOK_TOKEN`),
+/// `login` (the person's stored `runbook login`, which agent `step` commands
+/// never use) or `pair` (a stored execution pair).
+pub fn handle_whoami(env: &Env, a: WhoamiArgs, from_login: bool) -> i32 {
     let mut session = match session_for(env, None) {
         Ok(s) => s,
         Err(code) => return code,
@@ -1237,6 +1241,7 @@ pub fn handle_whoami(env: &Env, a: WhoamiArgs) -> i32 {
     match session.credential() {
         Credential::Static(token) => {
             out["credential"] = json!(token_kind(token));
+            out["source"] = json!(if from_login { "login" } else { "env" });
             match session.get("/v1/orgs", &[]) {
                 Ok(page) => {
                     out["organizations"] = page.get("items").cloned().unwrap_or(Value::Null)
@@ -1254,6 +1259,7 @@ pub fn handle_whoami(env: &Env, a: WhoamiArgs) -> i32 {
                 ..
             } = cred.clone();
             out["credential"] = json!("execution");
+            out["source"] = json!("pair");
             out["execution_id"] = json!(execution_id);
             out["family_id"] = json!(family_id);
             if let Err(e) = session.get(&format!("/v1/executions/{execution_id}"), &[]) {

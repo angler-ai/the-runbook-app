@@ -1544,7 +1544,14 @@ fn run() -> i32 {
             env_host,
             env_token,
         ) {
-            Ok(env) => agent::handle_whoami(&auth::with_login(env), args),
+            Ok(env) => {
+                // Whether the credential is the person's own `runbook login`,
+                // which `step` commands never use: agents check this.
+                let had_token = env.token.is_some();
+                let env = auth::with_login(env);
+                let from_login = !had_token && env.token.is_some();
+                agent::handle_whoami(&env, args, from_login)
+            }
             Err(code) => code,
         },
         Commands::Me(cmd) => with_env(&cli_env, |env| runbook_cli::me::handle_me(env, cmd)),

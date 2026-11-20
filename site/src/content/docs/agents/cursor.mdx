@@ -17,10 +17,12 @@ the CLI keeps tokens out of the model's context.
 1. **Install the CLI** and sign in:
 
    ```sh
-   cargo build --release --locked -p runbook-cli
-   export PATH="$PWD/target/release:$PATH"
+   curl -fsSL https://github.com/angler-ai/the-runbook-app/releases/latest/download/install.sh | sh
    runbook login https://runbooks.example.com
    ```
+
+   [Installing the CLI](/getting-started/cli/) has the other ways, such as
+   building from source.
 
 2. **Install the skill:**
 

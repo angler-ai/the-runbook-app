@@ -1218,3 +1218,123 @@ fn long_mcp_messages_leave_worker_slots_for_rest() {
         })
     });
 }
+
+/// Universal search, and so the MCP `search` tool, offers only active
+/// memory: a proposal and an archived entry stay out for every caller, as
+/// on the memory routes. `fetch` refuses them too.
+#[test]
+#[ignore = "requires DATABASE_URL; creates and drops only test-owned databases"]
+fn search_and_fetch_offer_only_active_memory() {
+    with_db(|db| {
+        Box::pin(async move {
+            let f = Fixture::new(db).await;
+            let save = |title: &'static str, propose: bool, key: &'static str| {
+                let (app, owner, project) = (f.app.clone(), f.owner.clone(), f.project.clone());
+                async move {
+                    let r = http(
+                        &app,
+                        &owner,
+                        "POST",
+                        &format!("/v1/projects/{project}/memory"),
+                        json!({"title": title, "body_markdown": format!("{title}: zebra crossing notes."),
+                               "tags": [], "propose": propose}),
+                        Some(key),
+                        None,
+                    )
+                    .await;
+                    assert_eq!(r.status, 201, "{}", r.text);
+                    r.body["id"].as_str().unwrap().to_owned()
+                }
+            };
+            let active = save("Zebra live fact", false, "mem-active").await;
+            let proposed = save("Zebra proposed fact", true, "mem-proposed").await;
+            let archived = save("Zebra archived fact", false, "mem-archived").await;
+            let r = http(
+                &f.app,
+                &f.owner,
+                "PATCH",
+                &format!("/v1/memory/{archived}"),
+                json!({"action": "archive"}),
+                Some("mem-archive"),
+                Some("\"r1\""),
+            )
+            .await;
+            assert_eq!(r.status, 200, "{}", r.text);
+            assert_eq!(r.body["status"], "archived", "{}", r.text);
+
+            let agent = http(
+                &f.app,
+                &f.owner,
+                "POST",
+                "/v1/tokens",
+                json!({"name": "research", "actor_kind": "agent"}),
+                Some("agent-token"),
+                None,
+            )
+            .await;
+            assert_eq!(agent.status, 201, "{}", agent.text);
+            let agent = agent.body["secret"].as_str().unwrap().to_owned();
+
+            // The universal search, for a person and for an agent.
+            for token in [&f.owner, &agent] {
+                let r = http(
+                    &f.app,
+                    token,
+                    "GET",
+                    &format!("/v1/orgs/{}/search?q=zebra", f.org),
+                    Value::Null,
+                    None,
+                    None,
+                )
+                .await;
+                assert_eq!(r.status, 200, "{}", r.text);
+                let ids: Vec<&str> = r.body["memory"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|m| m["memory_id"].as_str().unwrap())
+                    .collect();
+                assert_eq!(ids, vec![active.as_str()], "{}", r.text);
+            }
+
+            // MCP `search` over /mcp, as the agent and as the owner.
+            for (n, token) in [(1, &agent), (2, &f.owner)] {
+                let r = rpc(&f.app, token, tool(n, "search", json!({"query": "zebra"}))).await;
+                assert_eq!(r.status, 200, "{}", r.text);
+                let results = &r.body["result"]["structuredContent"]["results"];
+                let ids: Vec<&str> = results
+                    .as_array()
+                    .unwrap_or_else(|| panic!("{}", r.text))
+                    .iter()
+                    .map(|m| m["id"].as_str().unwrap())
+                    .collect();
+                assert_eq!(ids, vec![active.as_str()], "{}", r.text);
+                assert!(!r.text.contains("proposed fact") && !r.text.contains("archived fact"));
+            }
+
+            // `fetch`: the live entry reads; the others are not found.
+            let r = rpc(&f.app, &agent, tool(3, "fetch", json!({"id": active}))).await;
+            let doc = &r.body["result"]["structuredContent"];
+            assert!(
+                doc["text"]
+                    .as_str()
+                    .unwrap_or_else(|| panic!("{}", r.text))
+                    .contains("zebra crossing notes")
+            );
+            assert_eq!(
+                doc["url"],
+                format!("{ORIGIN}/p/default/memory"),
+                "{}",
+                r.text
+            );
+            for (n, token) in [(4, &agent), (5, &f.owner)] {
+                for id in [&proposed, &archived] {
+                    let r = rpc(&f.app, token, tool(n, "fetch", json!({"id": id}))).await;
+                    assert_eq!(r.body["result"]["isError"], true, "{}", r.text);
+                    assert_eq!(control(&r)["next_action"], "check_ids", "{}", r.text);
+                    assert!(!r.text.contains("zebra crossing"), "{}", r.text);
+                }
+            }
+        })
+    });
+}

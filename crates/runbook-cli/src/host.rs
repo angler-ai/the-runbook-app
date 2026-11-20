@@ -124,6 +124,11 @@ impl Backend for CliBackend {
             .is_some_and(|store| store.finished(&self.env.host, execution_id))
     }
 
+    fn web_origin(&self) -> Option<String> {
+        // The API host serves the web app too (`RUNBOOK_ORIGIN`).
+        Some(self.env.host.trim_end_matches('/').to_owned())
+    }
+
     fn execution_of_step(&mut self, step_run_id: &str) -> Option<String> {
         self.step_state(step_run_id)
             .and_then(|s| s.execution_id)

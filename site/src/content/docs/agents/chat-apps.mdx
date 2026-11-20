@@ -1,0 +1,108 @@
+---
+title: Claude and ChatGPT
+description: Connect The Runbook to Claude (web, desktop and mobile) and ChatGPT as a remote MCP connector, and upload the therunbook skill.
+sidebar:
+  order: 6
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+Chat apps have no shell, so they use your server's remote MCP endpoint
+(`/mcp`) instead of the CLI. Two things to add, each once:
+
+- **The connector**: your server's `/mcp` URL. You sign in with OAuth, and
+  the app gets the [MCP tools](/reference/mcp/) with the scopes you tick.
+- **The skill**: `therunbook-skill.zip` from the [latest
+  release](https://github.com/angler-ai/the-runbook-app/releases/latest/download/therunbook-skill.zip).
+  It teaches the model the agent loop, when to ask a person, and how to
+  write runbooks.
+
+What works well from a chat: asking what a run is waiting on, finding past
+runs and memory, drafting and validating a runbook, and working an agent
+step with you watching. Long unattended work belongs in an agent with a
+shell or a [launcher](/agents/custom/#start-agents-from-a-webhook).
+
+<Aside type="caution" title="The server must be reachable from the internet">
+Claude and ChatGPT connect from their own servers, not from your machine,
+so `https://localhost` or an address on a private network won't work. Use
+the URL your browser opens the web app at, if it's public.
+</Aside>
+
+## Claude
+
+Works in Claude on the web, Claude Desktop and the mobile apps (one setup,
+on your account). Custom connectors and skills are available on Claude's
+paid plans; on Team and Enterprise an owner may need to allow them first.
+
+<Steps>
+
+1. **Add the connector.** In Claude, open **Settings → Connectors**, choose
+   **Add custom connector**, name it `The Runbook` and enter
+   `https://runbooks.example.com/mcp`. Choose **Connect**: your server's
+   sign-in page opens. Sign in, tick the scopes Claude may use
+   (`runbooks:publish` stays off unless you tick it) and approve.
+
+2. **Upload the skill.** Download
+   [`therunbook-skill.zip`](https://github.com/angler-ai/the-runbook-app/releases/latest/download/therunbook-skill.zip),
+   then in **Settings → Capabilities → Skills** choose **Upload skill** and
+   pick the zip. On Team and Enterprise plans an owner can upload it once
+   in the organization settings, so everyone gets it.
+
+3. **Try it** in a new chat with the connector turned on:
+
+   ```text
+   What is run exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7 waiting on?
+   ```
+
+</Steps>
+
+Claude's help center covers [skills](https://support.claude.com/en/articles/12512180)
+and custom connectors in detail.
+
+## ChatGPT
+
+ChatGPT connects to MCP servers in **developer mode**, and reads skills in
+the same folder format as Claude. Which plans have each feature, and
+whether a workspace admin has to turn it on first, changes often: check
+OpenAI's [developer mode article](https://help.openai.com/en/articles/12584461)
+and [skills guide](https://learn.chatgpt.com/docs/build-skills).
+
+<Steps>
+
+1. **Turn on developer mode** in ChatGPT's settings (under the apps or
+   connectors section's advanced settings). On Business, Enterprise and Edu
+   workspaces an admin enables it for the workspace.
+
+2. **Create the connector** with the URL
+   `https://runbooks.example.com/mcp` and OAuth authentication. ChatGPT
+   registers itself with your server; sign in and tick the scopes it may
+   use.
+
+3. **Upload the skill** where your plan offers skills, using
+   [`therunbook-skill.zip`](https://github.com/angler-ai/the-runbook-app/releases/latest/download/therunbook-skill.zip).
+   Without skills on your plan, the connector still works: the tools
+   describe themselves, and the [prompt library](/agents/prompts/) has
+   prompts to paste.
+
+4. **Try it** in a chat with the connector selected.
+
+</Steps>
+
+ChatGPT's deep research and company knowledge use the connector's read-only
+`search` and `fetch` tools to find and read your runbooks, runs and memory.
+
+<Aside type="note" title="Write actions ask first">
+ChatGPT asks you to confirm a tool call that changes something, such as
+claiming or reporting a step, unless you allow it for the conversation.
+</Aside>
+
+## What the connector can and can't do
+
+The connector is an [OAuth grant](/agents/#credentials-the-agent-is-never-a-person):
+the server records it as an agent you sponsor, with only the scopes you
+ticked. It can claim and report agent steps, search runs and memory, and
+draft and validate runbooks. It can never decide a human approval, even
+though you signed it in.
+
+See and disconnect connected apps with `runbook apps list` and
+`runbook apps revoke <client>`, or remove the connector in the app.

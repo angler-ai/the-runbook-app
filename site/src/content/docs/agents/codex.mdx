@@ -17,16 +17,21 @@ guided by the `therunbook` skill.
 1. **Install the CLI** and sign in:
 
    ```sh
-   cargo build --release --locked -p runbook-cli
-   export PATH="$PWD/target/release:$PATH"
+   curl -fsSL https://github.com/angler-ai/the-runbook-app/releases/latest/download/install.sh | sh
    runbook login https://runbooks.example.com
    ```
+
+   [Installing the CLI](/getting-started/cli/) has the other ways, such as
+   building from source.
 
 2. **Install the skill** where Codex reads skills:
 
    ```sh
    runbook skill install --agent codex --therunbook
    ```
+
+   Without `--agent`, it installs for every agent set up on this machine
+   (Claude Code, Codex, Cursor). Run it again after upgrading the CLI.
 
    That writes `~/.agents/skills/therunbook/`; `--scope project` writes
    `.agents/skills/therunbook/` in this repository instead.
@@ -67,7 +72,9 @@ command = "runbook"
 args = ["mcp", "serve"]
 ```
 
-The server uses the CLI's current context and login.
+The server uses the CLI's current context. It never acts with your own
+`runbook login`: it needs the agent token from step 3 in `RUNBOOK_TOKEN`
+in Codex's environment.
 
 </TabItem>
 <TabItem label="Remote, with OAuth">

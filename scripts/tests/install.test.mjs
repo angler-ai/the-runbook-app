@@ -79,6 +79,7 @@ test('install.sh installs the build for this machine, checked against SHA256SUMS
     assert.match(stderr, new RegExp(`downloading runbook ${version} for ${os}/${arch}`));
     assert.match(stderr, /is not on your PATH/);
     assert.match(stderr, /runbook login/);
+    assert.match(stderr, /runbook skill install --therunbook/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -129,4 +130,32 @@ test('the release builds the macOS CLI and ships install.sh, and SHA256SUMS cove
   const macos = readFileSync(join(repo, 'scripts/release/macos.sh'), 'utf8');
   assert.match(macos, /runbook-cli-\$version-macos-\$arch\.tar\.gz/);
   assert.match(macos, /codesign --force --sign -/);
+});
+
+test('the binaries step reuses the image build: both use the same cargo cache id', () => {
+  const workflow = readFileSync(join(repo, '.github/workflows/release.yml'), 'utf8');
+  const image = workflow.slice(workflow.indexOf('docker/build-push-action'), workflow.indexOf('name: The image digest'));
+  assert.match(image, /build-args: \|\n\s+RUNBOOK_CACHE_ID=release\n/);
+  const binaries = workflow.slice(workflow.indexOf('name: CLI and server binaries'), workflow.indexOf('name: Cloudflare edition bundle'));
+  assert.match(binaries, /RUNBOOK_CACHE_ID: release\n/);
+  assert.match(readFileSync(join(repo, 'scripts/release/binaries.sh'), 'utf8'), /RUNBOOK_CACHE_ID="\$\{RUNBOOK_CACHE_ID:-release\}"/);
+});
+
+test('the release ships the therunbook skill as a zip for Claude and ChatGPT', () => {
+  const workflow = readFileSync(join(repo, '.github/workflows/release.yml'), 'utf8');
+  const build = workflow.slice(workflow.indexOf('\n  build:'), workflow.indexOf('\n  macos:'));
+  assert.match(build, /cp -R skills\/therunbook "\$skill\/therunbook"/);
+  assert.match(build, /zip -qrX "\$GITHUB_WORKSPACE\/dist\/therunbook-skill\.zip" therunbook/);
+  // Written before the release artifact is uploaded, so SHA256SUMS covers it.
+  assert.ok(build.indexOf('therunbook-skill.zip') < build.indexOf('name: release'));
+  const notes = readFileSync(join(repo, 'scripts/release/release.mjs'), 'utf8');
+  assert.match(notes, /releases\/latest\/download\/therunbook-skill\.zip/);
+});
+
+test('publish logs Docker in to ghcr.io before attesting the image', () => {
+  const workflow = readFileSync(join(repo, '.github/workflows/release.yml'), 'utf8');
+  const publish = workflow.slice(workflow.indexOf('\n  publish:'));
+  const login = publish.indexOf('docker login ghcr.io --username "$ACTOR" --password-stdin');
+  assert.ok(login > 0, 'docker login missing');
+  assert.ok(login < publish.indexOf('push-to-registry: true'));
 });

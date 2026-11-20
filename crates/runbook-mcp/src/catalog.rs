@@ -57,7 +57,10 @@ impl RpcError {
 type Rpc<T> = Result<T, RpcError>;
 
 /// Every item of a paginated REST collection (`items`, `next_cursor`).
-async fn walk<B: AsyncBackend + ?Sized>(b: &mut B, path: &str) -> Result<Vec<Value>, BackendError> {
+pub(crate) async fn walk<B: AsyncBackend + ?Sized>(
+    b: &mut B,
+    path: &str,
+) -> Result<Vec<Value>, BackendError> {
     let mut items = vec![];
     let mut cursor: Option<String> = None;
     for _ in 0..MAX_PAGES {
@@ -78,7 +81,7 @@ async fn walk<B: AsyncBackend + ?Sized>(b: &mut B, path: &str) -> Result<Vec<Val
 /// A collection this credential may not read is simply not listed. A 401
 /// is not "hidden": the credential itself stopped working, which is an
 /// error the caller must see.
-fn hidden(e: &BackendError) -> bool {
+pub(crate) fn hidden(e: &BackendError) -> bool {
     matches!(e.status(), Some(403 | 404))
 }
 
@@ -358,7 +361,7 @@ fn run_text(slug: &str, runbook_id: &str, project: &str, start: &Value) -> Strin
     format!(
         "Run the runbook `{slug}` ({runbook_id}) in project `{project}` on The Runbook, doing its agent steps one at a time.
 
-Interface: if the `runbook` CLI is installed and `runbook whoami --json` succeeds, use the CLI with --json for the whole session instead of these tools (`runbook run start {slug} --project {project} --input k=v --json`, then the same loop with `runbook step …`). Otherwise use the MCP tools below. Do not switch interfaces mid-session.
+Interface: if the `runbook` CLI is installed and `runbook whoami --json` succeeds with `source` `env` or `pair` (not `login`, the person's own sign-in), use the CLI with --json for the whole session instead of these tools (`runbook run start {slug} --project {project} --input k=v --json`, then the same loop with `runbook step …`). Otherwise use the MCP tools below. Do not switch interfaces mid-session.
 
 1. Start it once: call start_execution with exactly these arguments, and keep the execution_id it returns. If the call fails with a network error, retry it with the same idempotency_key so only one execution starts.
 ```json
