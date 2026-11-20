@@ -4,9 +4,10 @@ name: Docs
 # diagnostics, webhook event and samples pages from the code and fail if the
 # committed pages are stale, validate every sample and example runbook, run
 # the site's script tests (including the webhook signature samples), and
-# build the site, which checks every internal link. There is no deploy job
-# yet: GitHub Pages at docs.therunbook.app needs the DNS record from the
-# owner and the repository to be public.
+# build the site, which checks every internal link. On a push to main in the
+# public repository, the built site goes to GitHub Pages, served at
+# docs.therunbook.app (the custom domain is set in the repository's Pages
+# settings, and DNS points docs.therunbook.app at angler-ai.github.io).
 
 on:
   workflow_dispatch:
@@ -97,3 +98,27 @@ jobs:
       - name: Build the site and check its links
         working-directory: site
         run: npm run build
+      - name: Upload the site for GitHub Pages
+        if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && !github.event.repository.private }}
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site/dist
+
+  deploy:
+    needs: check
+    if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && !github.event.repository.private }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    # A deploy that has started finishes, even when a newer push arrives.
+    concurrency:
+      group: docs-pages
+      cancel-in-progress: false
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
