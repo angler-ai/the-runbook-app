@@ -1,0 +1,142 @@
+---
+// The record of the landing page's example run (RunGraph.astro): who did
+// each step, when, what they found and why. Uses the icon symbols RunGraph
+// defines, so it goes on the same page.
+---
+
+<figure class="rb-record not-content" aria-label="The run's record">
+  <div class="rb-record-head"><b>The record</b><span>run of api v2.4.0</span></div>
+  <ol>
+    <li>
+      <time>14:02</time>
+      <div>
+        <span class="rb-who"><svg><use href="#rbg-hook"></use></svg>Deploy webhook</span>
+        <p>Started the run for api v2.4.0.</p>
+      </div>
+    </li>
+    <li>
+      <time>14:02</time>
+      <div>
+        <span class="rb-who"><svg><use href="#rbg-bot"></use></svg>deploy-checker</span><span class="rb-role rb-role-agent">agent</span>
+        <p>Check health passed: 3 × 200 in 140 ms. <span class="rb-file">healthz.log</span></p>
+      </div>
+    </li>
+    <li>
+      <time>14:03</time>
+      <div>
+        <span class="rb-who"><svg><use href="#rbg-bot"></use></svg>deploy-checker</span><span class="rb-role rb-role-agent">agent</span>
+        <p>Compare error rate passed: 0.2% against 0.3% the hour before.</p>
+      </div>
+    </li>
+    <li>
+      <time>14:09</time>
+      <div>
+        <span class="rb-who"><svg><use href="#rbg-user"></use></svg>Sam Ortiz</span><span class="rb-role rb-role-person">on-call</span>
+        <p>Approved <b>keep</b>: <q>Error rate is flat, keeping it.</q></p>
+      </div>
+    </li>
+    <li>
+      <time>14:09</time>
+      <div>
+        <span class="rb-who">Roll back</span>
+        <p>Skipped, because the decision was keep. The run succeeded.</p>
+      </div>
+    </li>
+  </ol>
+  <figcaption>Export any run as Markdown, JSON, JUnit or PDF.</figcaption>
+</figure>
+
+<style>
+  .rb-record {
+    margin: 0;
+    background: var(--rb-card);
+    border: 1px solid var(--rb-line);
+    border-radius: 12px;
+    overflow: hidden;
+    font-size: var(--sl-text-sm);
+  }
+  .rb-record-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.6rem 1rem;
+    border-bottom: 1px solid var(--rb-line);
+    font-size: var(--sl-text-xs);
+    color: var(--rb-muted);
+  }
+  .rb-record-head b {
+    color: var(--sl-color-white);
+    font-weight: 600;
+  }
+  ol {
+    list-style: none;
+    margin: 0;
+    padding: 0.4rem 1rem 0.6rem;
+  }
+  li {
+    display: grid;
+    grid-template-columns: 3rem minmax(0, 1fr);
+    gap: 0.75rem;
+    margin: 0;
+    padding: 0.6rem 0;
+  }
+  li + li {
+    border-top: 1px dashed var(--rb-line);
+  }
+  time {
+    font: 400 0.75rem/1.7 var(--sl-font-mono);
+    color: var(--rb-muted);
+  }
+  .rb-who {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-weight: 600;
+    color: var(--sl-color-white);
+  }
+  svg {
+    width: 0.85rem;
+    height: 0.85rem;
+    color: var(--rb-muted);
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .rb-role {
+    font: 400 0.68rem var(--sl-font-mono);
+    color: var(--rb-muted);
+    border: 1px solid var(--rb-line);
+    border-radius: 4px;
+    padding: 0 0.3rem;
+    margin-inline-start: 0.35rem;
+  }
+  .rb-role-agent {
+    color: var(--rb-indigo);
+    border-color: color-mix(in srgb, var(--rb-indigo) 45%, transparent);
+  }
+  .rb-role-person {
+    color: var(--rb-mint-text);
+    border-color: color-mix(in srgb, var(--rb-mint) 55%, transparent);
+  }
+  p {
+    margin: 0.1rem 0 0;
+    color: var(--sl-color-gray-2);
+  }
+  q {
+    color: var(--sl-color-white);
+    font-style: italic;
+  }
+  .rb-file {
+    font: 400 0.72rem var(--sl-font-mono);
+    color: var(--rb-muted);
+  }
+  figcaption {
+    padding: 0.65rem 1rem;
+    border-top: 1px solid var(--rb-line);
+    font-size: var(--sl-text-xs);
+    color: var(--rb-muted);
+  }
+</style>

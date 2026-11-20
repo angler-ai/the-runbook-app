@@ -1,11 +1,11 @@
 ---
 title: The Runbook
-description: Runbooks that people and AI agents run together. Open-source server, CLI, MCP server and API.
+description: A system of record for operations, run by agents and people. Open-source server, CLI, MCP server and API.
 template: splash
 editUrl: false
 hero:
-  title: Runbooks people and agents run together
-  tagline: Write a procedure once as a short YAML file. Agents claim and do their steps, people approve and take over where judgment matters, and every run leaves a readable record of who did what.
+  title: A system of record for operations, run by agents and people
+  tagline: Write a procedure once as a runbook. Agents and people each take their steps, and every run records who did what, when, and the evidence behind it.
   actions:
     - text: Quick start with Docker
       link: /getting-started/docker/
@@ -20,14 +20,59 @@ hero:
 ---
 
 import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+import RunRecord from '../../components/RunRecord.astro';
 
 <div class="rb-landing">
 
+## One run, start to finish
+
+The graph above is this runbook. An agent claimed both checks through the
+CLI and reported what it found. A person on call made the decision, because
+agents can never cast an approval. Roll back would have run only if they
+had chosen it. The run keeps all of it as a record you can read, search and
+export.
+
+<div class="rb-pair">
+
+```yaml title="post-deploy.yaml"
+metadata: { id: post-deploy }
+spec:
+  inputs:
+    service: { type: string, required: true }
+  steps:
+    - id: verify
+      parallel:
+        - id: check_health
+          actor: agent
+          check: true
+          instructions: Pass if /healthz returns 200 within 500 ms.
+        - id: compare_error_rate
+          actor: agent
+          check: true
+          instructions: Compare the 5xx rate with the last hour.
+    - id: decide
+      approval:
+        prompt: Keep ${{ inputs.service }} at this version?
+        options: [keep, rollback]
+        approvers: { teams: [oncall] }
+    - id: roll_back
+      if: "${{ steps.decide.outputs.decision == 'rollback' }}"
+      actor: agent
+      destructive: true
+      instructions: Roll back to the previous release.
+```
+
+<RunRecord />
+
+</div>
+
 ## What it is
 
-The Runbook runs operational procedures, such as post-deploy checks,
-incident triage, migrations and releases, as **runs** that people and AI
-agents work through together.
+The Runbook is a system of record for operational work, such as
+post-deploy checks, incident triage, migrations and releases, whether an AI
+agent or a person does each step. You write the procedure once; each time
+it runs, the server tracks every step to completion and keeps who did it,
+what they reported and the evidence they attached.
 
 <CardGrid>
   <Card title="One file per procedure" icon="document">
@@ -47,40 +92,6 @@ agents work through together.
     and evidence. Export it as Markdown, JSON, JUnit or PDF.
   </Card>
 </CardGrid>
-
-## A runbook
-
-```yaml title="post-deploy.yaml"
-metadata: { id: post-deploy }
-spec:
-  inputs:
-    service: { type: string, required: true }
-  steps:
-    - id: check_health
-      actor: agent
-      check: true
-      instructions: Call /healthz on ${{ inputs.service }} three times; pass on 200 within 500 ms.
-    - id: compare_error_rate
-      actor: agent
-      check: true
-      instructions: Compare the 5xx rate with the hour before the deploy.
-      outputs:
-        error_rate: { type: number, required: true }
-    - id: keep_or_roll_back
-      approval:
-        prompt: Keep ${{ inputs.service }} at this version?
-        options: [keep, rollback]
-        approvers: { teams: [oncall] }
-    - id: roll_back
-      if: "${{ steps.keep_or_roll_back.outputs.decision == 'rollback' }}"
-      actor: agent
-      destructive: true
-      instructions: Roll ${{ inputs.service }} back to the previous release.
-```
-
-An agent claims the two checks and reports what it found; the on-call team
-decides; only then may an agent roll back. The run page shows each step,
-who did it, and why.
 
 ## Where to go next
 

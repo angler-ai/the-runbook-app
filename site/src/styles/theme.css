@@ -192,3 +192,19 @@ h1#_top {
 .rb-landing {
   --rb-landing-gap: clamp(2.5rem, 6vw, 4.5rem);
 }
+
+/* The landing page's example: the runbook beside its run's record. */
+.rb-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1.12fr) minmax(0, 0.88fr);
+  gap: 1.25rem;
+  align-items: start;
+}
+.rb-pair > * {
+  margin-top: 0 !important;
+}
+@media (max-width: 56rem) {
+  .rb-pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
