@@ -1,0 +1,367 @@
+---
+// The landing page's example: a finished run of post-deploy.yaml over its
+// runbook's graph, drawn like the web app's graph view (web/src/ui/graph):
+// cards with a kind stripe (indigo agent, amber approval, red destructive),
+// a parallel as a box around its branches, travelled edges darker and the
+// untaken step dashed. Static HTML, so it follows the theme and reflows.
+---
+
+<figure
+  class="rb-graph not-content"
+  aria-label="A finished run on its runbook's graph: two agent checks ran in parallel and passed, a person on the on-call team approved keeping the deploy, and the roll back step was not taken"
+>
+  <svg width="0" height="0" class="rb-defs" aria-hidden="true">
+    <defs>
+      <symbol id="rbg-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></symbol>
+      <symbol id="rbg-shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"></path><path d="m9 12 2 2 4-4"></path></symbol>
+      <symbol id="rbg-task" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"></rect><path d="m9 12 2 2 4-4"></path></symbol>
+      <symbol id="rbg-split" viewBox="0 0 24 24"><path d="M16 3h5v5"></path><path d="M8 3H3v5"></path><path d="M12 22v-8.3a4 4 0 0 0-1.172-2.872L3 3"></path><path d="m15 9 6-6"></path></symbol>
+      <symbol id="rbg-bot" viewBox="0 0 24 24"><path d="M12 8V4H8"></path><rect width="16" height="12" x="4" y="8" rx="2"></rect><path d="M2 14h2"></path><path d="M20 14h2"></path><path d="M15 13v2"></path><path d="M9 13v2"></path></symbol>
+      <symbol id="rbg-user" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></symbol>
+      <symbol id="rbg-hook" viewBox="0 0 24 24"><path d="M18 16.98h-5.99c-1.1 0-1.95.94-2.48 1.9A4 4 0 0 1 2 17c.01-.7.2-1.4.57-2"></path><path d="m6 17 3.13-5.78c.53-.97.1-2.18-.5-3.1a4 4 0 1 1 6.89-4.06"></path><path d="m12 6 3.13 5.73C15.66 12.7 16.9 13 18 13a4 4 0 0 1 0 8"></path></symbol>
+    </defs>
+  </svg>
+  <div class="rb-graph-head">
+    <div>
+      <div class="rb-graph-title">Verify api after v2.4.0</div>
+      <div class="rb-graph-sub">post-deploy · started by the deploy webhook</div>
+    </div>
+    <span class="rb-state">Succeeded</span>
+  </div>
+  <div class="rb-canvas" aria-hidden="true">
+    <div class="rb-box">
+      <div class="rb-box-label"><svg><use href="#rbg-split"></use></svg>Parallel <code>verify</code></div>
+      <div class="rb-box-row">
+        <div class="rb-node">
+          <span class="rb-stripe"></span>
+          <div class="rb-node-body">
+            <div class="rb-node-kind"><span><svg><use href="#rbg-check"></use></svg>Check</span><span class="rb-chip rb-chip-pass">Pass</span></div>
+            <div class="rb-node-title">Check health</div>
+            <div class="rb-node-who"><svg><use href="#rbg-bot"></use></svg><span class="rb-mono">deploy-checker</span></div>
+          </div>
+        </div>
+        <div class="rb-node">
+          <span class="rb-stripe"></span>
+          <div class="rb-node-body">
+            <div class="rb-node-kind"><span><svg><use href="#rbg-check"></use></svg>Check</span><span class="rb-chip rb-chip-pass">Pass</span></div>
+            <div class="rb-node-title">Compare error rate</div>
+            <div class="rb-node-who"><svg><use href="#rbg-bot"></use></svg><span class="rb-mono">deploy-checker</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="rb-edge"></div>
+    <div class="rb-node rb-solo rb-k-approval">
+      <span class="rb-stripe"></span>
+      <div class="rb-node-body">
+        <div class="rb-node-kind"><span><svg><use href="#rbg-shield"></use></svg>Approval</span><span class="rb-chip rb-chip-ok">keep</span></div>
+        <div class="rb-node-title">Keep api at v2.4.0?</div>
+        <div class="rb-node-who"><svg><use href="#rbg-user"></use></svg><span>Sam Ortiz · on-call</span></div>
+      </div>
+    </div>
+    <div class="rb-edge rb-faded"></div>
+    <div class="rb-node rb-solo rb-k-danger rb-dim">
+      <span class="rb-stripe"></span>
+      <div class="rb-node-body">
+        <div class="rb-node-kind"><span><svg><use href="#rbg-task"></use></svg>Task</span><span class="rb-chip rb-chip-skip">Not taken</span></div>
+        <div class="rb-node-title">Roll back api</div>
+        <div class="rb-node-who"><svg><use href="#rbg-bot"></use></svg><span>destructive · if rollback</span></div>
+      </div>
+    </div>
+  </div>
+</figure>
+
+<style>
+  /* The web app's graph tokens (web/src/styles/tokens.css), dark first. */
+  .rb-graph {
+    --g-canvas: #101117;
+    --g-dot: #262833;
+    --g-line-strong: #343746;
+    --g-edge: #4b5063;
+    --g-edge-ran: #94a3b8;
+    --g-indigo: #a6a2e5;
+    --g-warning: #f59e0b;
+    --g-danger: #f87171;
+    --g-danger-text: #fca5a5;
+    --g-pass-fg: #6ee7b7;
+    --g-pass-bg: #0c3a3b;
+    --g-pass-border: #00cc99;
+    --g-ok-fg: #00cc99;
+    --g-ok-bg: #0c3a3b;
+    --g-card-shadow: 0 1px 2px #00000040;
+    margin: 0;
+    background: var(--rb-card);
+    border: 1px solid var(--rb-line);
+    border-radius: 14px;
+    box-shadow: var(--rb-shadow);
+    overflow: hidden;
+    font-size: var(--sl-text-sm);
+  }
+  :global([data-theme='light']) .rb-graph {
+    --g-canvas: #f8fafc;
+    --g-dot: #dbe2eb;
+    --g-line-strong: #cbd5e1;
+    --g-edge: #b4bfcd;
+    --g-edge-ran: #566479;
+    --g-indigo: #4338ca;
+    --g-danger: #dc2626;
+    --g-danger-text: #b91c1c;
+    --g-pass-fg: #087a5b;
+    --g-pass-bg: #ecfbf5;
+    --g-pass-border: #0aa57b;
+    --g-ok-fg: #065f46;
+    --g-ok-bg: #cbf3e7;
+    --g-card-shadow: 0 1px 2px #1a1a2e14;
+  }
+  .rb-defs {
+    position: absolute;
+  }
+  svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .rb-graph-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    padding: 0.95rem 1.1rem 0.85rem;
+    border-bottom: 1px solid var(--rb-line);
+  }
+  .rb-graph-title {
+    font-weight: 600;
+    color: var(--sl-color-white);
+    font-size: var(--sl-text-base);
+    line-height: 1.35;
+  }
+  .rb-graph-sub {
+    color: var(--rb-muted);
+    font-size: var(--sl-text-xs);
+    margin-top: 0.15rem;
+  }
+  .rb-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    border-radius: 999px;
+    padding: 0.1rem 0.5rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    white-space: nowrap;
+    color: var(--g-ok-fg);
+    background: var(--g-ok-bg);
+  }
+  .rb-state::before {
+    content: '';
+    width: 0.38rem;
+    height: 0.38rem;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  .rb-canvas {
+    --gap: 0.6rem;
+    --pad: 0.6rem;
+    padding: 1.1rem clamp(0.75rem, 3vw, 1.4rem) 1.2rem;
+    background-color: var(--g-canvas);
+    background-image: radial-gradient(var(--g-dot) 1px, transparent 1.2px);
+    background-size: 14px 14px;
+    font-size: 0.8rem;
+    line-height: 1.4;
+  }
+  .rb-box {
+    border: 1px solid var(--g-line-strong);
+    border-radius: 10px;
+    padding: 0.45rem var(--pad) var(--pad);
+    background: color-mix(in srgb, var(--rb-card) 55%, transparent);
+  }
+  .rb-box-label {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.66rem;
+    font-weight: 500;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--rb-muted);
+    margin: 0 0 0.45rem 0.1rem;
+  }
+  .rb-box-label svg {
+    width: 0.75rem;
+    height: 0.75rem;
+  }
+  .rb-box-label code {
+    text-transform: none;
+    letter-spacing: 0;
+    font: 400 0.68rem var(--sl-font-mono);
+    color: var(--sl-color-gray-2);
+  }
+  .rb-box-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--gap);
+  }
+  .rb-solo {
+    width: calc((100% - 2 * var(--pad) - var(--gap)) / 2 + 2px);
+    margin-inline: auto;
+  }
+  .rb-node {
+    display: flex;
+    min-width: 0;
+    min-height: 5.1rem;
+    overflow: hidden;
+    background: var(--rb-card);
+    border: 1px solid var(--g-line-strong);
+    border-radius: 7px;
+    box-shadow: var(--g-card-shadow);
+  }
+  .rb-stripe {
+    width: 4px;
+    flex: none;
+    background: var(--sl-color-accent);
+  }
+  :global([data-theme='light']) .rb-stripe {
+    background: #4338ca;
+  }
+  .rb-k-approval .rb-stripe {
+    background: var(--g-warning);
+  }
+  .rb-k-danger .rb-stripe {
+    background: var(--g-danger);
+  }
+  .rb-node-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    min-width: 0;
+    flex: 1;
+    padding: 0.45rem 0.6rem 0.5rem;
+  }
+  .rb-node-kind {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.35rem;
+  }
+  .rb-node-kind > span:first-child {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    min-width: 0;
+    font-size: 0.62rem;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--rb-muted);
+  }
+  .rb-node-kind svg {
+    width: 0.85rem;
+    height: 0.85rem;
+    flex: none;
+    color: var(--g-indigo);
+  }
+  .rb-k-approval .rb-node-kind svg {
+    color: var(--g-warning);
+  }
+  .rb-k-danger .rb-node-kind svg {
+    color: var(--g-danger-text);
+  }
+  .rb-node-title {
+    font-weight: 600;
+    font-size: 0.86rem;
+    line-height: 1.25;
+    color: var(--sl-color-white);
+  }
+  .rb-node-who {
+    margin-top: auto;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    min-width: 0;
+    color: var(--rb-muted);
+    font-size: 0.7rem;
+  }
+  .rb-node-who svg {
+    width: 0.8rem;
+    height: 0.8rem;
+    flex: none;
+  }
+  .rb-node-who span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .rb-mono {
+    font-family: var(--sl-font-mono);
+    font-size: 0.66rem;
+  }
+  .rb-chip {
+    flex: none;
+    border-radius: 4px;
+    padding: 0 0.35rem;
+    font-size: 0.62rem;
+    font-weight: 600;
+    line-height: 1.5;
+    border: 1px solid transparent;
+  }
+  .rb-chip-pass {
+    color: var(--g-pass-fg);
+    background: var(--g-pass-bg);
+    border-color: var(--g-pass-border);
+  }
+  .rb-chip-ok {
+    color: var(--g-ok-fg);
+    background: var(--g-ok-bg);
+    border-radius: 999px;
+  }
+  .rb-chip-skip {
+    color: var(--rb-muted);
+    border: 1px dashed var(--g-line-strong);
+    font-weight: 500;
+  }
+  .rb-dim {
+    border-style: dashed;
+    border-color: var(--g-danger);
+    opacity: 0.6;
+    box-shadow: none;
+  }
+  .rb-dim .rb-node-title {
+    color: var(--rb-muted);
+  }
+  .rb-edge {
+    position: relative;
+    width: 2px;
+    height: 1.35rem;
+    margin: 0 auto;
+    background: var(--g-edge-ran);
+  }
+  .rb-edge::after {
+    content: '';
+    position: absolute;
+    left: -4px;
+    bottom: -1px;
+    border: 5px solid transparent;
+    border-top-color: var(--g-edge-ran);
+    border-bottom: 0;
+  }
+  .rb-faded {
+    background: none;
+    border-left: 2px dashed var(--g-edge);
+    width: 0;
+  }
+  .rb-faded::after {
+    left: -6px;
+    border-top-color: var(--g-edge);
+  }
+  @media (max-width: 30rem) {
+    .rb-canvas {
+      --gap: 0.45rem;
+      --pad: 0.45rem;
+    }
+    .rb-node-body {
+      padding: 0.4rem 0.5rem 0.45rem;
+    }
+  }
+</style>
