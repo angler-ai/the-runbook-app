@@ -204,7 +204,7 @@
     gap: var(--gap);
   }
   .rb-solo {
-    width: calc((100% - 2 * var(--pad) - var(--gap)) / 2 + 2px);
+    width: calc((100% - 2 * var(--pad) - var(--gap)) / 2 - 1px);
     margin-inline: auto;
   }
   .rb-node {
@@ -220,10 +220,7 @@
   .rb-stripe {
     width: 4px;
     flex: none;
-    background: var(--sl-color-accent);
-  }
-  :global([data-theme='light']) .rb-stripe {
-    background: #4338ca;
+    background: var(--g-indigo);
   }
   .rb-k-approval .rb-stripe {
     background: var(--g-warning);
