@@ -18,7 +18,7 @@ it('uses a pinned isolated Vertex CLI, the fixture MCP, and billed reasoning and
       const settings = JSON.parse(await readFile(join(env.GEMINI_CLI_HOME!, '.gemini', 'settings.json'), 'utf8'));
       expect(settings.model).toMatchObject({ name: profile.model, maxSessionTurns: 65 });
       expect(settings.tools.core).not.toContain('run_shell_command');
-      expect(JSON.parse(await readFile(settings.mcpServers.fixture.args[1], 'utf8'))).toEqual(task.mcp);
+      expect(JSON.parse(await readFile(settings.mcpServers.fixture.args.at(-1), 'utf8'))).toEqual(task.mcp);
       expect(await readFile(join(cwd, 'service.log'), 'utf8')).toBe(task.files['service.log']);
       return { stdout: [
         { type: 'tool_use', tool_name: 'mcp_fixture_lookup' },

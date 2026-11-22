@@ -2,13 +2,13 @@ import { execFile, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import type { ModelProfile } from '@runbook/runner-gateway/model/endpoint';
 import { usageCost } from '@runbook/runner-gateway/model/stream';
 import { emptyUsage, loopLimits, nativePrompt, parseAnswer, extractAnswerJson, type Subject } from './subject.ts';
 import type { Answer, Task } from './tasks.ts';
 import { localSnapshot, withTempWorkspace } from './workspace.ts';
+import { stdioMcpArgs } from './stdio-args.ts';
 
 const execute = promisify(execFile);
 const pinned = ['-y', '@google/gemini-cli@0.70.0'];
@@ -128,7 +128,7 @@ export function geminiSubject(profile: ModelProfile, target: VertexTarget, budge
           ...Object.keys(task.mcp).map((name) => `mcp_fixture_${name}`)] },
         admin: { extensions: { enabled: false }, skills: { enabled: false } },
         mcpServers: { fixture: { trust: true, command: process.execPath, args: [
-          fileURLToPath(new URL(import.meta.url.endsWith('.ts') ? './stdio-mcp.ts' : './stdio-mcp.js', import.meta.url)), mcpData,
+          ...stdioMcpArgs(), mcpData,
         ] } },
       }), { mode: 0o600 });
       const ledger = join(home, 'spend.json');

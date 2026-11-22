@@ -32,7 +32,7 @@ it('passes Claude Code a fresh workspace, fixture MCP, model, and caps, and pars
     expect(args).toEqual(expect.arrayContaining(['-p', 'stream-json', 'claude-fixture', '--max-turns', '--max-budget-usd', '0.150000']));
     expect(await readFile(`${workspace}/service.log`, 'utf8')).toBe(task.files['service.log']);
     const config = JSON.parse(args[args.indexOf('--mcp-config') + 1]!);
-    expect(JSON.parse(await readFile(config.mcpServers.fixture.args[1], 'utf8'))).toEqual(task.mcp);
+    expect(JSON.parse(await readFile(config.mcpServers.fixture.args.at(-1), 'utf8'))).toEqual(task.mcp);
     return [
       { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Read' }] } },
       { type: 'user', message: { content: [{ type: 'tool_result', is_error: false }] } },

@@ -74,6 +74,13 @@ jobs:
           package-manager-cache: false
       - name: Install dependencies without lifecycle scripts
         run: npm ci --ignore-scripts
+      # `npm run check` tests before it builds: give the tests the redaction
+      # module and the sandbox image they load.
+      - name: Build the redaction module the tests load
+        run: npm run wasm:build
+      - name: Build the sandbox image the Docker tests use
+        working-directory: .
+        run: docker build -f runner/sandbox.Dockerfile -t runbook-sandbox:1 .
       - name: Check
         run: npm run check
 

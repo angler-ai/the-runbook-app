@@ -1,7 +1,6 @@
 import { geminiThinking } from '@runbook/runner-shared/gemini-settings';
 import { claudeSettings } from '@runbook/runner-shared/claude-settings';
 import { execFile } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { streamText } from 'ai';
 import type { LanguageModelV4, LanguageModelV4Prompt } from '@ai-sdk/provider';
@@ -15,6 +14,7 @@ import { currentLoop, newLoop, emptyUsage, isToolError, loopLimits, nativePrompt
   type Subject, type Usage } from './subject.ts';
 import type { Answer, Task } from './tasks.ts';
 import { localSnapshot, openSandbox, withTempWorkspace } from './workspace.ts';
+import { stdioMcpArgs } from './stdio-args.ts';
 
 export const subjectIds = ['current', 'new-loop', 'bash', 'claude', 'gemini-cli'] as const;
 export type SubjectId = typeof subjectIds[number];
@@ -161,7 +161,7 @@ export async function claudeAvailable(executable = 'claude') {
 
 export function claudeArgs(task: Task, model: string, budget: number, mcpData: string) {
   const mcpConfig = JSON.stringify({ mcpServers: { fixture: { command: process.execPath,
-    args: [fileURLToPath(new URL(import.meta.url.endsWith('.ts') ? './stdio-mcp.ts' : './stdio-mcp.js', import.meta.url)), mcpData] } } });
+    args: [...stdioMcpArgs(), mcpData] } } });
   return ['-p', '--bare', '--restricted', '--output-format', 'stream-json', '--verbose', '--model', model,
     '--max-turns', String(loopLimits.maxTurns), '--max-budget-usd', budget.toFixed(6),
     '--setting-sources', '', '--strict-mcp-config', '--mcp-config', mcpConfig,
