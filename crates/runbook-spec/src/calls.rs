@@ -55,11 +55,13 @@ pub fn resolution(
     let mut depth = 0;
     let mut reaches = BTreeSet::new();
     let mut destructive = false;
+    let mut agent_decidable = has_agent_approval(&ir.steps) || has_agent_approval(&ir.finally);
     let mut visit = |call: &crate::ir::Call| {
         if let Some(t) = &call.target {
             depth = depth.max(t.depth);
             reaches.extend(t.reaches.iter().cloned());
             destructive |= t.destructive;
+            agent_decidable |= t.agent_decidable.unwrap_or(true);
         }
     };
     each(&ir.steps, &mut visit);
@@ -88,6 +90,7 @@ pub fn resolution(
         depth,
         reaches: reaches.into_iter().collect(),
         destructive,
+        agent_decidable: Some(agent_decidable),
         inputs,
         input_schemas,
         outputs: ir
@@ -184,6 +187,13 @@ fn has_destructive_task(nodes: &[Node]) -> bool {
     nodes.iter().any(|n| match &n.kind {
         NodeKind::Task(t) => t.destructive,
         _ => children(n).into_iter().any(has_destructive_task),
+    })
+}
+
+fn has_agent_approval(nodes: &[Node]) -> bool {
+    nodes.iter().any(|n| match &n.kind {
+        NodeKind::Approval(a) => a.allow_agents,
+        _ => children(n).into_iter().any(has_agent_approval),
     })
 }
 
@@ -378,6 +388,7 @@ pub(crate) fn resolve(
                 depth,
                 reaches: reaches.into_iter().collect(),
                 destructive: found.destructive,
+                agent_decidable: found.agent_decidable,
             });
         }
     };

@@ -1,8 +1,10 @@
 locals {
-  # A Job's pod template is immutable. Naming each image's Job after that
-  # image makes an upgrade create the new migration Job instead of trying
-  # to rewrite the old one; finished Jobs are retained for a day of logs.
-  migration_job_name = "runbook-migrate-${substr(sha256(var.image), 0, 12)}"
+  # A Job's pod template is immutable. Change the name when its inputs
+  # change. Increment the revision when changing static template fields.
+  migration_job_name = "runbook-migrate-${substr(sha256(jsonencode([
+    1, var.image, var.cloud_sql_proxy_image, var.database_auth, local.workload_secret_name,
+    var.allow_newer_schema, var.project_id, var.region, var.sql_instance_name,
+  ])), 0, 12)}"
 }
 
 # UPD1: migrate once, before the Deployment rolls. The Cloud SQL proxy is
@@ -71,12 +73,12 @@ resource "kubernetes_manifest" "migration_job" {
           initContainers = [
             {
               name          = "cloud-sql-proxy"
-              image         = "gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.14.2"
+              image         = var.cloud_sql_proxy_image
               restartPolicy = "Always"
               # Same connection as the Deployment's proxy: the instance has
               # only a private IP. The health server listens on the pod IP
               # (the kubelet probes there); Postgres stays on 127.0.0.1.
-              args = [
+              args = concat([
                 "--private-ip",
                 "--structured-logs",
                 "--port=5432",
@@ -85,7 +87,7 @@ resource "kubernetes_manifest" "migration_job" {
                 "--http-port=9801",
                 "--exit-zero-on-sigterm",
                 google_sql_database_instance.postgres.connection_name,
-              ]
+              ], local.proxy_auth_args)
               ports = [
                 {
                   name          = "postgres"
@@ -145,7 +147,7 @@ resource "kubernetes_manifest" "migration_job" {
                   name = "DATABASE_URL"
                   valueFrom = {
                     secretKeyRef = {
-                      name = kubernetes_secret.runbook_secrets.metadata[0].name
+                      name = local.workload_secret_name
                       key  = "DATABASE_URL"
                     }
                   }
@@ -189,6 +191,10 @@ resource "kubernetes_manifest" "migration_job" {
   depends_on = [
     google_service_account_iam_member.workload_identity_user,
     google_project_iam_member.cloudsql_client,
+    google_project_iam_member.cloudsql_instance_user,
+    google_sql_user.runbook_iam,
+    google_sql_database.runbook,
+    kubernetes_network_policy_v1.runbook_egress,
     kubernetes_secret.runbook_secrets,
   ]
 }

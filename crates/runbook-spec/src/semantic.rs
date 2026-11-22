@@ -201,6 +201,25 @@ fn task(value: &Task) -> Value {
     {
         map.insert("skills".into(), array(&value.skills, |s| string(s)));
     }
+    // R0-3: runner targeting and limits, projected only when present so
+    // every earlier runbook keeps its hash.
+    if let Value::Object(map) = &mut projected {
+        if let Some(target) = &value.agent_target {
+            map.insert(
+                "agent_target".into(),
+                serde_json::to_value(target).unwrap_or(Value::Null),
+            );
+        }
+        if let Some(limits) = &value.agent_limits {
+            map.insert(
+                "agent_limits".into(),
+                serde_json::to_value(limits).unwrap_or(Value::Null),
+            );
+        }
+        if let Some(connections) = &value.connections {
+            map.insert("connections".into(), array(connections, |s| string(s)));
+        }
+    }
     projected
 }
 fn task_fields(value: &Task) -> Value {
@@ -248,7 +267,7 @@ fn task_fields(value: &Task) -> Value {
     ])
 }
 fn approval(value: &Approval) -> Value {
-    object([
+    let mut projection = object([
         ("prompt", string(&value.prompt)),
         (
             "options",
@@ -286,7 +305,20 @@ fn approval(value: &Approval) -> Value {
             }),
         ),
         ("allow_agents", value.allow_agents.into()),
-    ])
+    ]);
+    if let Some(target) = &value.agent_target {
+        projection["agent_target"] = serde_json::to_value(target).unwrap_or(Value::Null);
+    }
+    if let Some(limits) = &value.agent_limits {
+        projection["agent_limits"] = serde_json::to_value(limits).unwrap_or(Value::Null);
+    }
+    if let Some(after) = &value.agent_after {
+        projection["agent_after"] = duration(after);
+    }
+    if let Some(approves) = &value.approves {
+        projection["approves"] = array(approves, |option| string(option));
+    }
+    projection
 }
 fn node(value: &Node) -> Value {
     let kind = match &value.kind {

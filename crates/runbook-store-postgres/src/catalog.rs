@@ -563,6 +563,7 @@ impl CatalogStore for PostgresExecutionStore {
             {
                 let record = crate::publish::version_record(&row)?;
                 views.push(runbook_model::PublishedVersionView {
+                    warnings: Vec::new(),
                     runbook_id: id.clone(),
                     runbook_version_id: record.version_id,
                     runbook_version: record

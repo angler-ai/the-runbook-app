@@ -103,6 +103,9 @@ pub struct ActorWork<S: SessionStore> {
     /// bytes once counted ([`crate::run_budget`]).
     run_budget: u64,
     logged: Option<u64>,
+    /// R0-4: the agent version a runner's claim pins (set by
+    /// `grants::runner_claim` only).
+    pub(crate) runner_pin: Option<String>,
 }
 
 /// Open the execution session first (D28), then read the directory
@@ -185,6 +188,7 @@ where
         snapshot,
         record,
         memory: vec![],
+        runner_pin: None,
     })
 }
 
@@ -386,7 +390,12 @@ fn stranded_claims(
         .filter(|claim| {
             !state.steps.iter().any(|step| {
                 step.id.as_ref() == Some(&claim.step_run_id)
-                    && step.status == runbook_model::StepStatus::Claimed
+                    && (step.status == runbook_model::StepStatus::Claimed
+                        || step
+                            .approval
+                            .as_ref()
+                            .and_then(|a| a.decision_lease.as_ref())
+                            .is_some_and(|lease| lease.lease_id == claim.claim_id))
             })
         })
         .map(|claim| crate::ClaimWrite {

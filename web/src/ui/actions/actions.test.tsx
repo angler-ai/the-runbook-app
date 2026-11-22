@@ -1,9 +1,9 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { expectNoAxeViolations } from '../../test/axe';
 import { Button } from '../primitives/button';
-import { ApprovalPanel } from './ApprovalPanel';
+import { agentReviewText, ApprovalPanel } from './ApprovalPanel';
 import { ChecklistForm } from './ChecklistForm';
 import { ConfirmDialog } from './ConfirmDialog';
 import { OutputsForm, type JsonSchema } from './OutputsForm';
@@ -234,7 +234,8 @@ describe('ApprovalPanel', () => {
     expect(screen.getByText(/Escalation: @leads/)).toBeInTheDocument();
     expect(screen.getAllByText('chose promote')).toHaveLength(2);
     expect(screen.getByText('"Known test flake"')).toBeInTheDocument();
-    expect(screen.getByText('triage-bot · gemini-1.5-pro')).toBeInTheDocument();
+    expect(screen.getByText('triage-bot')).toBeInTheDocument();
+    expect(screen.getByText(/\(gemini-1\.5-pro\)/)).toBeInTheDocument();
     expect(screen.getByText('"Diagnostics clear"')).toBeInTheDocument();
     expect(screen.getByText('(policy:unhealthy_threshold)')).toBeInTheDocument();
 
@@ -321,6 +322,176 @@ describe('ApprovalPanel', () => {
     const confirmBtn = screen.getAllByRole('button', { name: 'Roll back' }).at(-1)!;
     await user.click(confirmBtn);
     expect(decidedOption).toBe('rollback');
+  });
+});
+
+describe('ApprovalPanel with a runner agent (R1-D2)', () => {
+  const open = {
+    schema_revision: 1,
+    step_run_id: 'sr_release_gate',
+    status: 'waiting' as const,
+    prompt: 'Ship 2.4.0?',
+    options: [
+      { id: 'ship', title: 'Ship it', auto: false },
+      { id: 'hold', title: 'Hold the release', auto: false },
+    ],
+    eligible_recipients: [{ kind: 'team' as const, reference: 'release-managers' }],
+    escalation_recipients: [],
+    escalated: false,
+    quorum: 1,
+    decisions: [],
+  };
+  const agent = { name: 'release-reviewer', readyAtMs: 1_000_000 + 15 * 60_000 };
+  const transcriptHref = '/p/web/agents/transcripts/sr_release_gate';
+
+  it('says when the agent may decide, and that people can decide first', () => {
+    render(<ApprovalPanel approval={open} agent={agent} now={1_000_000} onDecide={() => {}} />);
+    expect(
+      screen.getByText(
+        'Agent release-reviewer may decide in 15m if no one has. People can decide first.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Ship it' })).toBeEnabled();
+  });
+
+  it('shows the agent reviewing while it holds the decision lease; people can still decide', async () => {
+    const decide = vi.fn();
+    const user = userEvent.setup();
+    const { container } = render(
+      <ApprovalPanel
+        approval={{
+          ...open,
+          decision_lease: { lease_id: 'clm_1', agent_name: 'release-reviewer' },
+        }}
+        agent={agent}
+        now={2_000_000}
+        onDecide={decide}
+      />,
+    );
+    const status = screen.getByRole('status');
+    expect(status).toHaveTextContent('Agent release-reviewer is reviewing.');
+    expect(status).toHaveTextContent('You can still decide; the first decision wins.');
+    expect(screen.queryByText(/may decide/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Hold the release' }));
+    await user.click(
+      within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Hold the release' }),
+    );
+    expect(decide).toHaveBeenCalledWith('hold', undefined);
+    await expectNoAxeViolations(container);
+  });
+
+  it('shows an abstention with its reason, and leaves the decision to people', () => {
+    render(
+      <ApprovalPanel
+        approval={{
+          ...open,
+          agent_notes: [
+            {
+              lease_id: 'clm_1',
+              principal: 'runner:rin_1',
+              agent_name: 'release-reviewer',
+              model: 'claude-sonnet',
+              reason: 'No canary data for this version yet.',
+              at_ms: 1,
+            },
+          ],
+        }}
+        agent={agent}
+        now={2_000_000}
+        onDecide={() => {}}
+      />,
+    );
+    const review = document.querySelector('[data-slot="agent-review"]') as HTMLElement;
+    expect(review).toHaveTextContent(
+      'Agent release-reviewer (claude-sonnet) abstained: No canary data for this version yet.',
+    );
+    expect(review).toHaveTextContent('People decide this approval.');
+    expect(screen.queryByText(/may decide/)).not.toBeInTheDocument();
+  });
+
+  it('shows the agent decision with model, reason, evidence and the runner transcript', async () => {
+    const { container } = render(
+      <ApprovalPanel
+        approval={{
+          ...open,
+          status: 'succeeded',
+          decisions: [
+            {
+              by: 'agent' as const,
+              principal: 'runner:rin_1',
+              agent_name: 'release-reviewer',
+              model: 'claude-sonnet',
+              session_id: 'clm_1',
+              option: 'ship',
+              comment: 'Canary error rate 0.1% is under the 1% threshold [call 2].',
+              evidence: ['[call 2]', '[call 3]'],
+            },
+          ],
+        }}
+        agent={agent}
+        transcriptHref={transcriptHref}
+        now={2_000_000}
+      />,
+    );
+    expect(screen.getByText('Decided: Ship it by agent release-reviewer')).toBeInTheDocument();
+    const decision = document.querySelector('[data-slot="agent-decision"]') as HTMLElement;
+    expect(decision).toHaveTextContent('Decided by agent release-reviewer (claude-sonnet)');
+    expect(decision).toHaveTextContent('chose ship');
+    expect(decision).toHaveTextContent(
+      '"Canary error rate 0.1% is under the 1% threshold [call 2]."',
+    );
+    expect(decision).toHaveTextContent('Runner-reported evidence: [call 2], [call 3]');
+    expect(within(decision).getByRole('link', { name: 'Runner transcript' })).toHaveAttribute(
+      'href',
+      `${transcriptHref}?claim_id=clm_1`,
+    );
+    // Closed: nothing about when the agent may decide.
+    expect(screen.queryByText(/may decide/)).not.toBeInTheDocument();
+    await expectNoAxeViolations(container);
+  });
+
+  it('links no runner transcript for an external agent decision', () => {
+    render(
+      <ApprovalPanel
+        approval={{
+          ...open,
+          status: 'succeeded',
+          decisions: [
+            {
+              by: 'agent' as const,
+              agent_name: 'triage-bot',
+              model: null,
+              session_id: 'ses_1',
+              option: 'hold',
+              comment: null,
+            },
+          ],
+        }}
+        transcriptHref={transcriptHref}
+      />,
+    );
+    expect(screen.getByText(/Decided by agent/)).toHaveTextContent('Decided by agent triage-bot');
+    expect(screen.queryByRole('link', { name: 'Runner transcript' })).not.toBeInTheDocument();
+  });
+});
+
+describe('agentReviewText', () => {
+  const approval = { status: 'waiting' as const };
+  it('words each state, and nothing once closed', () => {
+    const agent = { name: 'reviewer', readyAtMs: 10_000 };
+    expect(agentReviewText(approval, agent, 0)).toBe(
+      'Agent reviewer may decide in 10s if no one has',
+    );
+    expect(agentReviewText(approval, agent, 20_000)).toBe('Agent reviewer may decide now');
+    expect(
+      agentReviewText(
+        { ...approval, decision_lease: { lease_id: 'clm_1', agent_name: 'reviewer' } },
+        agent,
+        0,
+      ),
+    ).toBe('Agent reviewer is reviewing');
+    expect(agentReviewText(approval, undefined, 0)).toBeNull();
+    expect(agentReviewText({ status: 'succeeded' }, agent, 0)).toBeNull();
   });
 });
 
@@ -446,9 +617,7 @@ describe('ApprovalPanel names (walkthrough #1)', () => {
     escalation_recipients: [],
     escalated: false,
     quorum: 1,
-    decisions: [
-      { by: 'human' as const, user_id: ALICE, option: 'keep', membership_revision: 1 },
-    ],
+    decisions: [{ by: 'human' as const, user_id: ALICE, option: 'keep', membership_revision: 1 }],
   };
   const nameOf = (id: string) => (id === ALICE ? 'Alice Example' : `short:${id.slice(-4)}`);
   const teamName = (id: string) => (id.startsWith('team_') ? 'oncall' : id);

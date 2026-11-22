@@ -333,6 +333,15 @@ impl Trace {
                 reason: *reason,
                 reads: reads.clone(),
             },
+            Command::ResolveAgentTarget {
+                step_id,
+                step_run_id,
+                target,
+            } => Event::AgentTargetResolved {
+                step_id: step_id.clone(),
+                step_run_id: step_run_id.clone(),
+                target: target.clone(),
+            },
             Command::MakeStepReady { step_id, reads } => Event::StepReady {
                 reads: reads.clone(),
                 step_id: step_id.clone(),

@@ -26,12 +26,14 @@ impl DiscoveryConfig {
             minimum_cli_version: self.minimum_cli_version.clone(),
             // D48: no sign-in method is configured until AUTH2/AUTH5.
             auth: AuthDiscovery::default(),
+            jwks_uri: Some(format!("{}{}", self.origin, crate::runners::JWKS_PATH)),
         }
     }
     pub fn meta(&self) -> MetaView {
         MetaView {
             edition: "self_hosted".into(),
             version: self.version.clone(),
+            runner_contract_version: runbook_model::RUNNER_CONTRACT_VERSIONS.last().copied(),
             schema: self.schema.clone(),
             capabilities: [
                 ("directory".into(), true),

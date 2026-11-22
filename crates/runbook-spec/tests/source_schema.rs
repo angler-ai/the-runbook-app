@@ -292,12 +292,11 @@ fn source_schema_enforces_pilot_capabilities_contextually() {
             json!({"steps":[],"execution":{"concurrency":{"key":"k","limit":1,"on_conflict":"cancel"}}}),
         ),
     ];
-    for key in ["runner", "model", "max_cost_usd", "max_tokens"] {
-        cases.push((
-            key,
-            json!({"steps":[{"id":"t","title":"T","agent":{key:null}}]}),
-        ));
-    }
+    // R0-3: `agent.runner` is retired; the other caps are runner agent keys.
+    cases.push((
+        "runner",
+        json!({"steps":[{"id":"t","title":"T","agent":{"runner":null}}]}),
+    ));
     // UP1 made `file` and `screenshot` supported; other kinds stay refused.
     for kind in ["video", "photo"] {
         cases.push((
@@ -461,12 +460,26 @@ fn source_schema_preserves_extensions_and_advisory_values() {
             ));
         }
     }
-    for key in ["unknown", "runner", "model", "max_tokens", "max_cost_usd"] {
+    for key in ["unknown", "runner"] {
         rejects(
             &validator,
             &document(json!({"steps":[{"id":"t","title":"T","agent":{key:null}}]})),
         );
     }
+    // R0-3: runner agent keys and step connections.
+    accepts(
+        &validator,
+        &document(json!({
+            "defaults":{"agent":{"name":"deploy-checker"}},
+            "steps":[{"id":"t","title":"T","actor":"agent","connections":["datadog-readonly"],
+                "agent":{"name":"deploy-checker","model":"fast","max_cost_usd":0.5,
+                         "max_tokens":1000,"network":["api.datadoghq.com"]}}]
+        })),
+    );
+    rejects(
+        &validator,
+        &document(json!({"steps":[{"id":"t","title":"T","agent":{"max_cost_usd":0}}]})),
+    );
 }
 
 #[test]

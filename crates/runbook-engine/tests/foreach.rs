@@ -401,6 +401,7 @@ fn public_report_validator_accepts_a_scoped_step_instance() {
         summary: None,
         evidence: vec![],
         logs: vec![],
+        cost: None,
     };
     let validated = runbook_engine::validate_report(
         trace.state.node(&record.step_id).unwrap(),

@@ -93,7 +93,7 @@ fn forbidden() -> Error {
 }
 
 /// Map a memory use-case error to the route's problem.
-fn rejection(e: ActorError) -> Error {
+pub(crate) fn rejection(e: ActorError) -> Error {
     let code = e.code();
     let status = match code {
         "memory.conflict" => 412,

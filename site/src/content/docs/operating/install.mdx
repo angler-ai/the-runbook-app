@@ -69,7 +69,7 @@ Set `RUNBOOK_MIGRATE_ON_START=false` and run `runbook-server migrate` as a
 Job before rolling out, if you prefer migrations as a separate step.
 
 On Google Cloud, the Terraform module in `deploy/terraform/gcp-gke/`
-provisions GKE, Cloud SQL, Secret Manager and an HTTPS load balancer:
+provisions GKE, Cloud SQL and an HTTPS load balancer, with a managed or external Kubernetes Secret:
 [Quick start on GKE](/getting-started/gke/). Cloud Run, Fly.io, Render,
 ECS and VMs are covered in
 [`deploy/platforms.md`](https://github.com/angler-ai/the-runbook-app/blob/main/deploy/platforms.md).
@@ -80,11 +80,15 @@ ECS and VMs are covered in
 The Workers edition deploys to your own account on the Workers Paid plan:
 D1, R2, Queues and two Workers. The secrets are set with
 `npx wrangler secret put`, the rest in `wrangler.prod.jsonc` and
-`wrangler.auth.prod.jsonc`. Full steps: [Quick start on
+`wrangler.auth.prod.jsonc`. Keep the auth Worker's Cron Trigger to deliver MFA security emails. Full steps: [Quick start on
 Cloudflare](/getting-started/cloudflare/).
 
 </TabItem>
 </Tabs>
+
+## Optional runner
+
+The Docker runner works with either core edition. Follow [runner setup](/runner/setup/) to register it with the core's public origin, verify the vault identity and configure the first agent. When upgrading, [update the core before the runner](/runner/setup/#upgrade-to-011), then enable MFA once sign-in is verified.
 
 ## Behind a proxy
 
@@ -152,7 +156,7 @@ curl -X POST https://runbooks.example.com/internal/bootstrap \
   -H "x-bootstrap-secret: $BOOTSTRAP_SECRET" -H 'Content-Type: application/json' \
   -d '{"organization": "My Organization", "user_name": "Initial Admin",
        "project_slug": "default", "owner_email": "admin@example.com"}'
-npx wrangler secret delete BOOTSTRAP_SECRET
+npx wrangler secret delete BOOTSTRAP_SECRET -c wrangler.prod.jsonc
 ```
 
 Deleting the secret disables the route.

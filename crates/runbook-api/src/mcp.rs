@@ -553,7 +553,7 @@ impl<B: Backends, S: CallSlots> AsyncBackend for RouterBackend<'_, B, S> {
             let (status, code) = crate::planned::NOT_IMPLEMENTED;
             return Err(BackendError::problem(status, code, code));
         }
-        let request = self.admit(
+        let mut request = self.admit(
             call.method,
             call.path,
             call.query.into_iter().collect(),
@@ -561,6 +561,18 @@ impl<B: Backends, S: CallSlots> AsyncBackend for RouterBackend<'_, B, S> {
             call.idempotency_key,
             call.if_match,
         )?;
+        // This request was built by a server-side tool after MCP authentication.
+        // Public HTTP decoding still requires the caller's CSRF header.
+        if crate::runner_proxy::recognizes(&request.path) {
+            let query = serde_urlencoded::to_string(&request.query).map_err(|_| {
+                BackendError::problem(400, "request.invalid_query", "invalid query")
+            })?;
+            request.body = crate::runner_proxy::envelope(
+                Some("1"),
+                (!query.is_empty()).then_some(query.as_str()),
+                request.body,
+            );
+        }
         let response = {
             let _slot = self.slots.acquire().await.map_err(busy)?;
             // Boxed: the router's future is large, and the tool's own future
@@ -568,16 +580,24 @@ impl<B: Backends, S: CallSlots> AsyncBackend for RouterBackend<'_, B, S> {
             // small).
             Box::pin(self.router.handle(request)).await
         };
+        let body = match response.proxied {
+            Some(proxy) if proxy.content_type == "application/json" && !proxy.bytes.is_empty() => {
+                serde_json::from_slice(&proxy.bytes).map_err(|_| {
+                    BackendError::problem(502, "runner.bad_response", "invalid JSON")
+                })?
+            }
+            _ => response.body,
+        };
         if (200..300).contains(&response.status) {
             Ok(HttpReply {
                 body: match response.markdown {
                     Some(text) => Value::String(*text),
-                    None => response.body,
+                    None => body,
                 },
                 etag: response.etag,
             })
         } else {
-            Err(BackendError::from_problem(response.status, &response.body))
+            Err(BackendError::from_problem(response.status, &body))
         }
     }
 

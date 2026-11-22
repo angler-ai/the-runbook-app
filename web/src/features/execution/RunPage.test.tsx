@@ -296,6 +296,24 @@ describe('the live execution graph', () => {
     expect(await screen.findByText('Started by Riley Chen')).toBeInTheDocument();
   });
 
+  it('shows the runner agent in the graph and step panel', async () => {
+    renderRun(`/x/${RUN_ID}`, () => {
+      const doc = waitingOnApproval();
+      const section = doc.sections.find((s) => s.path === 'changelog')!;
+      const step = doc.header.steps.find((s) => s.id === section.step_run_id)!;
+      if (section.actor?.kind !== 'agent') throw new Error('Expected an agent actor');
+      section.actor = { ...section.actor, name: 'rn_1', principal_id: 'runner:rn_1', model: null };
+      step.runner = { agent_id: 'agt_1', agent_name: 'release-reviewer', model: 'sonnet' };
+      return doc;
+    });
+    const changelog = await card('changelog');
+    expect(within(changelog).getByText('release-reviewer · sonnet')).toBeInTheDocument();
+    fireEvent.click(within(changelog).getByRole('button', { name: /changelog/i }));
+    const panel = await screen.findByRole('complementary', { name: 'Step details' });
+    expect(within(panel).getByText('release-reviewer · sonnet')).toBeInTheDocument();
+    expect(within(panel).queryByText('rn_1')).not.toBeInTheDocument();
+  });
+
   it('opens the selected step run in the side panel, with its log and the definition folded', async () => {
     renderRun(`/x/${RUN_ID}`, waitingOnApproval, {
       logs: ['dry run on replica-2: 2 pending migrations, both additive'],

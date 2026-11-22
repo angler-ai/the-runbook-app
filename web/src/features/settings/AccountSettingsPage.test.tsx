@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { sessionStore, tokenStore } from '../../api/token-store';
 import { expectNoAxeViolations } from '../../test/axe';
 import { server } from '../../test/msw/server';
+import { TestRouter } from '../../test/router';
 import { OrgProvider } from '../context/OrgContext';
 import { AccountSettingsPage } from './AccountSettingsPage';
 
@@ -16,7 +17,9 @@ function renderPage() {
   return render(
     <QueryClientProvider client={client}>
       <OrgProvider>
-        <AccountSettingsPage />
+        <TestRouter>
+          <AccountSettingsPage />
+        </TestRouter>
       </OrgProvider>
     </QueryClientProvider>,
   );
@@ -90,15 +93,25 @@ function baseHandlers() {
         next_cursor: null,
       }),
     ),
-    http.get('*/v1/orgs/:org/users', () =>
-      HttpResponse.json({ items: [], next_cursor: null }),
-    ),
-    http.get('*/v1/orgs/:org/teams', () =>
-      HttpResponse.json({ items: [], next_cursor: null }),
-    ),
+    http.get('*/v1/orgs/:org/users', () => HttpResponse.json({ items: [], next_cursor: null })),
+    http.get('*/v1/orgs/:org/teams', () => HttpResponse.json({ items: [], next_cursor: null })),
     http.get('*/api/auth/list-sessions', () => HttpResponse.json(sampleSessions)),
     http.get('*/v1/tokens', () => HttpResponse.json({ items: sampleTokens })),
     http.get('*/v1/me/apps', () => HttpResponse.json({ items: sampleApps })),
+    http.get('*/v1/me/security', () =>
+      HttpResponse.json({
+        mfa_required: false,
+        mfa_partial: false,
+        mfa_enrolled: false,
+        mfa_verified_at: null,
+        mfa_method: null,
+        allow_passkeys: true,
+        allow_authenticator: true,
+        fresh_minutes: 10,
+        authenticator_enrolled: false,
+        passkey_count: 0,
+      }),
+    ),
   ];
 }
 
@@ -116,7 +129,7 @@ describe('AccountSettingsPage under PAT sign-in', () => {
     const { container } = renderPage();
 
     // Click on Personal tokens tab
-    const tokensTab = screen.getByRole('tab', { name: /personal tokens/i });
+    const tokensTab = await screen.findByRole('tab', { name: /personal tokens/i });
     await user.click(tokensTab);
 
     // Verify F90 message
@@ -137,8 +150,8 @@ describe('AccountSettingsPage under cookie session', () => {
       ...baseHandlers(),
       http.post('*/api/auth/revoke-session', async ({ request }) => {
         revokeCalled = true;
-        const body = (await request.json()) as { token: string };
-        expect(body.token).toBe('tok_sess_1');
+        const body = (await request.json()) as { session_id: string };
+        expect(body.session_id).toBe('sess_1');
         return HttpResponse.json({ status: true });
       }),
       http.post('*/api/auth/revoke-other-sessions', () => {
@@ -207,7 +220,7 @@ describe('AccountSettingsPage under cookie session', () => {
     const { container } = renderPage();
 
     // Navigate to Personal tokens tab
-    await user.click(screen.getByRole('tab', { name: /personal tokens/i }));
+    await user.click(await screen.findByRole('tab', { name: /personal tokens/i }));
 
     // Listed existing token
     expect(await screen.findByText('laptop-cli')).toBeInTheDocument();
@@ -237,6 +250,89 @@ describe('AccountSettingsPage under cookie session', () => {
     await expectNoAxeViolations(container);
   });
 
+  it('flags tokens issued without a fresh second factor and replaces one within the session limit', async () => {
+    const sessionEnds = Date.now() + 86_400_000 * 29.5;
+    let created: { name: string; scopes: string[]; expires_at_ms: number } | null = null;
+    server.use(
+      http.get('*/v1/me', () =>
+        HttpResponse.json({
+          ...mockMe,
+          credential: { ...mockMe.credential, kind: 'session', expires_at_ms: sessionEnds },
+        }),
+      ),
+      http.get('*/v1/me/security', () =>
+        HttpResponse.json({
+          mfa_required: true,
+          mfa_partial: false,
+          mfa_enrolled: true,
+          mfa_verified_at: Date.now(),
+          mfa_method: 'passkey',
+          allow_passkeys: true,
+          allow_authenticator: true,
+          fresh_minutes: 10,
+          authenticator_enrolled: false,
+          passkey_count: 1,
+        }),
+      ),
+      http.get('*/v1/tokens', () =>
+        HttpResponse.json({
+          items: [
+            { ...sampleTokens[0], fresh_mfa_at_issue: false },
+            {
+              ...sampleTokens[0],
+              id: 'tok_00000000000000000000000003',
+              name: 'fresh-cli',
+              fresh_mfa_at_issue: true,
+            },
+          ],
+        }),
+      ),
+      http.post('*/v1/tokens', async ({ request }) => {
+        created = (await request.json()) as typeof created;
+        return HttpResponse.json(
+          {
+            secret: 'trb_pat_replacement',
+            token: {
+              id: 'tok_00000000000000000000000004',
+              kind: 'personal',
+              name: 'x',
+              scopes: [],
+              fresh_mfa_at_issue: true,
+            },
+          },
+          { status: 201 },
+        );
+      }),
+      ...baseHandlers(),
+    );
+    sessionStore.setCookieSession();
+    const user = userEvent.setup();
+    const { container } = renderPage();
+    await user.click(await screen.findByRole('tab', { name: /personal tokens/i }));
+    expect(await screen.findByText('Created without a second-factor check')).toBeInTheDocument();
+    // Only the legacy token is flagged.
+    expect(screen.getAllByText('Created without a second-factor check')).toHaveLength(1);
+    await expectNoAxeViolations(container);
+
+    await user.click(screen.getByRole('button', { name: 'Replace token' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByLabelText('Name')).toHaveValue('laptop-cli (replacement)');
+    const expiry = within(dialog).getByLabelText('Expiration');
+    // 30 days and longer would outlive this browser session: the largest preset that fits.
+    expect(expiry).toHaveValue('7');
+    expect(within(expiry).queryByRole('option', { name: /90 days/ })).not.toBeInTheDocument();
+    expect(
+      within(expiry).getByRole('option', { name: /when this sign-in ends/ }),
+    ).toBeInTheDocument();
+    expect(expiry).toHaveAccessibleDescription(/cannot outlive the sign-in that creates it/i);
+    await user.selectOptions(expiry, 'limit');
+    await user.click(within(dialog).getByRole('button', { name: /create token/i }));
+    await waitFor(() => expect(created).not.toBeNull());
+    expect(created!.scopes).toEqual(['runbooks:read', 'executions:read']);
+    expect(created!.expires_at_ms).toBeLessThanOrEqual(sessionEnds);
+    expect(created!.expires_at_ms).toBeGreaterThan(sessionEnds - 86_400_000);
+  });
+
   it('manages connected applications (lists, revokes access)', async () => {
     let revokeAppCalled = false;
     server.use(
@@ -253,7 +349,7 @@ describe('AccountSettingsPage under cookie session', () => {
     const { container } = renderPage();
 
     // Navigate to Connected apps tab
-    await user.click(screen.getByRole('tab', { name: /connected apps/i }));
+    await user.click(await screen.findByRole('tab', { name: /connected apps/i }));
 
     expect(await screen.findByText('Claude Desktop MCP')).toBeInTheDocument();
     expect(screen.getByText('app_mcp_client')).toBeInTheDocument();

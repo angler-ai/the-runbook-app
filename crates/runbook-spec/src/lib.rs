@@ -39,6 +39,12 @@ mod snapshot;
 mod compiler_storage_tests;
 
 mod policy;
+pub use policy::approval_reaches_destructive;
+pub use policy::destructive_reach::{
+    approval_option_warnings, dominating_approvals, publication_approval_diagnostics,
+};
+
+mod agents;
 
 mod decimal;
 

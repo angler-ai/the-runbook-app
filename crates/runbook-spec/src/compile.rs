@@ -14,6 +14,13 @@ pub struct CompileContext {
     pub project_variables: DataSchema,
     /// LANG4: callable runbook versions by [`crate::calls::call_key`].
     pub runbooks: BTreeMap<String, crate::ir::CallResolution>,
+    /// R0-3: the project's agent directory by agent name. `None` compiles
+    /// without one (offline validation, the browser editor): agent names
+    /// stay unresolved and unchecked, and such a result never publishes.
+    pub agents: Option<BTreeMap<String, runbook_model::AgentDirectoryEntry>>,
+    /// R0-3: the project's default agent, applied to agent steps that name
+    /// none (publish records the resolution).
+    pub default_agent: Option<String>,
 }
 impl Default for CompileContext {
     fn default() -> Self {
@@ -25,6 +32,8 @@ impl Default for CompileContext {
             project_variables: crate::parse_declarations(&serde_json::json!({}))
                 .expect("empty declarations"),
             runbooks: BTreeMap::new(),
+            agents: None,
+            default_agent: None,
         }
     }
 }
@@ -193,6 +202,16 @@ pub fn compile(spec: &Spec, context: &CompileContext) -> Result<CompiledRunbook,
     crate::scopes::outputs_limit(&ir)
         .map_err(|e| vec![crate::scopes::locate(e, &spec.source_spans)])?;
     crate::calls::resolve(&mut ir, &context.runbooks)?;
+    if let Some(agents) = &context.agents {
+        crate::agents::resolve(&mut ir, agents, context.default_agent.as_deref()).map_err(
+            |errors| {
+                errors
+                    .into_iter()
+                    .map(|e| crate::scopes::locate(e, &spec.source_spans))
+                    .collect::<Vec<_>>()
+            },
+        )?;
+    }
     let bindings = crate::bindings::select(
         &ir,
         &crate::bindings::Catalog {

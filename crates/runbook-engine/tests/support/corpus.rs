@@ -480,10 +480,12 @@ pub fn rows() -> Value {
         context,
     );
     let fact = runbook_engine::AgentDecision {
+        audit_only_comment: false,
         at_ms: 10,
         base_sequence: trace.state.sequence,
         step_run_id: trace.step("gate").id.clone().unwrap(),
         option: "keep".into(),
+        evidence: vec![],
         comment: Some("checked".into()),
         principal: "agt_ops".into(),
         agent_name: "ops".into(),

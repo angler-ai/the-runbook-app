@@ -21,8 +21,6 @@ enum Expect {
 }
 use Expect::*;
 
-const UNSUPPORTED: Expect = Rejected("spec.unsupported_feature");
-
 #[derive(Clone, Copy, Debug)]
 enum Kind {
     Root,
@@ -49,6 +47,7 @@ enum Kind {
     Branch,
     Wait,
     Approval,
+    ApprovalAgent,
     Option,
     Approvers,
     TimeoutPolicy,
@@ -83,6 +82,7 @@ const NODE_KEYS: &[&str] = &[
     "outputs",
     "evidence",
     "agent",
+    "connections",
     "steps",
     "catch",
     "finally",
@@ -159,6 +159,7 @@ fn supported(kind: Kind) -> &'static [&'static str] {
             "remind_every",
             "escalate_after",
             "escalate_to",
+            "agent",
         ],
         Retry => &["max_attempts", "backoff", "on"],
         Agents => &["params"],
@@ -180,11 +181,13 @@ fn supported(kind: Kind) -> &'static [&'static str] {
             "escalation_timeout",
             "on_expired",
             "allow_agents",
+            "agent",
             "escalate_to",
             "options",
             "approvers",
             "on_timeout",
         ],
+        ApprovalAgent => &["name", "model", "max_cost_usd", "max_tokens", "after"],
         Option => &["id", "title", "auto"],
         Approvers => &["users", "teams"],
         TimeoutPolicy => &["decide"],
@@ -203,10 +206,13 @@ fn special(kind: Kind) -> &'static [(&'static str, Expect)] {
             ("tools", Preserved),
             ("commands", Preserved),
             ("hints", Supported),
-            ("runner", UNSUPPORTED),
-            ("model", UNSUPPORTED),
-            ("max_cost_usd", UNSUPPORTED),
-            ("max_tokens", UNSUPPORTED),
+            // R0-3: runner agent keys; `runner` is retired.
+            ("runner", Rejected("spec.retired_key")),
+            ("name", Supported),
+            ("model", Supported),
+            ("max_cost_usd", Supported),
+            ("max_tokens", Supported),
+            ("network", Supported),
         ],
         _ => &[],
     }
@@ -333,6 +339,7 @@ fn universe() -> BTreeSet<&'static str> {
         Branch,
         Wait,
         Approval,
+        ApprovalAgent,
         Option,
         Approvers,
         TimeoutPolicy,
@@ -423,6 +430,7 @@ fn contexts() -> Vec<(String, Kind)> {
             ("/switch/default/steps", Nodes),
             ("/wait", Wait),
             ("/approval", Approval),
+            ("/approval/agent", ApprovalAgent),
             ("/approval/options", Indexed),
             ("/approval/options/0", Option),
             ("/approval/approvers", Approvers),
@@ -812,8 +820,8 @@ fn every_rejected_key_in_every_context_fails_publication_at_its_pointer() {
         codes,
         BTreeSet::from([
             "spec.agents_dispatch_removed",
+            "spec.retired_key",
             "spec.unknown_key",
-            "spec.unsupported_feature"
         ])
     );
     assert!(

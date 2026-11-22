@@ -5,6 +5,8 @@
 // mailbox, so a refusal tells nobody anything they did not already know.
 import { APIError } from 'better-auth/api';
 import { type AuthConfig, domainAllowed } from './config';
+import type { AuthStore } from './limits';
+import { boundMfaGeneration } from './mfa-generation';
 
 export type Fetch = (input: Request | string | URL, init?: RequestInit) => Promise<Response>;
 
@@ -46,10 +48,11 @@ interface HookSession {
   userId?: unknown;
 }
 interface HookContext {
+  path?: string;
   context?: { internalAdapter?: { findUserById(id: string): Promise<{ email: string } | null> } };
 }
 
-export function databaseHooks(config: AuthConfig, fetchImpl: Fetch) {
+export function databaseHooks(config: AuthConfig, fetchImpl: Fetch, store: AuthStore) {
   return {
     user: {
       create: {
@@ -71,9 +74,16 @@ export function databaseHooks(config: AuthConfig, fetchImpl: Fetch) {
         // the domain restriction applies to signing in, not only to registering.
         async before(session: HookSession, ctx: HookContext | null) {
           const adapter = ctx?.context?.internalAdapter;
-          if (!adapter || config.allowedDomains.length === 0) return;
-          const owner = await adapter.findUserById(String(session.userId));
-          if (!owner || !domainAllowed(config, owner.email)) throw refuse('auth.domain_not_allowed', 'This email domain cannot sign in here.');
+          if (adapter && config.allowedDomains.length !== 0) {
+            const owner = await adapter.findUserById(String(session.userId));
+            if (!owner || !domainAllowed(config, owner.email)) throw refuse('auth.domain_not_allowed', 'This email domain cannot sign in here.');
+          }
+          const generation = await boundMfaGeneration();
+          if (ctx?.path === '/passkey/verify-authentication') {
+            if (generation === undefined) throw refuse('auth.passkey_assertion_failed', 'Could not verify this passkey.');
+            return { data: { mfaGeneration: generation, mfaVerifiedAt: new Date(), mfaMethod: 'passkey' } };
+          }
+          return { data: { mfaGeneration: generation ?? await store.mfaGeneration(String(session.userId)) } };
         },
       },
     },

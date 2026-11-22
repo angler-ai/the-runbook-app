@@ -73,7 +73,9 @@ const str = (env: Record<string, unknown>, key: string): string | undefined => {
 export function isLoopbackOrigin(origin: string): boolean {
   let host: string;
   try {
-    host = new URL(origin).hostname.toLowerCase();
+    const url = new URL(origin);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+    host = url.hostname.replace(/\.$/, '');
   } catch {
     return false;
   }

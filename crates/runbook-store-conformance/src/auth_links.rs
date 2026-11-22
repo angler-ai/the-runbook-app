@@ -110,6 +110,8 @@ pub async fn invitation_links_once_and_applies_role<D: DirectoryStore + AuthLink
         vec!["ba_user_1".to_owned()]
     );
     assert!(d.auth_users_of(&user(9)).await?.is_empty());
+    assert_eq!(d.auth_links_in_org(&org(1)).await?, vec![link.clone()]);
+    assert!(d.auth_links_in_org(&org(2)).await?.is_empty());
 
     // Sign-in gate fix 7: a non-ASCII address is one address however it is
     // cased: invited in capitals, it links with the lowercase form the auth
@@ -142,6 +144,29 @@ pub async fn invitation_links_once_and_applies_role<D: DirectoryStore + AuthLink
             .map(|u| u.id),
         Some(user(3))
     );
+    assert_eq!(
+        d.owner_reset_auth_users(&org(1), &user(2)).await?,
+        vec!["ba_user_1".to_owned()]
+    );
+    d.commit(DirectoryCommit {
+        org_id: org(2),
+        expected_revision: 0,
+        mutations: vec![
+            DirectoryMutation::CreateOrganization {
+                title: "Org2".into(),
+            },
+            DirectoryMutation::CreateUser(UserRecord {
+                id: user(2),
+                name: "New Member".into(),
+                active: false,
+                role: OrgRole::Member,
+            }),
+        ],
+    })
+    .await?;
+    for org in [org(1), org(2)] {
+        assert!(d.owner_reset_auth_users(&org, &user(2)).await?.is_empty());
+    }
     Ok(())
 }
 

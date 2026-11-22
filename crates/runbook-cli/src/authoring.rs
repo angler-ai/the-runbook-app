@@ -368,10 +368,12 @@ fn push(b: &mut dyn Backend, a: &PushArgs, store: Option<&StateDir>) -> Result<i
         let target = match &existing {
             Some(rb) => rb.clone(),
             None => any_runbook(b, &a.project)?.ok_or_else(|| {
+                let file = shell_arg(&a.file.to_string_lossy());
+                let project = shell_arg(&a.project);
+                let slug = shell_arg(&slug);
                 BackendError::Usage(format!(
-                    "cannot confirm runbooks:publish before project '{}' has a runbook; nothing was changed. \
-                     Run `runbook push <file> --draft`, then `runbook publish {slug} --project {}`",
-                    a.project, a.project
+                    "cannot confirm runbooks:publish before project {project} has a runbook. \
+                     Run `runbook push {file} --project {project} --draft`, then `runbook publish {slug} --project {project}`"
                 ))
             })?,
         };
@@ -461,6 +463,10 @@ fn step_cap_warning(b: &mut dyn Backend, source: &str) -> Option<String> {
             "worst case {budget} step runs is over this server's limit of {cap}: a run that reaches it stops"
         )
     })
+}
+
+fn shell_arg(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 /// Any runbook of the project, to confirm publish permission in it.

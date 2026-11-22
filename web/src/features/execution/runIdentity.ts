@@ -12,6 +12,19 @@ export interface RunIdentity {
   startedAtMs?: number;
   /** Pre-formatted assignee of one step ("team oncall"). */
   assigned?: string;
+  /** R1-D2: the runner agent that may decide the step's approval. */
+  agentDecides?: ApprovalAgentInfo;
+}
+
+/** R1-D2: a runner agent an approval lets decide, and what it is doing. */
+export interface ApprovalAgentInfo {
+  name: string;
+  /** When its decision work becomes ready (epoch ms), once requested. */
+  readyAtMs?: number;
+  /** A decision lease is held: the agent is reviewing now. */
+  reviewing: boolean;
+  /** The agent abstained; people decide. */
+  abstained: boolean;
 }
 
 type Data = Record<string, unknown>;
@@ -55,6 +68,26 @@ export function assignedLabel(
   return `assigned to ${labels.join(', ')}${refs.length > 2 ? '…' : ''}`;
 }
 
+/**
+ * R1-D2: the runner agent that may decide an approval step (`agent:` on an
+ * `allow_agents` approval), from the step's runner view. Undefined for
+ * other steps and approvals no runner agent decides.
+ */
+export function approvalAgentOf(
+  view: ExecutionView | undefined,
+  stepRunId: string,
+): ApprovalAgentInfo | undefined {
+  const step = view?.steps.find((s) => s.id === stepRunId);
+  const runner = step?.runner;
+  if (!step || !runner || step.kind !== 'approval') return undefined;
+  return {
+    name: runner.agent_name,
+    readyAtMs: runner.decision_ready_at_ms ?? undefined,
+    reviewing: Boolean(runner.decision_lease),
+    abstained: (runner.agent_notes?.length ?? 0) > 0,
+  };
+}
+
 /** Runs whose identity a list fetches: one request each, so the first only. */
 export const RUN_IDENTITY_LIMIT = 50;
 
@@ -90,6 +123,7 @@ export function useRunIdentities(
       summary: dataSummary(view.inputs) ?? dataSummary(view.fields),
       startedAtMs: view.started_at_ms ?? view.created_at_ms ?? undefined,
       assigned: stepId ? assignedLabel(view, stepId, names) : undefined,
+      agentDecides: stepId ? approvalAgentOf(view, stepId) : undefined,
     });
   });
   return out;

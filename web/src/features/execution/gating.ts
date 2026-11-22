@@ -2,6 +2,7 @@
 // offer; the server re-authorizes every mutation and its errors win.
 import type { Schemas } from '../../api/client';
 import type { MeView } from '../../api/hooks';
+import { securityCodeMessage } from '../mfa/messages';
 
 export interface Capabilities {
   canAct: boolean;
@@ -123,7 +124,8 @@ const FRIENDLY: Record<string, string> = {
   'approval.duplicate_vote': 'You have already voted on this approval.',
   'step.not_ready': 'That step is not ready for this action.',
   'step.not_claimable': 'That step cannot be claimed.',
-  'claim.not_assignee': 'Only this step’s assignee (or, once it escalates, its escalation) can claim it.',
+  'claim.not_assignee':
+    'Only this step’s assignee (or, once it escalates, its escalation) can claim it.',
   'claim.take_over_live_claim':
     'An agent is working on this step right now. A project admin can release its claim first.',
   'claim.take_over_not_allowed': 'This step cannot be taken over.',
@@ -153,5 +155,9 @@ const FRIENDLY: Record<string, string> = {
 };
 
 export function friendlyError(code: string): string {
-  return FRIENDLY[code] ?? `The server refused that action (${code}). The view has been refreshed.`;
+  return (
+    FRIENDLY[code] ??
+    securityCodeMessage(code) ??
+    `The server refused that action (${code}). The view has been refreshed.`
+  );
 }

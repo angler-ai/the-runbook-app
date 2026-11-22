@@ -13,11 +13,17 @@ pub enum AppliedDecision {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentDecision {
+    /// New agent comments stay in the audit record. The default preserves
+    /// outputs when replaying events recorded before this field existed.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub audit_only_comment: bool,
     pub at_ms: i64,
     pub base_sequence: u64,
     pub step_run_id: StepRunId,
     pub option: String,
     pub comment: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub evidence: Vec<String>,
     pub principal: String,
     pub agent_name: String,
     pub model: Option<String>,
@@ -88,6 +94,15 @@ pub fn apply_agent_decision(
     fact: &AgentDecision,
 ) -> Result<Vec<Event>, EngineError> {
     let index = check(state, fact)?;
+    if state.steps[index]
+        .approval
+        .as_ref()
+        .and_then(|record| record.requested.as_ref())
+        .and_then(|requested| requested.request.agent_ready_at_ms)
+        .is_some_and(|ready_at| fact.at_ms < ready_at)
+    {
+        return Err(EngineError::new("approval.agent_not_ready"));
+    }
     // Policy code is consulted when the decision is made, never on replay (F5).
     if !runbook_spec::validate_policy(state.compiled()).is_empty() {
         return Err(EngineError::new("approval.invalid_agent_policy"));
@@ -122,7 +137,11 @@ pub(crate) fn apply(
         ("decision".into(), serde_json::json!(fact.option)),
         (
             "comment".into(),
-            serde_json::json!(fact.comment.as_deref().unwrap_or("")),
+            serde_json::json!(if fact.audit_only_comment {
+                ""
+            } else {
+                fact.comment.as_deref().unwrap_or("")
+            }),
         ),
         ("decided_by".into(), serde_json::json!(fact.principal)),
     ]

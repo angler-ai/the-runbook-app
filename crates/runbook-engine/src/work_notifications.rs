@@ -37,6 +37,9 @@ pub struct ApprovalRequest {
     pub base_sequence: u64,
     pub step_run_id: StepRunId,
     pub targets: Vec<RecipientRef>,
+    /// When the runner may first seek a decision lease.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_ready_at_ms: Option<i64>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ApprovalRequestSnapshot {
@@ -91,6 +94,16 @@ fn approval_request(
             .clone()
             .ok_or(EngineError::invariant("approval run ID absent"))?,
         targets,
+        agent_ready_at_ms: gate
+            .agent_target
+            .as_ref()
+            .map(|_| {
+                crate::deadline::add(
+                    step.opened_at_ms.unwrap_or(state.at_ms),
+                    gate.agent_after.map_or(0, |after| after.millis),
+                )
+            })
+            .transpose()?,
     })
 }
 pub(crate) fn pending_approval(state: &ExecutionState) -> Result<Option<Command>, EngineError> {
@@ -200,6 +213,15 @@ pub(crate) fn pending_agent(state: &ExecutionState) -> Result<Option<Command>, E
         // the raw title instead of blocking the notice.
         let title = crate::presentation::rendered_title(state, step, &mut reads)
             .unwrap_or_else(|| node.id.clone());
+        let (agent_id, group_id) = match &node.kind {
+            NodeKind::Task(task) => match &task.agent_target {
+                Some(runbook_spec::ir::AgentTarget::Runner {
+                    agent_id, group_id, ..
+                }) => (Some(agent_id.clone()), Some(group_id.clone())),
+                _ => (None, None),
+            },
+            _ => (None, None),
+        };
         ready_steps.push(ReadyWork {
             step_run_id: step
                 .id
@@ -208,6 +230,8 @@ pub(crate) fn pending_agent(state: &ExecutionState) -> Result<Option<Command>, E
             path: step.step_id.clone(),
             title,
             actor_kind: ActorKind::Agent,
+            agent_id,
+            group_id,
         });
     }
     Ok(Some(Command::NotifyAgentWork {

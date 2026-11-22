@@ -11,9 +11,15 @@ pub enum Support {
 impl Support {
     /// Migration guidance when a formerly accepted capability was removed.
     pub fn message(&self) -> Option<&'static str> {
-        (self.code() == Some("spec.agents_dispatch_removed")).then_some(
-            "Use project webhook subscriptions for agent dispatch and spec.agents.params for opaque subscriber parameters.",
-        )
+        match self.code() {
+            Some("spec.agents_dispatch_removed") => Some(
+                "Use project webhook subscriptions for agent dispatch and spec.agents.params for opaque subscriber parameters.",
+            ),
+            Some("spec.retired_key") => Some(
+                "agent.runner is retired: name the runner agent with agent.name (agent.name: external keeps the step open to external agents).",
+            ),
+            _ => None,
+        }
     }
 
     pub fn code(&self) -> Option<&str> {
@@ -49,6 +55,8 @@ enum Context {
     EvidenceKind,
     Agent,
     AgentHints,
+    DefaultsAgent,
+    Retired,
     Triggers,
     Schedules,
     Schedule,
@@ -62,6 +70,7 @@ enum Context {
     Branch,
     Wait,
     Approval,
+    ApprovalAgent,
     Options,
     Option,
     Approvers,
@@ -78,7 +87,6 @@ enum Context {
     Data(&'static str),
     Advisory,
     Extension,
-    Forbidden,
 }
 
 impl Context {
@@ -96,6 +104,7 @@ impl Context {
             Evidence | EvidenceKinds | EvidenceKind => "A8/B8",
             Agent => "A5",
             AgentHints => "LANG9",
+            DefaultsAgent | ApprovalAgent => "R0",
             Triggers | Schedules | Schedule | Webhooks | Webhook => "LANG9b",
             Foreach => "A12",
             Loop => "A13",
@@ -108,7 +117,7 @@ impl Context {
             Call => "LANG4",
             Join => "A11",
             Atom(owner) | Data(owner) | Nodes(owner) => owner,
-            Advisory | Extension | Forbidden | RemovedDispatch => unreachable!(),
+            Advisory | Extension | RemovedDispatch | Retired => unreachable!(),
         }
     }
 
@@ -165,6 +174,8 @@ impl Context {
             (Declaration(true), "indexed" | "locked") => Atom("B3/B8"),
             (Declaration(_), "pattern") => Atom("A4/A5/LANG5"),
             (Defaults, "actor" | "timeout" | "on_failure") => Atom("A5/A15/A18"),
+            (Defaults, "agent") => DefaultsAgent,
+            (DefaultsAgent, "name") => Atom("R0"),
             (Defaults | Node, "remind_after" | "remind_every" | "escalate_after") => Atom("LANG9"),
             (Defaults | Node, "escalate_to") => Data("LANG9"),
             (Defaults | Node, "retry") => Retry,
@@ -207,7 +218,11 @@ impl Context {
             // stay accepted as the older spellings.
             (Agent, "hints") => AgentHints,
             (AgentHints, "tools" | "commands") => Advisory,
-            (Agent, "runner" | "model" | "max_cost_usd" | "max_tokens") => Forbidden,
+            // R0-3: runner agent keys; `agent.runner` is retired.
+            (Agent, "name" | "model" | "max_cost_usd" | "max_tokens") => Atom("R0"),
+            (Agent, "network") => Data("R0"),
+            (Agent, "runner") => Retired,
+            (Node, "connections") => Data("R0"),
             (Node, "steps" | "catch" | "finally") => Nodes("A7/A14/A19"),
             (Node, "parallel") => Nodes("A11"),
             (Node, "join") => Join,
@@ -234,7 +249,11 @@ impl Context {
                 Approval,
                 "prompt" | "min" | "timeout" | "escalation_timeout" | "on_expired" | "allow_agents",
             ) => Atom("A6/A16/A18/B1/B6"),
-            (Approval, "escalate_to") => Data("A6/A16/A18/B1/B6"),
+            (Approval, "escalate_to" | "approves") => Data("A6/A16/A18/B1/B6"),
+            (Approval, "agent") => ApprovalAgent,
+            (ApprovalAgent, "name" | "model" | "max_cost_usd" | "max_tokens" | "after") => {
+                Atom("R0")
+            }
             (Approval, "options") => Options,
             (Options, _) if index => Option,
             (Option, "id" | "title" | "auto") => Atom("A6/A16"),
@@ -291,7 +310,7 @@ pub fn classify(path: &str, value: &Value) -> Support {
     for part in parts {
         context = match context.child(&part) {
             Some(RemovedDispatch) => return rejected("spec.agents_dispatch_removed"),
-            Some(Forbidden) => return rejected("spec.unsupported_feature"),
+            Some(Retired) => return rejected("spec.retired_key"),
             Some(next) => next,
             None => return rejected("spec.unknown_key"),
         };

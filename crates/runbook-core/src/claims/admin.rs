@@ -39,13 +39,20 @@ pub async fn admin_release<S: SessionStore>(
         .generation
         .checked_add(1)
         .ok_or(ActorError::rejected("claim.generation_exhausted"))?;
-    work.append(
-        Event::StepClaimReleased {
-            step_run_id: step_run_id.clone(),
-            reason: Some(reason.to_owned()),
-        },
-        admin.actor.clone(),
-    )?;
+    let index = work.step_index(step_run_id)?;
+    if let Some(event) =
+        end_decision_lease(&work.runtime.state.steps[index], &current, "admin_released")
+    {
+        work.append(event, ActorRef::System)?;
+    } else {
+        work.append(
+            Event::StepClaimReleased {
+                step_run_id: step_run_id.clone(),
+                reason: Some(reason.to_owned()),
+            },
+            admin.actor.clone(),
+        )?;
+    }
     work.settle()?;
     let write = ClaimWrite {
         action: ClaimAction::AdminRelease,

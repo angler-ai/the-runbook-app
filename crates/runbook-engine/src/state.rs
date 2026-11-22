@@ -79,6 +79,8 @@ pub struct StepState {
     pub memory_saved: Vec<MemoryId>,
     /// MEM6: entries this step run edited, in edit order.
     pub memory_edited: Vec<MemoryId>,
+    /// R0-4: the runner agent's work on this step.
+    pub runner: crate::RunnerStepState,
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct ExecutionState {
@@ -256,6 +258,7 @@ impl StepState {
             actor: None,
             finished_at_ms: None,
             reads: vec![],
+            runner: crate::RunnerStepState::default(),
             original: None,
             amendments: vec![],
             amended: false,

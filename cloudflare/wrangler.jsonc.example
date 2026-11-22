@@ -41,6 +41,13 @@
     { "tag": "v4", "new_sqlite_classes": ["LimitsDO"] }
   ],
 
+  // Optional: present an uploaded client certificate to runner APIs.
+  // With no binding, outbound HTTPS uses Workers fetch. A Cloudflare Tunnel
+  // hostname can be registered as the runner URL in either case.
+  // "mtls_certificates": [
+  //   { "binding": "RUNBOOK_RUNNER_MTLS", "certificate_id": "YOUR_CERTIFICATE_ID" }
+  // ],
+
   // D1 Relational Database:
   // Create with: wrangler d1 create runbook-production
   // Apply migrations before traffic: npx wrangler d1 migrations apply DB --remote
@@ -108,15 +115,14 @@
   // ],
 
   // Static Web Assets (optional / UI, CF7):
-  // Points to the web client build directory (e.g. web/dist). run_worker_first ensures
-  // API routes and SPA client routing route through the Worker to serve index.html (no-store),
-  // while immutable hashed assets under /assets/* are served directly by Cloudflare with long-term caching.
+  // Points to the web client build directory (e.g. web/dist). Route assets
+  // through the Worker so its HTTPS security headers also apply to bundles.
   // "assets": {
   //   "directory": "build-assets",
   //   "binding": "ASSETS",
   //   "html_handling": "none",
   //   "not_found_handling": "none",
-  //   "run_worker_first": ["/*", "!/assets/*", "!/manifest.webmanifest"]
+  //   "run_worker_first": true
   // },
 
   // Environment Variables (public configuration):

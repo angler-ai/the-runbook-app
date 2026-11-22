@@ -29,7 +29,7 @@ Slack channel, two ways:
 | --- | --- | --- |
 | Set up by | A project admin | The operator once, then project admins |
 | Messages | A line linking to the run | The same, with a button per approval option |
-| Decide from Slack | No | Yes, as the person who clicks |
+| Decide from Slack | No | Yes, as the person who clicks. Destructive approvals open in the web app |
 
 ### Incoming webhook
 
@@ -70,7 +70,9 @@ URL (`https://hooks.slack.com/…`). It's stored and never shown again.
 - The person who clicked is looked up in Slack and matched to a Runbook
   account **by email**. That account must be an active member of the
   organization.
-- The decision goes through the normal decision route with that person's
+- If a decision can lead to a destructive step, Slack links back to the
+  run so the person can decide there.
+- Other decisions go through the normal decision route with that person's
   own permissions: approver rules, minimums and one vote per person apply
   exactly as in the app. The credential used lasts one minute and is revoked
   straight away.

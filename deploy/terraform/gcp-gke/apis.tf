@@ -1,12 +1,11 @@
 locals {
-  required_services = toset([
+  required_services = toset(concat([
     "container.googleapis.com",
     "sqladmin.googleapis.com",
-    "secretmanager.googleapis.com",
     "servicenetworking.googleapis.com",
     "compute.googleapis.com",
     "storage.googleapis.com",
-  ])
+  ], var.runner_enabled ? ["cloudkms.googleapis.com", "aiplatform.googleapis.com"] : []))
 }
 
 resource "google_project_service" "apis" {

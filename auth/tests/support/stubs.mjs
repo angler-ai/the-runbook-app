@@ -24,12 +24,17 @@ export async function startCanRegister() {
   const server = createServer((req, res) => {
     let body = '';
     req.on('data', (c) => (body += c));
-    req.on('end', () => {
+    req.on('end', async () => {
       let email = null;
       try {
         email = JSON.parse(body).email;
       } catch {
         /* recorded as null */
+      }
+      if (req.url === '/internal/mfa-policy' && req.headers['x-runbook-internal-secret'] === INTERNAL_SECRET) {
+        await state.beforeMfaPolicy?.();
+        res.writeHead(200, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ mfa_required: false, mfa_partial: false, allow_passkeys: true, allow_authenticator: true, fresh_minutes: 10, ...state.security }));
       }
       state.calls.push({ method: req.method, path: req.url, secret: req.headers['x-runbook-internal-secret'] ?? null, email });
       if (state.status !== 200) {

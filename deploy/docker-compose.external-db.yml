@@ -23,6 +23,9 @@
 # network (an extra -f file adding the network) and use its name in the URL.
 name: runbook-external-db
 
+include:
+  - docker-compose.runner.yml
+
 services:
   server:
     image: ${RUNBOOK_IMAGE:-runbook-pilot:local}
@@ -39,6 +42,7 @@ services:
       # set to an empty value.
       RUNBOOK_ORIGIN: ${RUNBOOK_ORIGIN:-http://localhost:8080}
       RUNBOOK_LISTEN_ADDR: 0.0.0.0:8080
+      RUNBOOK_RUNNER_PRIVATE_NETWORKS: ${RUNBOOK_RUNNER_PRIVATE_NETWORKS:-false}
       RUNBOOK_WEBHOOK_SECRET_KEY: ${RUNBOOK_WEBHOOK_SECRET_KEY:?set RUNBOOK_WEBHOOK_SECRET_KEY (openssl rand -base64 32)}
       RUNBOOK_ALLOW_PRIVATE_WEBHOOK_TARGETS: ${RUNBOOK_ALLOW_PRIVATE_WEBHOOK_TARGETS:-false}
       RUNBOOK_ALLOW_LINK_LOCAL_WEBHOOK_TARGETS: ${RUNBOOK_ALLOW_LINK_LOCAL_WEBHOOK_TARGETS:-false}

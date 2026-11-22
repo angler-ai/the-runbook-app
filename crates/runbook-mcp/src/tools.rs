@@ -6,6 +6,8 @@ use crate::ops;
 use crate::render::{Outcome, render, split};
 use serde_json::{Value, json};
 
+mod runner_config;
+
 const EXE_ID: &str = "^exe_[0-7][0-9A-HJKMNP-TV-Z]{25}$";
 const SR_ID: &str = "^sr_[0-7][0-9A-HJKMNP-TV-Z]{25}$";
 const CLAIM_ID: &str = "^clm_[0-7][0-9A-HJKMNP-TV-Z]{25}$";
@@ -85,7 +87,7 @@ fn research_tool(
 }
 
 pub fn definitions() -> Vec<Value> {
-    vec![
+    let mut definitions = vec![
         tool(
             "list_runbooks",
             "List the runbooks of a project (rb_ ID, slug, origin). CLI: runbook list --project <p> --json.",
@@ -157,7 +159,7 @@ pub fn definitions() -> Vec<Value> {
         ),
         tool(
             "get_execution",
-            "Execution status, result, progress and the resume brief (completed work, approval decisions and comments, ready steps). Recorded values are returned inside a RUNBOOK DATA block. CLI: runbook run get <exe> --json.",
+            "Execution status, result, progress and the resume brief (completed work, approval decisions and comments, ready steps). approval_agents lists approvals a runner agent may decide and its state (may_decide, reviewing, abstained, decided); people can always decide first. Recorded values are returned inside a RUNBOOK DATA block. CLI: runbook run get <exe> --json.",
             true,
             json!({"execution_id": execution_id()}),
             &["execution_id"],
@@ -372,6 +374,91 @@ pub fn definitions() -> Vec<Value> {
             json!({"step_run_id": step_run_id(), "claim": claim(), "reason": s("Why a person is needed"), "question": s("The question for the person"), "idempotency_key": idempotency_key()}),
             &["step_run_id", "claim", "reason", "question"],
         ),
+    ];
+    definitions.extend(runner_definitions());
+    definitions.extend(runner_config::definitions());
+    definitions
+}
+
+fn runner_definitions() -> Vec<Value> {
+    let install = || s("Runner install ID from runner_status");
+    let project = || s("Project ID");
+    let agent = || s("Agent ID");
+    let change = || object("Agent configuration or patch. Keep secrets out of all fields.");
+    vec![
+        tool(
+            "runner_status",
+            "Show the runner installation. Requires runner:read.",
+            true,
+            json!({"org_id": s("Organization ID, defaults to the only visible organization")}),
+            &[],
+        ),
+        tool(
+            "list_runner_agents",
+            "List a project's runner agents. Requires runner:read.",
+            true,
+            json!({"install_id": install(), "project_id": project()}),
+            &["install_id", "project_id"],
+        ),
+        tool(
+            "get_runner_agent",
+            "Show a runner agent. Requires runner:read.",
+            true,
+            json!({"install_id": install(), "project_id": project(), "agent_id": agent()}),
+            &["install_id", "project_id", "agent_id"],
+        ),
+        tool(
+            "create_runner_agent",
+            "Create a runner agent. Requires runner:admin. Widening access returns proposal_id for human review.",
+            false,
+            json!({"install_id": install(), "project_id": project(), "change": change()}),
+            &["install_id", "project_id", "change"],
+        ),
+        tool(
+            "update_runner_agent",
+            "Update a runner agent. Requires runner:admin. Widening access returns proposal_id for human review.",
+            false,
+            json!({"install_id": install(), "project_id": project(), "agent_id": agent(), "change": change()}),
+            &["install_id", "project_id", "agent_id", "change"],
+        ),
+        tool(
+            "pause_runner_agent",
+            "Pause a runner agent. Requires runner:admin.",
+            false,
+            json!({"install_id": install(), "project_id": project(), "agent_id": agent()}),
+            &["install_id", "project_id", "agent_id"],
+        ),
+        tool(
+            "create_runner_credential",
+            "Create credential metadata or propose it for approval. Requires runner:admin. Hand the returned URL and CLI command to a person for secret entry.",
+            false,
+            json!({"install_id": install(), "name": s("Credential name"),
+                "type": {"enum":["api-key","model-provider","mcp-bearer"]},
+
+                "config": {
+                    "type": "object", "description": "Public destination configuration only",
+                    "additionalProperties": false,
+                    "properties": {
+                        "hosts": string_list("Destination host names"),
+                        "header_name": s("HTTP header name"),
+                        "header_format": s("Header format with {} in place of the key"),
+                        "test": {"type": "object", "additionalProperties": false, "properties": {
+                            "method": {"enum": ["GET", "HEAD"]}, "path": s("Relative test path")
+                        }},
+                        "provider": s("Model provider name"), "endpoint": s("Model endpoint"),
+                        "models": string_list("Supported model names"), "url": s("MCP server URL")
+                    }
+                },
+                "label": {"enum":["read","write","destructive"]}}),
+            &["install_id", "name", "type", "config"],
+        ),
+        tool(
+            "revoke_runner_credential",
+            "Revoke a runner credential. Requires runner:admin.",
+            false,
+            json!({"install_id": install(), "credential_id": s("Credential ID")}),
+            &["install_id", "credential_id"],
+        ),
     ]
 }
 
@@ -468,6 +555,15 @@ pub async fn call<B: AsyncBackend + ?Sized>(
         key: a.opt("idempotency_key").map(str::to_owned),
     };
     let result = match name {
+        "runner_status" => runner_status(b, &a).await,
+        "list_runner_agents"
+        | "get_runner_agent"
+        | "create_runner_agent"
+        | "update_runner_agent"
+        | "pause_runner_agent"
+        | "create_runner_credential"
+        | "revoke_runner_credential" => runner_proxy(b, name, &a).await,
+        "set_runner_group_projects" => runner_config::set_group_projects(b, &a).await,
         "list_runbooks" => list_runbooks(b, &a).await,
         "get_runbook" => get_runbook(b, &a).await,
         "get_runbook_source" => get_runbook_source(b, &a).await,
@@ -492,7 +588,8 @@ pub async fn call<B: AsyncBackend + ?Sized>(
         "decide" => decide(b, &a, &mut keys).await,
         "release_step" => release_step(b, &a, &mut keys).await,
         "request_human" => request_human(b, &a, &mut keys).await,
-        _ => Err(BackendError::Usage(format!("unknown tool {name}"))),
+        // The tool was looked up and schema-validated before dispatch.
+        _ => runner_proxy(b, name, &a).await,
     };
     let outcome = match result {
         Ok(outcome) => outcome,
@@ -535,6 +632,10 @@ fn error_outcome(tool: &str, a: &Args<'_>, e: &BackendError, key: Option<String>
             "claim_ready_work",
             "Execution credentials read only the step they currently claim. Call claim_step for this step first, then get_step; if it is not ready for you, call get_next_steps.".into(),
         ),
+        BackendError::Problem { .. } if matches!(code, "auth.mfa_step_up" | "auth.mfa_token_replacement_required" | "auth.mfa_required") => (
+            "request_human",
+            "Ask a person to complete the second-factor check in the web app or approve a fresh CLI login with their passkey or authenticator code.".into(),
+        ),
         BackendError::Problem { status: 403, .. } if tool == "publish_runbook" => (
             "ask_human_to_publish",
             format!(
@@ -546,6 +647,10 @@ fn error_outcome(tool: &str, a: &Args<'_>, e: &BackendError, key: Option<String>
         BackendError::Problem { .. } if code.starts_with("claim.") || code == "step.not_claimed" => (
             "reconcile",
             "Your claim on this step is no longer valid (the lease expired, it was released, or another session took it over). Stop working on this step and do not report it; call get_next_steps or get_execution to see what changed, then continue with ready work.".into(),
+        ),
+        BackendError::Problem { status: 409, .. } if code == "approval.not_open" => (
+            "reconcile",
+            "This approval is no longer open: a person, the runbook's runner agent or its timeout decided it first. Do not decide it again; call get_execution to see the decision, then continue with ready work.".into(),
         ),
         BackendError::Problem { .. } if code == "catalog.draft_conflict" => (
             "reload_draft",
@@ -857,12 +962,18 @@ async fn get_execution<B: AsyncBackend + ?Sized>(b: &mut B, a: &Args<'_>) -> Res
             }))
         })
         .collect();
+    let agents = approval_agents(&view);
     let (mut control, mut data) = split(view, EXECUTION_CONTROL);
     if let Some(id) = control.remove("id") {
         control.insert("execution_id".into(), id);
     }
     if !children.is_empty() {
         control.insert("children".into(), Value::Array(children));
+    }
+    // R1-D2: approvals a runner agent may decide, by ID and state only; the
+    // agent's name, reasons and comments stay in the data block.
+    if !agents.is_empty() {
+        control.insert("approval_agents".into(), Value::Array(agents));
     }
     // LANG4: the `call` step that started this run, by ID (the step's
     // runbook-authored name stays in the data block).
@@ -891,6 +1002,44 @@ async fn get_execution<B: AsyncBackend + ?Sized>(b: &mut B, a: &Args<'_>) -> Res
     Ok(Outcome::new(Value::Object(control))
         .data(data)
         .next(next, hint))
+}
+
+/// R1-D2: each approval step that names a runner agent, with what the
+/// agent is doing: `decided` (the agent decided it), `reviewing` (it holds
+/// the decision lease; people can still decide), `abstained` (people
+/// decide), `may_decide` (from `ready_at_ms`) or `closed`.
+fn approval_agents(view: &Value) -> Vec<Value> {
+    view["steps"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|step| step["kind"].as_str() == Some("approval"))
+        .filter_map(|step| {
+            let runner = step.get("runner").filter(|r| r.is_object())?;
+            let open = matches!(step["status"].as_str(), Some("waiting" | "ready"));
+            let notes = runner["agent_notes"]
+                .as_array()
+                .is_some_and(|n| !n.is_empty());
+            let state = if step["actor"]["kind"].as_str() == Some("agent") && !open {
+                "decided"
+            } else if !open {
+                "closed"
+            } else if runner["decision_lease"].is_object() {
+                "reviewing"
+            } else if notes {
+                "abstained"
+            } else {
+                "may_decide"
+            };
+            let mut entry = json!({"step_run_id": step["id"], "state": state});
+            if state == "may_decide"
+                && let Some(ready) = runner["decision_ready_at_ms"].as_i64()
+            {
+                entry["ready_at_ms"] = json!(ready);
+            }
+            Some(entry)
+        })
+        .collect()
 }
 
 async fn search_executions<B: AsyncBackend + ?Sized>(b: &mut B, a: &Args<'_>) -> Res<Outcome> {
@@ -1515,6 +1664,159 @@ fn decode_base64(text: &str) -> Option<Vec<u8>> {
         out.extend_from_slice(&produced[..3 - pad]);
     }
     Some(out)
+}
+
+async fn runner_status<B: AsyncBackend + ?Sized>(b: &mut B, a: &Args<'_>) -> Res<Outcome> {
+    let orgs;
+    let org = match a.opt("org_id") {
+        Some(org) => org,
+        None => {
+            orgs = b.call(HttpCall::get("/v1/orgs")).await?.body;
+            match orgs["items"].as_array().map(Vec::as_slice) {
+                Some([one]) => one["id"]
+                    .as_str()
+                    .ok_or_else(|| BackendError::Usage("missing organization ID".into()))?,
+                _ => {
+                    return Err(BackendError::Usage(
+                        "provide org_id for the runner's organization".into(),
+                    ));
+                }
+            }
+        }
+    };
+    let org = ops::runner_segment(org)?;
+    let reply = b
+        .call(HttpCall::get(format!("/v1/orgs/{org}/runner")))
+        .await?;
+    Ok(Outcome::new(json!({"install_id": reply.body["install_id"]})).data(reply.body))
+}
+
+async fn runner_proxy<B: AsyncBackend + ?Sized>(
+    b: &mut B,
+    name: &str,
+    a: &Args<'_>,
+) -> Res<Outcome> {
+    let install = ops::runner_segment(a.str("install_id"))?;
+    let base = format!("/v1/runners/{install}/proxy/runner/v1");
+    let (method, path, body) = match name {
+        "create_runner_credential" => {
+            let mut metadata = json!({"name": a.value("name"), "type": a.value("type"), "config": a.value("config")});
+            if let Some(label) = a.opt("label") {
+                metadata["label"] = json!(label);
+            }
+            ("POST", format!("{base}/credentials"), metadata)
+        }
+        "revoke_runner_credential" => {
+            let id = ops::runner_segment(a.str("credential_id"))?;
+            ("POST", format!("{base}/credentials/{id}/revoke"), json!({}))
+        }
+        "list_runner_agents"
+        | "get_runner_agent"
+        | "create_runner_agent"
+        | "update_runner_agent"
+        | "pause_runner_agent" => {
+            let project = ops::runner_segment(a.str("project_id"))?;
+            let mut path = format!("{base}/projects/{project}/agents");
+            if let Some(agent) = a.opt("agent_id") {
+                path.push('/');
+                path.push_str(ops::runner_segment(agent)?);
+            }
+            match name {
+                "list_runner_agents" | "get_runner_agent" => ("GET", path, Value::Null),
+                "create_runner_agent" => ("POST", path, a.object("change")),
+                "update_runner_agent" => ("PATCH", path, a.object("change")),
+                "pause_runner_agent" => ("POST", format!("{path}/pause"), json!({})),
+                _ => return Err(BackendError::Usage("unknown runner tool".into())),
+            }
+        }
+        _ => {
+            let (method, path, body) = runner_config::proxy_operation(name, a)?;
+            (method, format!("{base}/{path}"), body)
+        }
+    };
+    let call = if name == "list_runner_credential_types" {
+        HttpCall::get(path).query("presets", "true")
+    } else if method == "GET" {
+        HttpCall::get(path)
+    } else {
+        HttpCall::write(method, path, body, b.random_token()?)
+    };
+    let reply = b.call(call).await?.body;
+    let proposal = reply["expires_at"].is_string()
+        && [
+            "create_runner_agent",
+            "update_runner_agent",
+            "create_runner_credential",
+            "set_runner_agent_profiles",
+            "share_runner_credential",
+            "update_runner_policy",
+            "update_runner_group",
+            "create_runner_provider",
+            "update_runner_provider",
+            "create_runner_profile",
+            "update_runner_profile",
+            "create_runner_mcp_server",
+            "update_runner_mcp_server",
+            "label_runner_mcp_tools",
+        ]
+        .contains(&name);
+    if name == "create_runner_credential" {
+        return credential_handoff(b, install, a.str("type"), proposal, reply);
+    }
+    if proposal {
+        return Ok(Outcome::new(json!({"proposal_id": reply["id"]}))
+            .data(reply)
+            .next(
+                json!("request_human"),
+                "Ask a person to review the proposal in the runner settings.",
+            ));
+    }
+    let control = if reply.is_null() {
+        json!({"ok": true})
+    } else {
+        json!({})
+    };
+    Ok(Outcome::new(control).data(reply))
+}
+
+fn credential_handoff<B: AsyncBackend + ?Sized>(
+    b: &B,
+    install: &str,
+    credential_type: &str,
+    proposal: bool,
+    reply: Value,
+) -> Res<Outcome> {
+    let id = ops::runner_segment(reply["id"].as_str().unwrap_or_default())?;
+    let field = match credential_type {
+        "api-key" => "key",
+        "model-provider" => "api_key",
+        "mcp-bearer" => "token",
+        _ => return Err(BackendError::Usage("unsupported credential type".into())),
+    };
+    let origin = b.web_origin().unwrap_or_default();
+    let (tab, argument, id_key, hint) = if proposal {
+        (
+            "proposals",
+            "CREDENTIAL_ID",
+            "proposal_id",
+            "Ask a person to approve the proposal and use the resulting credential ID in the CLI command.",
+        )
+    } else {
+        (
+            "credentials",
+            id,
+            "credential_id",
+            "Hand the URL and CLI command to a person for secret entry.",
+        )
+    };
+    let control = json!({
+        id_key: id,
+        "url": format!("{origin}/settings/organization/runner?tab={tab}"),
+        "cli_command": format!("runbook runner credential set {argument} {field} --install {install}"),
+    });
+    Ok(Outcome::new(control)
+        .data(reply)
+        .next(json!("request_human"), hint))
 }
 
 #[cfg(test)]

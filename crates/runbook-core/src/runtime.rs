@@ -335,6 +335,15 @@ impl Runtime {
                 reason,
                 reads,
             },
+            Command::ResolveAgentTarget {
+                step_id,
+                step_run_id,
+                target,
+            } => E::AgentTargetResolved {
+                step_id,
+                step_run_id,
+                target,
+            },
             Command::MakeStepReady { step_id, reads } => E::StepReady {
                 step_id,
                 step_run_id: self.run_id(),
@@ -383,6 +392,49 @@ impl Runtime {
             }
             let commands = decide(&self.state)?;
             if commands.is_empty() {
+                let ended = self
+                    .state
+                    .steps
+                    .iter()
+                    .filter_map(|step| {
+                        let approval = step.approval.as_ref()?;
+                        let lease = approval.decision_lease.as_ref()?;
+                        if runbook_engine::decision_open(&self.state, step)
+                            && approval.agent_notes.is_empty()
+                        {
+                            return None;
+                        }
+                        let reason = if approval
+                            .agent_decision
+                            .as_ref()
+                            .is_some_and(|fact| fact.session_id == lease.lease_id.as_str())
+                        {
+                            "agent_decided"
+                        } else if !approval.agent_notes.is_empty() {
+                            "agent_abstained"
+                        } else if approval.decision.is_some() {
+                            "human_decided"
+                        } else if approval.automatic_decision.is_some() {
+                            "automatic_decision"
+                        } else if self
+                            .state
+                            .pause_reasons
+                            .contains(&runbook_engine::PauseReason::Manual)
+                        {
+                            "paused"
+                        } else {
+                            "approval_closed"
+                        };
+                        Some(Event::DecisionLeaseEnded {
+                            step_run_id: step.id.clone()?,
+                            lease_id: lease.lease_id.clone(),
+                            reason: reason.into(),
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                for event in ended {
+                    self.append(event, ActorRef::System)?;
+                }
                 return Ok(true);
             }
             for command in commands {

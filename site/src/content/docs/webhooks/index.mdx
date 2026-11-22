@@ -9,12 +9,12 @@ sidebar:
 import { Aside, CardGrid, LinkCard, Steps } from '@astrojs/starlight/components';
 import Sequence from '../../../components/Sequence.astro';
 
-The Runbook ships one generic, outbound webhook system and no vendor
-integrations: your systems subscribe to the events they care about, and the
-server `POST`s a small, signed JSON envelope to them. Use it to start agents
+Subscribe to project events and the server `POST`s a small, signed JSON
+envelope to your receiver. Use it to start agents
 when there's work (`agent.work_available`), to page or chat when an approval
 waits (`approval.requested`), or to feed run results into your own tools
-(`execution.completed`).
+(`execution.completed`). `lease.revoked` signals that an approval's
+runner decision lease has ended.
 
 <Sequence
   actors={['Run', 'Server', 'Your receiver']}

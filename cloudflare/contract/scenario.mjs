@@ -321,6 +321,37 @@ export async function scenario(t) {
   // ---- Discovery and the caller.
   await t.call('discovery', 'GET', '/.well-known/runbook', {}, { token: null });
   await t.call('meta', 'GET', '/v1/meta', {}, { token: null });
+  // Authentication parity for every runner route. The authenticated routes
+  // and signed payloads are exercised by the shared runner scenario.
+  await t.call('runner JWKS', 'GET', '/.well-known/jwks.json', {}, { token: null });
+  const runnerParams = {
+    org, ri: 'ri_00000000000000000000000001', g: 'rg_00000000000000000000000001',
+    sr: 'sr_00000000000000000000000001', agent_id: 'agt_1', path: 'runner/v1/groups',
+    project_id: project, name: 'checks',
+  };
+  for (const [method, path] of [
+    ['GET', '/v1/orgs/{org}/runner'],
+    ['POST', '/v1/orgs/{org}/runner/bootstrap-tokens'],
+    ['PUT', '/v1/orgs/{org}/runner/vault-identity'],
+    ['PUT', '/v1/orgs/{org}/runner/groups/{g}/projects'],
+    ['POST', '/v1/runner-installs/register'],
+    ['POST', '/v1/runner-installs/{ri}/runners'],
+    ['POST', '/v1/runner-installs/{ri}/heartbeat'],
+    ['GET', '/v1/runner-installs/{ri}/groups'],
+    ['PUT', '/v1/runner-installs/{ri}/agents/{agent_id}'],
+    ['DELETE', '/v1/runner-installs/{ri}/agents/{agent_id}'],
+    ['POST', '/v1/runner-installs/{ri}/waiting'],
+    ['POST', '/v1/runner-installs/{ri}/events'],
+    ['GET', '/v1/runner-installs/{ri}/ready'],
+    ['GET', '/v1/runner-installs/{ri}/projects/{project_id}/skills/{name}'],
+    ...['run', 'step', 'runs', 'past-run', 'memory'].map((action) => ['GET', `/v1/step-runs/{sr}/context/${action}`]),
+    ['POST', '/v1/step-runs/{sr}/context/memory'],
+    ['POST', '/v1/step-runs/{sr}/grants'],
+    ['POST', '/v1/step-runs/{sr}/grants/revoked'],
+    ...['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map((method) => [method, '/v1/runners/{ri}/proxy/{*path}']),
+  ]) {
+    await t.call(`runner anonymous ${method} ${path}`, method, path, runnerParams, { token: null });
+  }
   await t.call('me', 'GET', '/v1/me');
   await t.call('me anonymous', 'GET', '/v1/me', {}, { token: null });
   // MCP2: connected OAuth apps. Sign-in is off on both builds, so the owner
@@ -328,6 +359,23 @@ export async function scenario(t) {
   await t.call('connected apps', 'GET', '/v1/me/apps');
   await t.call('disconnect an unknown app', 'DELETE', '/v1/me/apps/{client}', { client: 'noSuchClient' });
   await t.call('orgs', 'GET', '/v1/orgs');
+  await t.call('MFA session security requires a browser', 'GET', '/v1/me/security');
+  await t.call('organization MFA defaults', 'GET', '/v1/orgs/{org}/security', { org });
+  await t.call('organization MFA changes require a browser', 'PUT', '/v1/orgs/{org}/security', { org }, {
+    body: { require_mfa: 'off', allow_passkeys: true, allow_authenticator: true, fresh_minutes: 10 },
+  });
+
+  // Both editions require a fresh browser owner even for a dry run.
+  const refusedPreview = await t.call('organization MFA preview requires a browser', 'PUT', '/v1/orgs/{org}/security', { org }, {
+    query: { dry_run: 'true' },
+    body: { require_mfa: 'everyone', allow_passkeys: true, allow_authenticator: true, fresh_minutes: 10 },
+  });
+  if (refusedPreview.status !== 403 || refusedPreview.body?.code !== 'auth.mfa_step_up') {
+    throw new Error(`unexpected policy preview response: ${refusedPreview.status}`);
+  }
+  await t.call('organization MFA preview leaves the policy unchanged', 'GET', '/v1/orgs/{org}/security', { org });
+
+  await t.call('MFA reset requires a verified owner session', 'POST', '/v1/orgs/{org}/users/{user}/mfa/reset', { org, user });
 
   // ---- MCP2: OAuth discovery for /mcp. Sign-in is off on both builds, so
   // there is no authorization server: its documents are unknown routes, and
@@ -897,6 +945,15 @@ export async function scenario(t) {
   });
   await t.call('device approve', 'POST', '/v1/device/approve', {}, { body: { user_code: 'ABCD-EFGH', approve: true } });
   await t.call('device lookup', 'POST', '/v1/device/lookup', {}, { body: { user_code: 'ABCD-EFGH' } });
+
+  // Runner decision routes reject a person's credential in both editions.
+  const lease = 'clm_00000000000000000000000000';
+  await t.call('decision lease decide forbidden', 'POST', '/v1/runner/decisions/{lease}/decide', { lease }, {
+    query: { step_run_id: decide }, body: { option: 'keep', comment: 'Looks good', evidence: ['[call 1]'] },
+  });
+  await t.call('decision lease abstain forbidden', 'POST', '/v1/runner/decisions/{lease}/abstain', { lease }, {
+    query: { step_run_id: decide }, body: { reason: 'No evidence' },
+  });
 
   // ---- Errors every route shares.
   await t.call('unknown run', 'GET', '/v1/executions/{exe}', { exe: 'exe_00000000000000000000000000' });

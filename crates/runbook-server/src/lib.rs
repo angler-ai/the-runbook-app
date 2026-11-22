@@ -17,7 +17,9 @@ pub mod lifecycle;
 pub mod log;
 mod mcp;
 pub mod owner_recovery;
+pub mod runner_proxy;
 pub mod session;
+pub mod signing;
 mod slack_http;
 pub mod web_assets;
 pub mod webhooks;
@@ -51,6 +53,7 @@ pub enum Command {
     Serve,
     /// UPD1: `--version`: the release and the schema this code migrates to.
     Version,
+    ResetMfa(String),
     AssignOwner {
         org: runbook_model::OrganizationId,
         user: runbook_model::UserId,
@@ -71,7 +74,7 @@ pub enum Command {
         into_existing_org: bool,
     },
 }
-const USAGE: &str = "usage: runbook-server <bootstrap|doctor|migrate|copy-blobs|serve|assign-owner|export|import|--version>";
+const USAGE: &str = "usage: runbook-server <bootstrap|doctor|migrate|copy-blobs|serve|admin|assign-owner|export|import|--version>";
 /// UPD1: what `runbook-server --version` prints: the release (the workspace
 /// version, which `/v1/meta` also reports), the Postgres schema this code
 /// migrates to, and its rollback floor (the oldest release whose code is
@@ -97,6 +100,45 @@ const BOOTSTRAP_USAGE: &str =
     "usage: bootstrap [--owner-email <email> [--owner-name <name>] [--with-token]]";
 const EXPORT_USAGE: &str = "usage: export --org <id> --project <id|slug> --out <dir>";
 const IMPORT_USAGE: &str = "usage: import --in <dir|day.zip> [--org <id>] [--into-existing-org]";
+/// Parse the arguments following `admin` with clap's help and diagnostics.
+pub fn parse_admin_command(args: impl IntoIterator<Item = String>) -> Result<Command, clap::Error> {
+    use clap::{Arg, Command as Cli, builder::ValueParser};
+
+    let matches = Cli::new("admin")
+        .bin_name("runbook-server admin")
+        .no_binary_name(true)
+        .subcommand_required(true)
+        .subcommand(
+            Cli::new("mfa").subcommand_required(true).subcommand(
+                Cli::new("reset")
+                    .about("Reset multi-factor authentication for a user")
+                    .arg(
+                        Arg::new("email")
+                            .value_name("EMAIL")
+                            .required(true)
+                            .value_parser(ValueParser::new(parse_mfa_email)),
+                    ),
+            ),
+        )
+        .try_get_matches_from(args)?;
+    let email = matches
+        .subcommand_matches("mfa")
+        .and_then(|mfa| mfa.subcommand_matches("reset"))
+        .and_then(|reset| reset.get_one::<String>("email"))
+        .expect("clap requires mfa reset and an email");
+    Ok(Command::ResetMfa(email.clone()))
+}
+
+fn parse_mfa_email(value: &str) -> Result<String, &'static str> {
+    use email_address::{EmailAddress, Options};
+
+    let email =
+        runbook_core::directory::email_key(value).map_err(|_| "expected an email address")?;
+    EmailAddress::parse_with_options(&email, Options::default().without_display_text())
+        .map_err(|_| "expected an email address")?;
+    Ok(email)
+}
+
 pub fn parse_command(args: impl IntoIterator<Item = String>) -> Result<Command, Error> {
     let mut args = args.into_iter();
     let cmd = match args.next().as_deref() {
@@ -129,6 +171,9 @@ pub fn parse_command(args: impl IntoIterator<Item = String>) -> Result<Command, 
         Some("copy-blobs") => Command::CopyBlobs,
         Some("--version" | "-V" | "version") => Command::Version,
         Some("serve") => Command::Serve,
+        Some("admin") => {
+            return parse_admin_command(args).map_err(|_| Error("invalid admin command"));
+        }
         Some("assign-owner") => {
             let mut org = None;
             let mut user = None;
@@ -210,6 +255,15 @@ pub fn parse_command(args: impl IntoIterator<Item = String>) -> Result<Command, 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn mfa_reset_normalizes_a_valid_email_address() {
+        let args = ["admin", "mfa", "reset", "Member+Ops@Example.Test"].map(str::to_owned);
+        assert_eq!(
+            parse_command(args),
+            Ok(Command::ResetMfa("member+ops@example.test".into()))
+        );
+    }
+
     #[test]
     fn version_prints_the_release_and_schema() {
         for flag in ["--version", "-V", "version"] {

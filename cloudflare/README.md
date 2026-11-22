@@ -319,6 +319,19 @@ The Cloudflare edition separates browser authentication from the main API engine
 - **Session Verification (D44):** The api Worker verifies session cookies via `POST /internal/session` on the auth Worker using `RUNBOOK_AUTH_INTERNAL_SECRET` (32+ characters). Responses are cached for 30 seconds per isolate keyed by the cookie's SHA-256 digest (never the raw cookie). Proxied sign-out evicts the session from the cache of the isolate that handled it; other isolates may still honour the signed-out cookie until their cached entry expires, for up to 30 seconds (gate fix B6). Open event streams re-check the session at every keep-alive (every 30 s) through the same cache, so a signed-out stream can last up to about 60 seconds: one re-check interval plus one cache lifetime (gate round 2).
 - **Email codes through Cloudflare Email Service (D48):** the auth Worker sends sign-in codes through a `send_email` binding named `EMAIL` when `RUNBOOK_AUTH_EMAIL_TRANSPORT=cloudflare` and `RUNBOOK_EMAIL_FROM` (`Name <address>` or an address, which must be in the binding's `allowed_sender_addresses`) are set; see `wrangler.auth.jsonc.example`. A send that fails voids the code, and neither codes nor provider errors are logged. Sending to arbitrary recipients needs the **Workers Paid** plan (3,000 messages a month included, then $0.35 per 1,000) and a sending domain onboarded once in the dashboard (Compute → Email Service → Email Sending → Onboard Domain, then review the SPF, DKIM, DMARC and bounce records before applying them). The native edition keeps SMTP.
 - **Can-Register Callback (D45):** During sign-up, the auth Worker calls back into the api Worker through its `API` service binding (`POST /internal/can-register`) with the internal secret to verify tenant registration eligibility.
+- **MFA notices:** factor changes and resets queue a security email in the same D1 transaction as their audit record. Give the auth Worker a one-minute Cron Trigger (`"triggers": {"crons": ["* * * * *"]}` in its config) so its `scheduled` handler delivers them.
+
+### Operator MFA reset
+
+An organization owner resets another member's second factors from the app (Members › Reset MFA). Nobody can do that for the **last owner**, or for a person who belongs to more than one organization (or whose sign-in is shared across them): the app answers `auth.mfa_operator_reset_required`. The operator resets them with wrangler, the Workers equivalent of the native `runbook-server admin mfa reset <email>`:
+
+```bash
+npm run mfa:reset -- owner@example.test --operator "Alex Doe"                     # shows the account, asks, resets
+npm run mfa:reset -- owner@example.test --operator "Alex Doe" --yes --auth-config wrangler.auth.prod.jsonc
+npm run mfa:reset -- owner@example.test --operator "Alex Doe" --local             # the local D1 of `npm run dev`
+```
+
+`scripts/mfa-reset.mjs` uses your wrangler login against the sign-in Worker's `DB` database. It looks the account up by its verified sign-in email and prints its passkeys, authenticator, sessions and OAuth tokens; after you confirm (or with `--yes`), it runs the reset as a single D1 SQL import, exactly as the native command does: it invalidates pending ceremonies, removes every factor and backup code, ends every session and OAuth token, records `mfa.reset` in `auth_mfa_audit` with the `--operator` name as its actor (the native command records `operator`) and queues the security email, which the Cron Trigger above sends within a minute. The script reads the audit row back and exits 0; an unknown email exits 1 without changing anything. The person then signs in with an email code and, where MFA is required, creates an allowed passkey. Release bundles include the script.
 
 ---
 

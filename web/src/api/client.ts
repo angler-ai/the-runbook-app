@@ -10,6 +10,7 @@
 import createClient, { type Middleware } from 'openapi-fetch';
 import type { components, paths } from './schema';
 import { endSession } from './session-end';
+import { readStepUpPrincipal, requestStepUp } from './step-up';
 import { sessionStore, tokenStore } from './token-store';
 
 export type ApiClient = ReturnType<typeof createClient<paths>>;
@@ -23,6 +24,8 @@ export class ApiError extends Error {
   readonly code: string;
   readonly requestId: string | null;
   readonly errors: FieldError[];
+  /** The whole problem body, for codes that carry more (MFA's `fresh_minutes`, `security`). */
+  readonly body: Record<string, unknown>;
 
   constructor(init: {
     status: number;
@@ -30,6 +33,7 @@ export class ApiError extends Error {
     requestId?: string | null;
     errors?: FieldError[];
     detail?: string;
+    body?: Record<string, unknown>;
   }) {
     super(init.detail ?? init.code);
     this.name = 'ApiError';
@@ -37,6 +41,7 @@ export class ApiError extends Error {
     this.code = init.code;
     this.requestId = init.requestId ?? null;
     this.errors = init.errors ?? [];
+    this.body = init.body ?? {};
   }
 }
 
@@ -50,7 +55,7 @@ function requestIdOf(response: Response, problem: Partial<Schemas['Problem']> | 
   return typeof instance === 'string' ? instance : null;
 }
 
-async function toApiError(response: Response): Promise<ApiError> {
+export async function toApiError(response: Response): Promise<ApiError> {
   let problem: Partial<Schemas['Problem']> | null = null;
   try {
     const body: unknown = await response.clone().json();
@@ -64,7 +69,24 @@ async function toApiError(response: Response): Promise<ApiError> {
     detail: typeof problem?.detail === 'string' ? problem.detail : response.statusText,
     requestId: requestIdOf(response, problem),
     errors: Array.isArray(problem?.errors) ? problem.errors : [],
+    body: (problem ?? {}) as Record<string, unknown>,
   });
+}
+
+function isStepUpRefusal(request: Request, response: Response, error: ApiError): boolean {
+  const origin = globalThis.location?.origin;
+  const media = response.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase();
+  if (media !== 'application/problem+json' || !origin || !response.url || response.redirected || new URL(request.url).origin !== origin ||
+    new URL(response.url).origin !== origin || error.status !== 403 || error.body.status !== 403) {
+    return false;
+  }
+  if (error.code === 'auth.mfa_required') {
+    const security = error.body.security as { mfa_partial?: unknown } | undefined;
+    return security?.mfa_partial === true;
+  }
+  const minutes = error.body.fresh_minutes;
+  return error.code === 'auth.mfa_step_up' && typeof minutes === 'number' &&
+    Number.isInteger(minutes) && minutes >= 5 && minutes <= 60;
 }
 
 export interface UnauthorizedContext {
@@ -81,6 +103,13 @@ export interface ApiRuntimeOptions {
    * told apart from one for the current session (U14).
    */
   onUnauthorized?: ((error: ApiError, context: UnauthorizedContext) => void) | null;
+  /**
+   * Called for `403 auth.mfa_step_up` / `auth.mfa_required`, with the refused
+   * request's method. Resolves true once the person has verified a second
+   * factor; the client then sends the original request again, unchanged
+   * (same idempotency key), with the rotated session cookie. One retry.
+   */
+  onStepUp?: ((error: ApiError, request: { method: string }) => Promise<boolean>) | null;
 }
 
 export interface ApiRuntime {
@@ -110,6 +139,8 @@ export function createApiRuntime(options: ApiRuntimeOptions = {}): ApiRuntime {
   // The token each request was sent with, keyed by the Request object
   // openapi-fetch hands back to onResponse.
   const sentWith = new WeakMap<Request, string | null>();
+  // An untouched copy of each request, to send again after a step-up.
+  const replays = new WeakMap<Request, Request>();
 
   const middleware: Middleware = {
     onRequest({ request }) {
@@ -128,6 +159,7 @@ export function createApiRuntime(options: ApiRuntimeOptions = {}): ApiRuntime {
       // If-Match is a plain passthrough: callers supply the exact ETag.
       const sent = new Request(request, { headers });
       sentWith.set(sent, token);
+      if (options.onStepUp) replays.set(sent, sent.clone());
       return sent;
     },
     async onResponse({ request, response }) {
@@ -135,6 +167,21 @@ export function createApiRuntime(options: ApiRuntimeOptions = {}): ApiRuntime {
       const error = await toApiError(response);
       if (error.status === 401) {
         options.onUnauthorized?.(error, { token: sentWith.get(request) ?? null });
+      }
+      const replay = replays.get(request);
+      if (
+        isStepUpRefusal(request, response, error) &&
+        replay &&
+        options.onStepUp
+      ) {
+        const origin = new URL(request.url).origin;
+        const token = sentWith.get(request);
+        const principal = token ? null : await readStepUpPrincipal(origin);
+        if (!(await options.onStepUp(error, { method: request.method.toUpperCase() }))) throw error;
+        if (token || !principal || principal !== await readStepUpPrincipal(origin)) throw error;
+        const retried = await globalThis.fetch(replay);
+        if (retried.ok) return retried;
+        throw await toApiError(retried);
       }
       throw error;
     },
@@ -180,6 +227,7 @@ export const apiRuntime: ApiRuntime = createApiRuntime({
     endSession();
     unauthorizedHandler?.();
   },
+  onStepUp: (error, request) => requestStepUp(error, request),
 });
 
 export const api: ApiClient = apiRuntime.client;

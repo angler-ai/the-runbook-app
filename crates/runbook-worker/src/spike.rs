@@ -99,6 +99,7 @@ fn empty_directory() -> DirectorySnapshot {
     DirectorySnapshot {
         org_id: org_id.clone(),
         revision: 0,
+        security: Default::default(),
         organization: OrganizationRecord {
             id: org_id,
             title: "CF1".into(),

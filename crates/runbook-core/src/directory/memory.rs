@@ -56,6 +56,7 @@ impl Database {
                     DirectorySnapshot {
                         org_id: c.org_id.clone(),
                         revision: 0,
+                        security: Default::default(),
                         organization: OrganizationRecord {
                             id: c.org_id.clone(),
                             title: title.clone(),
@@ -76,6 +77,10 @@ impl Database {
                 .ok_or(DirectoryError::NotFound)?;
             match mutation {
                 DirectoryMutation::CreateOrganization { .. } => unreachable!(),
+                DirectoryMutation::SetOrgSecurity { policy, .. } => {
+                    policy.validate()?;
+                    s.security = policy;
+                }
                 DirectoryMutation::CreateUser(u) => {
                     if u.name.trim().is_empty() {
                         return Err(DirectoryError::Invalid("user name"));

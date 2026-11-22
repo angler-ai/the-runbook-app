@@ -53,6 +53,9 @@ pub struct CreateTokenRequest {
 /// Token metadata. Never the secret or its hash.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct TokenView {
+    /// Whether issuance was authorized with a fresh allowed second factor.
+    #[serde(default)]
+    pub fresh_mfa_at_issue: bool,
     pub id: TokenId,
     pub kind: ManagedTokenKind,
     pub name: String,

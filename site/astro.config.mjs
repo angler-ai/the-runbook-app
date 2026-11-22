@@ -67,6 +67,7 @@ export default defineConfig({
         },
         { label: 'Samples', collapsed: true, items: [{ autogenerate: { directory: 'samples' } }] },
         { label: 'Agents', items: [{ autogenerate: { directory: 'agents' } }] },
+        { label: 'The runner', items: [{ autogenerate: { directory: 'runner' } }] },
         {
           label: 'Webhooks',
           items: [

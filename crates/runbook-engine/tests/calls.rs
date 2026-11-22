@@ -24,6 +24,7 @@ fn context() -> CompileContext {
             depth: 0,
             reaches: vec![],
             destructive: false,
+            agent_decidable: Some(false),
             inputs: [("target".to_string(), true)].into_iter().collect(),
             input_schemas: Default::default(),
             outputs: [("rows".to_string(), runbook_spec::ir::OutputKind::Integer)]

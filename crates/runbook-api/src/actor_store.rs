@@ -44,14 +44,18 @@ fn rejection(code: &'static str, fields: Vec<FieldError>) -> ApiError {
         | "approval.not_eligible"
         | "claim.not_assignee"
         | "amendment.admin_required"
-        | "amendment.human_required" => 403,
+        | "amendment.human_required"
+        | "claim.wrong_runner"
+        | "grant.not_allowed" => 403,
         "resource.not_found" | "execution.not_found" | "step.not_found" | "claim.not_found" => 404,
         "request.idempotency_key_reused"
         | "claim.stale_generation"
         | "claim.conflict"
         | "approval.conflict"
+        | "approval.agent_not_ready"
         | "execution.conflict"
         | "signal.not_waiting"
+        | "runner.decision_unsupported"
         | "execution.paused"
         | "execution.closed"
         | "execution.not_started"
@@ -70,7 +74,13 @@ fn rejection(code: &'static str, fields: Vec<FieldError>) -> ApiError {
         | "signal.duplicate"
         | "signal.id_conflict"
         | "amendment.conflict"
-        | "amendment.step_not_finished" => 409,
+        | "amendment.step_not_finished"
+        | "claim.outside_ceiling"
+        | "claim.agent_paused"
+        | "claim.approval_missing"
+        | "grant.claim_moved"
+        | "grant.lease_expired" => 409,
+        "signing.unavailable" => 503,
         _ => 422,
     };
     ApiError {
@@ -141,6 +151,34 @@ fn json(value: impl serde::Serialize) -> Result<Value, ApiError> {
 }
 
 impl<B: Backends> StoreActorBackend<B> {
+    /// Return the pinned execution ID when this decision can lead to a destructive step.
+    pub(crate) async fn destructive_approval(
+        &self,
+        org: &OrganizationId,
+        step: &StepRunId,
+    ) -> Result<Option<ExecutionId>, ApiError> {
+        let Some((execution, project)) = self.step_run_execution(org, step).await? else {
+            return Ok(None);
+        };
+        let scope = TenantScope {
+            org_id: org.clone(),
+            project_id: project,
+        };
+        let store = self.scoped(scope.clone());
+        let work = begin_actor(&store, &self.backends.directory(), scope, &execution)
+            .await
+            .map_err(actor_error)?;
+        let state = &work.runtime.state;
+        let index = work.step_index(step).map_err(actor_error)?;
+        let destructive = runbook_spec::approval_reaches_destructive(
+            state.compiled().ir(),
+            &state.steps[index].node_id,
+        ) || runbook_core::calls::caller_reaches_destructive(&store, state)
+            .await
+            .map_err(|e| actor_error(e.into()))?;
+        Ok(destructive.then_some(execution))
+    }
+
     fn scoped(&self, scope: TenantScope) -> B::Execution {
         self.backends.execution(scope)
     }
@@ -168,7 +206,7 @@ impl Identity {
         }
     }
 }
-fn declared_principal(
+pub(crate) fn declared_principal(
     identity: &Identity,
     session_id: Option<&str>,
     declaration: Option<&ActorDeclaration>,
@@ -510,6 +548,7 @@ pub async fn execute_ready<B: Backends>(
                     .as_deref()
                     .ok_or_else(|| ApiError::new(422, "request.invalid"))?;
                 decisions::agent_decide(
+                    store,
                     work,
                     &actor,
                     step(&target)?,

@@ -508,3 +508,33 @@ fn push_under_the_cap_says_nothing() {
     assert_eq!(o.status.code(), Some(0), "{}", err(&o));
     assert!(!err(&o).contains("warning"), "{}", err(&o));
 }
+
+#[test]
+fn first_runbook_push_prints_the_exact_draft_and_publish_commands() {
+    let home = tmp();
+    let file = spec_file(home.path(), SOURCE);
+    let (host, server) = serve(vec![reply(200, page(vec![])), reply(200, page(vec![]))]);
+    let output = cli(
+        &host,
+        home.path(),
+        &["push", &file, "--project", "ops"],
+        &[("RUNBOOK_TOKEN", PAT)],
+    );
+    assert!(!output.status.success());
+    let error = err(&output);
+    assert!(
+        error.contains(&format!("runbook push '{file}' --project 'ops' --draft")),
+        "{error}"
+    );
+    assert!(
+        error.contains("runbook publish 'post-deploy' --project 'ops'"),
+        "{error}"
+    );
+    assert!(
+        server
+            .join()
+            .unwrap()
+            .iter()
+            .all(|r| !is_write(request_line(r)))
+    );
+}

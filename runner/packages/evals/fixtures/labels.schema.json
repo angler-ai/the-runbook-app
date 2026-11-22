@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Each line in labels.jsonl is one independently scored tuning summary. Use about 30 unique trial IDs from report.json.",
+  "type": "object",
+  "required": ["trialId", "humanScore"],
+  "additionalProperties": false,
+  "properties": {
+    "trialId": { "type": "string", "minLength": 1 },
+    "humanScore": { "enum": [0, 1, 2, 3] },
+    "notes": { "type": "string" }
+  }
+}

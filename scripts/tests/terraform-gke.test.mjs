@@ -84,7 +84,8 @@ test('the load balancer is a trusted proxy, and config or secret changes roll th
     /RUNBOOK_TRUSTED_PROXIES\s*=\s*"35\.191\.0\.0\/16,130\.211\.0\.0\/16,\$\{google_compute_global_address\.ingress_ip\.address\}"/,
   );
   assert.match(workload, /"runbook\.dev\/config-sha256"\s*=\s*sha256\(jsonencode\(kubernetes_config_map\.runbook_config\.data\)\)/);
-  assert.match(workload, /"runbook\.dev\/secret-sha256"\s*=\s*nonsensitive\(sha256\(jsonencode\(kubernetes_secret\.runbook_secrets\.data\)\)\)/);
+  // The managed Secret is optional (manage_secret_values); when the module manages it, its hash rolls the pods.
+  assert.match(workload, /var\.manage_secret_values \? \{\s*"runbook\.dev\/secret-sha256"\s*=\s*nonsensitive\(sha256\(jsonencode\(kubernetes_secret\.runbook_secrets\[0\]\.data\)\)\)/);
 });
 
 test('the app container runs as the image user by number, and the image names it by number', async () => {

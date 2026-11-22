@@ -669,6 +669,36 @@ spec:
     - id: check_health
 ```
 
+## spec.defaults.agent
+type: object
+as: doc
+
+The runner agent of every agent task that names none itself. Publish
+checks the name against the project's agent directory.
+
+```yaml
+metadata: { id: agent-checks }
+spec:
+  defaults: { actor: agent, agent: { name: external } }
+  steps:
+    - id: check_health
+```
+
+## spec.defaults.agent.name
+type: agent name
+as: doc
+
+The agent's name, as in `spec.steps[].agent.name`. `external` keeps agent
+tasks open to external agents.
+
+```yaml
+metadata: { id: agent-checks }
+spec:
+  defaults: { actor: agent, agent: { name: external } }
+  steps:
+    - id: check_health
+```
+
 ## spec.defaults.timeout
 type: duration
 as: doc
@@ -1504,6 +1534,91 @@ the access you give it.
   actor: agent
   agent:
     hints: { tools: [grafana], commands: [kubectl logs] }
+```
+
+## spec.steps[].agent.name
+type: agent name
+as: step
+
+The runner agent that works this task (the task needs `actor: agent`). It
+is checked at publish against the project's agent directory and recorded
+by ID, so renaming or recreating an agent never moves a published runbook
+(`spec.agent_unknown`). `external` keeps the task open to external agents.
+Without a name, the task follows `spec.defaults.agent`, then the project's
+default agent, then stays open to external agents.
+
+```yaml
+- id: compare_error_rate
+  actor: agent
+  agent: { name: external }
+```
+
+## spec.steps[].agent.model
+type: string
+as: step
+
+The model profile the runner agent uses for this task; one the agent
+allows (`spec.agent_outside_ceiling`).
+
+```yaml
+- id: compare_error_rate
+  actor: agent
+  agent: { model: deep }
+```
+
+## spec.steps[].agent.max_cost_usd
+type: number
+as: step
+
+The most this task may cost, at most the agent's own limit
+(`spec.agent_outside_ceiling`).
+
+```yaml
+- id: compare_error_rate
+  actor: agent
+  agent: { max_cost_usd: 0.5 }
+```
+
+## spec.steps[].agent.max_tokens
+type: integer
+as: step
+
+The most tokens this task may use, at most the agent's own limit.
+
+```yaml
+- id: compare_error_rate
+  actor: agent
+  agent: { max_tokens: 100000 }
+```
+
+## spec.steps[].agent.network
+type: list of hosts
+as: step
+
+The hosts this task may reach: a narrowing of the agent's egress list.
+
+```yaml
+- id: compare_error_rate
+  actor: agent
+  agent: { network: [api.datadoghq.com] }
+```
+
+
+## spec.steps[].connections
+type: list of credential names
+as: step
+
+The credentials this task may use: a narrowing of its runner agent's,
+checked at publish and recorded by ID. Whether a task is destructive
+follows from what it can reach: a task that can use a destructive tool or
+credential must be marked `destructive` (`spec.destructive_reach`), and a
+destructive runner task must come after a person's approval on every path
+to it (`spec.destructive_needs_approval`).
+
+```yaml
+- id: compare_error_rate
+  actor: agent
+  connections: [datadog-readonly]
 ```
 
 ## spec.steps[].agent.hints
@@ -2425,6 +2540,26 @@ choose (`spec.auto_option_required`).
     on_timeout: { decide: roll_back }
 ```
 
+## spec.steps[].approval.approves
+type: list of option IDs
+as: step
+
+List the option IDs that can authorize a downstream destructive runner
+task. A human decision for one of these options can satisfy the task's
+approval requirement. Use a task guard to skip it on other decisions.
+New publications require this list on the gate
+(`spec.destructive_approval_options`) unless the task's `if` already
+requires the gate's decision to equal a specific option.
+
+```yaml
+- id: go_no_go
+  approval:
+    prompt: Drop the old table?
+    options: [drop, keep]
+    approves: [drop]
+    approvers: { teams: [dba] }
+```
+
 ## spec.steps[].approval.approvers
 type: object
 as: step
@@ -2601,7 +2736,8 @@ as: step
 Lets an agent decide. Needs `min: 1`
 (`spec.agent_approval_requires_min_one`), and no destructive task may
 follow from the decision (`spec.agent_approval_destructive`). An agent's
-decision is recorded apart from human signatures.
+decision is recorded apart from human signatures. Add `agent` to have a
+runner agent decide.
 
 ```yaml
 - id: triage_choice
@@ -2610,6 +2746,112 @@ decision is recorded apart from human signatures.
     options: [restart, scale_up, escalate]
     approvers: { teams: [oncall] }
     allow_agents: true
+```
+
+## spec.steps[].approval.agent
+type: object
+as: step
+
+A runner agent that decides this approval when no person has. Needs
+`allow_agents: true` (`spec.agent_requires_allow_agents`). The agent's
+decision run is read-only, people can decide at any time and the first
+decision wins, and the approval still can't lead to a destructive task
+(`spec.agent_approval_destructive`).
+
+```yaml
+- id: release_gate
+  approval:
+    prompt: Ship it?
+    options: [ship, hold]
+    approvers: { teams: [release-managers] }
+    allow_agents: true
+    agent: { name: release-reviewer, after: 15m }
+```
+
+## spec.steps[].approval.agent.name
+type: agent name
+required: yes
+as: step
+
+The runner agent that decides. It is checked at publish against the
+project's agent directory and recorded by ID (`spec.agent_unknown`).
+
+```yaml
+- id: release_gate
+  approval:
+    prompt: Ship it?
+    options: [ship, hold]
+    approvers: { teams: [release-managers] }
+    allow_agents: true
+    agent: { name: release-reviewer }
+```
+
+## spec.steps[].approval.agent.model
+type: string
+as: step
+
+The model profile the agent decides with; one the agent allows
+(`spec.agent_outside_ceiling`).
+
+```yaml
+- id: release_gate
+  approval:
+    prompt: Ship it?
+    options: [ship, hold]
+    approvers: { teams: [release-managers] }
+    allow_agents: true
+    agent: { name: release-reviewer, model: deep }
+```
+
+## spec.steps[].approval.agent.max_cost_usd
+type: number
+as: step
+
+The most the decision may cost, at most the agent's own limit
+(`spec.agent_outside_ceiling`).
+
+```yaml
+- id: release_gate
+  approval:
+    prompt: Ship it?
+    options: [ship, hold]
+    approvers: { teams: [release-managers] }
+    allow_agents: true
+    agent: { name: release-reviewer, max_cost_usd: 0.25 }
+```
+
+## spec.steps[].approval.agent.max_tokens
+type: integer
+as: step
+
+The most tokens the decision may use, at most the agent's own limit.
+
+```yaml
+- id: release_gate
+  approval:
+    prompt: Ship it?
+    options: [ship, hold]
+    approvers: { teams: [release-managers] }
+    allow_agents: true
+    agent: { name: release-reviewer, max_tokens: 50000 }
+```
+
+## spec.steps[].approval.agent.after
+type: duration
+as: step
+
+How long the approval waits for a person before the agent starts. Without
+it, the agent starts as soon as the approval opens. People can still decide
+while it works.
+
+```yaml
+- id: release_gate
+  approval:
+    prompt: Ship it?
+    options: [ship, hold]
+    approvers: { teams: [release-managers] }
+    allow_agents: true
+    agent: { name: release-reviewer, after: 15m }
 ```
 
 # set and end

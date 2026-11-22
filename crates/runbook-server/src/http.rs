@@ -399,11 +399,28 @@ impl Drop for Worker {
     }
 }
 pub fn router(client: Client) -> Router {
-    Router::new()
+    let https = client.origin.starts_with("https://");
+    let router = Router::new()
         .fallback(dispatch)
         .with_state(client)
-        .layer(axum::middleware::map_response(no_sniff))
+        .layer(axum::middleware::map_response(no_sniff));
+    transport_security(router, https)
 }
+fn transport_security(router: Router, https: bool) -> Router {
+    if !https {
+        return router;
+    }
+    router.layer(axum::middleware::map_response(
+        |mut response: Response<Body>| async move {
+            response.headers_mut().insert(
+                header::STRICT_TRANSPORT_SECURITY,
+                http::HeaderValue::from_static(runbook_api::http::STRICT_TRANSPORT_SECURITY),
+            );
+            response
+        },
+    ))
+}
+
 /// F96: every response, including the Markdown export and event streams,
 /// forbids MIME sniffing.
 async fn no_sniff(mut response: Response<Body>) -> Response<Body> {
@@ -559,8 +576,10 @@ async fn process(client: Client, request: Request<Body>, nonce: String, id: &str
     // the per-boot secret; to anyone else it is an unknown route.
     let internal = parts.uri.path().starts_with("/internal/");
     if internal
-        && (parts.uri.path() != crate::session::CAN_REGISTER
-            || !crate::session::internal_allowed(client.auth.as_deref(), &parts.headers, peer))
+        && (!matches!(
+            parts.uri.path(),
+            crate::session::CAN_REGISTER | runbook_api::mfa::INTERNAL_POLICY
+        ) || !crate::session::internal_allowed(client.auth.as_deref(), &parts.headers, peer))
     {
         return ApiResponse::error(404, "resource.not_found", id);
     }
@@ -821,10 +840,12 @@ pub fn shared_router(client: Client, files_host: crate::config::HostMatch) -> Ro
 /// is set, and every response carries `Content-Disposition`, `nosniff` and
 /// `Content-Security-Policy: sandbox; default-src 'none'`.
 pub fn usercontent_router(client: Client) -> Router {
-    Router::new()
+    let https = client.origin.starts_with("https://");
+    let router = Router::new()
         .fallback(usercontent_dispatch)
         .with_state(client)
-        .layer(axum::middleware::map_response(usercontent_headers))
+        .layer(axum::middleware::map_response(usercontent_headers));
+    transport_security(router, https)
 }
 
 /// The user-content safety headers on every response, errors included.

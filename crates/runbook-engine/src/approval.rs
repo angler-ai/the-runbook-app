@@ -42,6 +42,8 @@ pub struct ApprovalState {
     /// Why an `on_timeout: decide` gate expired without its automatic decision.
     pub automatic_withheld: Option<String>,
     pub agent_decision: Option<crate::AgentDecision>,
+    pub decision_lease: Option<runbook_model::DecisionLeaseView>,
+    pub agent_notes: Vec<runbook_model::ApprovalAgentNote>,
     pub notices: Vec<crate::ApprovalNotice>,
     pub queued_notices: BTreeSet<crate::ApprovalNoticeKind>,
 }

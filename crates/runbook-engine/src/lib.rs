@@ -16,6 +16,12 @@ pub use reducer::apply;
 pub use state::{ExecutionState, ParentLink, StepState, Supersession};
 pub use status::reported_status;
 pub use version::{ENGINE_VERSION, LEGACY_ENGINE_VERSION, legacy_engine_version};
+// R0-4: runner agent steps in the record.
+mod runner;
+pub use runner::{
+    AgentTargetRef, CredentialRelease, ExternalTarget, RecordedCost, RunnerStepState,
+    admit_decision, decision_open, person_approved,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EngineError {

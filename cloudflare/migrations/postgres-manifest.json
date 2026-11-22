@@ -1631,6 +1631,43 @@
       ]
     },
     {
+      "name": "org_security_audit",
+      "target": "d1",
+      "target_table": "org_security_audit",
+      "columns": [
+        {
+          "name": "id",
+          "pg_type": "bigint",
+          "d1_type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "org_id",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "actor",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "policy",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "occurred_at_ms",
+          "pg_type": "bigint",
+          "d1_type": "INTEGER",
+          "nullable": false
+        }
+      ]
+    },
+    {
       "name": "org_user",
       "target": "d1",
       "target_table": "org_user",
@@ -1680,6 +1717,12 @@
         },
         {
           "name": "title",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "security",
           "pg_type": "text",
           "d1_type": "TEXT",
           "nullable": false
@@ -1880,6 +1923,31 @@
           "pg_type": "bigint",
           "d1_type": "INTEGER",
           "nullable": false
+        }
+      ]
+    },
+    {
+      "name": "project_runner_settings",
+      "target": "d1",
+      "target_table": "project_runner_settings",
+      "columns": [
+        {
+          "name": "org_id",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "project_id",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "default_agent",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": true
         }
       ]
     },
@@ -2245,6 +2313,459 @@
       ]
     },
     {
+      "name": "runner_agents",
+      "target": "d1",
+      "target_table": "runner_agents",
+      "columns": [
+        {
+          "name": "install_id",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "agent_id",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "org_id",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "project_id",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "group_id",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "status",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "version_id",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "ceiling",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "updated_at_ms",
+          "pg_type": "bigint",
+          "d1_type": "INTEGER",
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "name": "runner_bootstrap_tokens",
+      "target": "d1",
+      "target_table": "runner_bootstrap_tokens",
+      "columns": [
+        {
+          "name": "token_hash",
+          "pg_type": "bytea",
+          "d1_type": "BLOB",
+          "nullable": false
+        },
+        {
+          "name": "org_id",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "url",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "created_at_ms",
+          "pg_type": "bigint",
+          "d1_type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "expires_at_ms",
+          "pg_type": "bigint",
+          "d1_type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "used_at_ms",
+          "pg_type": "bigint",
+          "d1_type": "INTEGER",
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "name": "runner_group_projects",
+      "target": "d1",
+      "target_table": "runner_group_projects",
+      "columns": [
+        {
+          "name": "group_id",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "project_id",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "name": "runner_groups",
+      "target": "d1",
+      "target_table": "runner_groups",
+      "columns": [
+        {
+          "name": "id",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "install_id",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "org_id",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "name": "runner_installs",
+      "target": "d1",
+      "target_table": "runner_installs",
+      "columns": [
+        {
+          "name": "id",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "org_id",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "url",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "version",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "contract_version",
+          "pg_type": "integer",
+          "d1_type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "directory_token_hash",
+          "pg_type": "bytea",
+          "d1_type": "BLOB",
+          "nullable": false
+        },
+        {
+          "name": "release_token_hash",
+          "pg_type": "bytea",
+          "d1_type": "BLOB",
+          "nullable": false
+        },
+        {
+          "name": "join_token_hash",
+          "pg_type": "bytea",
+          "d1_type": "BLOB",
+          "nullable": false
+        },
+        {
+          "name": "created_at_ms",
+          "pg_type": "bigint",
+          "d1_type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "last_heartbeat_at_ms",
+          "pg_type": "bigint",
+          "d1_type": "INTEGER",
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "name": "runner_ready_steps",
+      "target": "d1",
+      "target_table": "runner_ready_steps",
+      "columns": [
+        {
+          "name": "step_run_id",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "execution_id",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "org_id",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "project_id",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "agent_id",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "ready_at_ms",
+          "pg_type": "bigint",
+          "d1_type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "max_cost_micro_usd",
+          "pg_type": "bigint",
+          "d1_type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "decision",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "name": "runner_runners",
+      "target": "d1",
+      "target_table": "runner_runners",
+      "columns": [
+        {
+          "name": "id",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "install_id",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "group_id",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "org_id",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "version",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "claim_token_hash",
+          "pg_type": "bytea",
+          "d1_type": "BLOB",
+          "nullable": false
+        },
+        {
+          "name": "status",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "running",
+          "pg_type": "integer",
+          "d1_type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "capacity",
+          "pg_type": "integer",
+          "d1_type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "created_at_ms",
+          "pg_type": "bigint",
+          "d1_type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "last_heartbeat_at_ms",
+          "pg_type": "bigint",
+          "d1_type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "decision_v1",
+          "pg_type": "boolean",
+          "d1_type": "INTEGER",
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "name": "runner_vault_identity_audit",
+      "target": "d1",
+      "target_table": "runner_vault_identity_audit",
+      "columns": [
+        {
+          "name": "sequence",
+          "pg_type": "bigint",
+          "d1_type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "install_id",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "org_id",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "action",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "actor",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "public_key",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "occurred_at_ms",
+          "pg_type": "bigint",
+          "d1_type": "INTEGER",
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "name": "runner_vault_identity_history",
+      "target": "d1",
+      "target_table": "runner_vault_identity_history",
+      "columns": [
+        {
+          "name": "sequence",
+          "pg_type": "bigint",
+          "d1_type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "install_id",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "public_key",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "changed_by",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": true
+        },
+        {
+          "name": "changed_at_ms",
+          "pg_type": "bigint",
+          "d1_type": "INTEGER",
+          "nullable": false
+        }
+      ]
+    },
+    {
       "name": "schema_migration",
       "target": "d1",
       "target_table": "schema_migration",
@@ -2266,6 +2787,49 @@
           "pg_type": "timestamp with time zone",
           "d1_type": "INTEGER",
           "nullable": false
+        }
+      ]
+    },
+    {
+      "name": "signing_keys",
+      "target": "d1",
+      "target_table": "signing_keys",
+      "columns": [
+        {
+          "name": "kid",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "purpose",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "sealed_private",
+          "pg_type": "text",
+          "d1_type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "public",
+          "pg_type": "bytea",
+          "d1_type": "BLOB",
+          "nullable": false
+        },
+        {
+          "name": "created_at_ms",
+          "pg_type": "bigint",
+          "d1_type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "retired_at_ms",
+          "pg_type": "bigint",
+          "d1_type": "INTEGER",
+          "nullable": true
         }
       ]
     },

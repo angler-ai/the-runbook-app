@@ -175,7 +175,7 @@ PROJECT=my-project
 REGION=us-central1
 APP_HOST=runbooks.example.com                 # RUNBOOK_ORIGIN's host
 FILES_HOST=files.example-usercontent.com      # the user-content host
-VERSION=0.1.0
+VERSION=0.1.1
 IMAGE=$REGION-docker.pkg.dev/$PROJECT/runbook/runbook:$VERSION
 SA=runbook-run@$PROJECT.iam.gserviceaccount.com
 INSTANCE=$PROJECT:$REGION:runbook-db
@@ -305,7 +305,7 @@ kill_signal = "SIGTERM"   # Fly's default SIGINT works too
 kill_timeout = 10
 
 [build]
-  image = "registry.example.com/runbook:0.1.0"
+  image = "registry.example.com/runbook:0.1.1"
 
 [env]
   RUNBOOK_ORIGIN = "https://runbooks.example.com"
@@ -354,7 +354,7 @@ PostgreSQL 16, a production-grade Terraform module is available in
 It provisions:
 - An Autopilot GKE cluster (or deploys to an existing cluster) with Workload Identity;
 - Cloud SQL for PostgreSQL 16 on private IP with automated backups, PITR and maintenance windows;
-- Secret Manager secrets and Kubernetes Secrets;
+- Kubernetes Secrets;
 - A Deployment with pod disruption budget, probes, security context, and the **Cloud SQL Auth Proxy sidecar**;
 - External GKE Ingress with Google-managed SSL certificates (`ManagedCertificate`), HTTP-to-HTTPS redirect (`FrontendConfig`), and health check configuration (`BackendConfig`).
 
@@ -374,7 +374,7 @@ spec:
       terminationGracePeriodSeconds: 20
       containers:
         - name: runbook
-          image: registry.example.com/runbook:0.1.0
+          image: registry.example.com/runbook:0.1.1
           ports: [{containerPort: 8080}]
           envFrom: [{secretRef: {name: runbook}}, {configMapRef: {name: runbook}}]
           readinessProbe: {httpGet: {path: /health/ready, port: 8080}, periodSeconds: 5}

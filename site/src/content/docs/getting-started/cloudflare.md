@@ -34,7 +34,9 @@ git-ignored. Fill in the D1 ID, the bucket and queue names, and the origins:
   `RUNBOOK_ORIGIN`; set both to the same app origin;
 - set `RUNBOOK_USERCONTENT_ORIGIN` on the api Worker to a different
   hostname, preferably on a separate registrable domain;
-- uncomment the api config's `AUTH` service and `assets` blocks.
+- uncomment the api config's `AUTH` service and `assets` blocks;
+- keep `"triggers": { "crons": ["* * * * *"] }` on the auth Worker to
+  deliver security emails, including factor changes and MFA resets.
 
 ## 3. Build
 
@@ -96,7 +98,7 @@ personal and a service token, shown once. A second call returns `409`
 the route:
 
 ```bash
-npx wrangler secret delete BOOTSTRAP_SECRET
+npx wrangler secret delete BOOTSTRAP_SECRET -c wrangler.prod.jsonc
 ```
 
 ## Updating
@@ -104,4 +106,4 @@ npx wrangler secret delete BOOTSTRAP_SECRET
 `npm run update` (from `cloudflare/`) backs up D1 with a Time Travel
 bookmark, applies migrations, deploys both Workers, verifies `/v1/meta` and
 rolls back the Workers on failure. Start with `npm run update -- --dry-run`.
-Until a release is published, use `--source checkout`.
+See [Upgrades and rollback](/operating/upgrades/) for release-specific steps.

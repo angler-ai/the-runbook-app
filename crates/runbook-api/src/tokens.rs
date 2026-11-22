@@ -146,7 +146,7 @@ async fn create<B: Backends>(
         _ => TokenKind::Personal,
     };
     let secret = encode_secret(kind, random);
-    let (record, metadata) = plan_issue(
+    let (record, mut metadata) = plan_issue(
         caller,
         manager,
         snapshot,
@@ -156,6 +156,7 @@ async fn create<B: Backends>(
         secret_hash(&secret),
     )
     .map_err(issue_error)?;
+    metadata.fresh_mfa_at_issue = crate::mfa::fresh_at_issue(r, snapshot.security, now);
     let token = view(&record, &metadata);
     let issue = TokenIssue {
         record,

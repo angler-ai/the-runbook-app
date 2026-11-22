@@ -593,6 +593,7 @@ impl<D: D1> D1Catalog<D> {
                     .ok_or(StoreError::Backend("d1.invalid_version_number"))?;
                 if row.digest(2).map_err(err)? == prepared.semantic_hash {
                     return Ok(PublishedVersionView {
+                        warnings: prepared.warnings.clone(),
                         runbook_id: id.clone(),
                         runbook_version_id: row.parse(0).map_err(err)?,
                         runbook_version: number,
@@ -606,6 +607,7 @@ impl<D: D1> D1Catalog<D> {
             let number = NonZeroU32::new(next)
                 .ok_or(StoreError::InvalidBatch("catalog.version_overflow"))?;
             let view = PublishedVersionView {
+                warnings: prepared.warnings.clone(),
                 runbook_id: id.clone(),
                 runbook_version_id: prepared.version_id.clone(),
                 runbook_version: number,
@@ -703,6 +705,7 @@ impl<D: D1> D1Catalog<D> {
                 if row.digest(2).map_err(err)? == prepared.semantic_hash {
                     self.db.run(update).await.map_err(err)?;
                     return Ok(PublishedVersionView {
+                        warnings: prepared.warnings.clone(),
                         runbook_id: id.clone(),
                         runbook_version_id: row.parse(0).map_err(err)?,
                         runbook_version: number,
@@ -716,6 +719,7 @@ impl<D: D1> D1Catalog<D> {
             let number = NonZeroU32::new(next)
                 .ok_or(StoreError::InvalidBatch("catalog.version_overflow"))?;
             let view = PublishedVersionView {
+                warnings: prepared.warnings.clone(),
                 runbook_id: id.clone(),
                 runbook_version_id: prepared.version_id.clone(),
                 runbook_version: number,
@@ -908,6 +912,7 @@ impl<D: D1> D1Catalog<D> {
             .map(|row| {
                 let record = version_at(row, 0)?;
                 Ok(PublishedVersionView {
+                    warnings: Vec::new(),
                     runbook_id: id.clone(),
                     runbook_version_id: record.version_id,
                     runbook_version: record

@@ -22,8 +22,8 @@ runbook and the caller's credential:
 - who may claim and complete a step (`actor`, `assignee` with
   `assignment: strict`), and who may decide an approval (its approvers, its
   escalation, and agents only with `allow_agents`);
-- that a destructive step can't follow from a decision an agent or a timeout
-  made, unless the runbook explicitly allows it;
+- that agent decisions cannot lead to destructive steps and destructive
+  runner steps require an approving human decision from the run;
 - leases, so one session at a time works a step, and a stale session's
   report is refused;
 - timeouts, retries and failure handling;
@@ -52,12 +52,22 @@ naming its sponsor and token or run, and agents never cast human approvals.
 An OAuth grant to an MCP client is an agent sponsored by the person who
 consented. See [Permissions and tokens](/security/permissions/).
 
+People can protect their sign-in with a passkey or an authenticator app,
+and an organization can require one. Sensitive actions (runner
+credentials, tokens, members, security settings, approvals that lead to a
+destructive step) then need a recent second-factor check, which the server
+enforces, not just the web app. See [Multi-factor
+sign-in](/security/multi-factor/).
+
 ## Secrets
 
 - **Tokens** are stored as SHA-256 hashes; the secret is shown once.
 - **Webhook signing secrets** are sealed (encrypted) at rest with the
   operator's key, opened only to sign a delivery, and never appear in a
   view, a log or an error.
+- **Runner credentials** are sealed to the vault, encrypted at rest and
+  released to the gateway under a live lease for a bound destination.
+  See [Runner security](/runner/security/) for what each component can access.
 - **Logs** are redacted on the server: [Redaction and the audit
   trail](/security/audit/).
 - **The CLI** keeps logins in the macOS Keychain or Windows Credential
@@ -68,6 +78,8 @@ consented. See [Permissions and tokens](/security/permissions/).
 - The web app is served from the server's own origin with a strict Content
   Security Policy and no CORS. Cookie sessions need `X-Runbook-CSRF: 1` and
   a matching `Origin` for every change.
+- HTTPS-configured app and file hosts send
+  `Strict-Transport-Security` on both editions.
 - Uploaded files are served only from a **separate origin** with
   `Content-Security-Policy: sandbox`, `X-Content-Type-Options: nosniff`, no
   cookies, and short-lived signed URLs, so a malicious file can never act as
@@ -95,6 +107,7 @@ attestation yet.
 </Aside>
 
 <CardGrid>
+  <LinkCard title="Multi-factor sign-in" description="Passkeys, authenticator apps, organization policy and recovery." href="/security/multi-factor/" />
   <LinkCard title="Permissions and tokens" description="Roles, scopes, token kinds and lifetimes." href="/security/permissions/" />
   <LinkCard title="Redaction and the audit trail" description="What's redacted, and how every action is recorded." href="/security/audit/" />
   <LinkCard title="Report a vulnerability" description="Privately, through GitHub." href="/security/reporting/" />

@@ -99,7 +99,7 @@ test('CF7: the dev stack configs are local-only, and the dev api Worker matches 
   }
   assert.deepEqual(dev.services, [{ binding: 'AUTH', service: 'runbook-auth-local' }]);
   assert.equal(dev.assets.binding, 'ASSETS');
-  assert.deepEqual(dev.assets.run_worker_first, ['/*', '!/assets/*', '!/manifest.webmanifest']);
+  assert.equal(dev.assets.run_worker_first, true);
   const auth = read('wrangler.auth.jsonc');
   assert.equal(auth.d1_databases[0].database_id, test.d1_databases[0].database_id, 'the auth Worker shares the D1');
   assert.deepEqual(auth.services.map((s) => s.service), [test.name, 'runbook-mail-local']);

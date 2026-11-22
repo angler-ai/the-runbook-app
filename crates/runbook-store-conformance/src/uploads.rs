@@ -515,6 +515,7 @@ where
         summary: None,
         evidence,
         logs: vec![],
+        cost: None,
     };
     for (evidence, code) in [
         (vec![], "step.evidence_required"),
@@ -636,6 +637,7 @@ where
         summary: None,
         evidence: vec![],
         logs: vec![],
+        cost: None,
     };
     let attempt = async || {
         let work = begin_actor(store, dir, p(), &exe(1)).await.unwrap();

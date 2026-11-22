@@ -9,6 +9,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
+import { totp } from '../../auth/tests/support/mfa.mjs';
 import { AUTH_INTERNAL_SECRET, chunked, frames, startSignInStack } from './harness.mjs';
 
 const BOOTSTRAP_SECRET = randomBytes(24).toString('hex');
@@ -16,6 +17,7 @@ const OWNER = 'owner@example.test';
 let stack;
 let pat;
 let project;
+let org;
 before(async () => {
   stack = await startSignInStack({ vars: { BOOTSTRAP_SECRET } });
   const boot = await stack.fetch('/internal/bootstrap', {
@@ -27,6 +29,7 @@ before(async () => {
   const out = await boot.json();
   pat = out.personal_token;
   project = out.project_id;
+  org = out.org_id;
 });
 after(async () => {
   await stack?.dispose();
@@ -64,7 +67,7 @@ async function signIn(email) {
 
 const sessionCookie = (response) => {
   const set = response.headers.getSetCookie?.() ?? [response.headers.get('set-cookie')];
-  const line = set.find((c) => c && c.startsWith('__Host-runbook.session_token='));
+  const line = set.filter((c) => c && c.startsWith('__Host-runbook.session_token=')).at(-1);
   return line ? line.split(';')[0] : null;
 };
 
@@ -221,6 +224,59 @@ test('the proxy never forwards the internal secret or a client-set client IP', a
     headers: { 'x-runbook-internal-secret': AUTH_INTERNAL_SECRET },
   });
   assert.notEqual(internal.status, 200);
+});
+
+test('MFA policy gates the API and its ExecutionDO reads, with a browser recovery path', async () => {
+  const setup = await json(await call('/api/auth/two-factor/enable', { method: 'POST', cookie, body: {} }));
+  assert.equal(setup.status, 200, setup.text);
+  const confirmation = await json(await call('/api/auth/two-factor/verify-totp', {
+    method: 'POST', cookie, body: { code: totp(setup.body.totpURI, 1) },
+  }));
+  assert.equal(confirmation.status, 200, confirmation.text);
+  assert.deepEqual(confirmation.body, { status: true, enrolled: true });
+  const originalCookie = cookie;
+  const verify = await call('/api/auth/two-factor/verify-totp', {
+    method: 'POST', cookie, body: { code: totp(setup.body.totpURI) },
+  });
+  assert.equal(verify.status, 200, await verify.clone().text());
+  cookie = sessionCookie(verify);
+  assert.ok(cookie);
+  assert.equal((await call('/v1/me', { cookie: originalCookie })).status, 401);
+
+  const policyPath = `/v1/orgs/${org}/security`;
+  const policy = { require_mfa: 'everyone', allow_passkeys: true, allow_authenticator: true, fresh_minutes: 10 };
+  const change = await json(await call(policyPath, { method: 'PUT', cookie, csrf: true, body: policy }));
+  assert.equal(change.status, 200, change.text);
+  assert.deepEqual(change.body, policy);
+  const audit = await stack.db.prepare('SELECT policy FROM org_security_audit WHERE org_id = ?').bind(org).first();
+  assert.deepEqual(JSON.parse(audit.policy), policy);
+
+  await stack.db.prepare('UPDATE auth_session SET mfa_verified_at = ?').bind(Date.now() - 601_000).run();
+  const stale = await json(await call('/v1/tokens', { method: 'POST', cookie, csrf: true, body: {} }));
+  assert.equal(stale.status, 403, stale.text);
+  assert.equal(stale.body.code, 'auth.mfa_step_up');
+  assert.equal(stale.body.fresh_minutes, 10);
+
+  await stack.db.prepare('UPDATE auth_session SET mfa_verified_at = NULL, mfa_method = NULL').run();
+  const partial = await json(await call(`/v1/executions/${exe}`, { cookie }));
+  assert.equal(partial.status, 403, partial.text);
+  assert.equal(partial.body.code, 'auth.mfa_required');
+  const stream = await json(await call(`/v1/executions/${exe}/events`, { cookie }));
+  assert.equal(stream.status, 403, stream.text);
+  assert.equal(stream.body.code, 'auth.mfa_required');
+  const me = await json(await call('/v1/me', { cookie }));
+  assert.deepEqual(Object.keys(me.body).sort(), ['org', 'security', 'user']);
+  assert.equal(me.body.security.mfa_partial, true);
+  const security = await json(await call('/v1/me/security', { cookie }));
+  assert.equal(security.status, 200, security.text);
+  assert.equal(security.body.mfa_enrolled, true);
+  const recovered = await call('/api/auth/two-factor/verify-backup-code', {
+    method: 'POST', cookie, body: { code: setup.body.backupCodes[0] },
+  });
+  assert.equal(recovered.status, 200, await recovered.clone().text());
+  cookie = sessionCookie(recovered);
+  assert.ok(cookie);
+  assert.equal((await call(`/v1/executions/${exe}`, { cookie })).status, 200);
 });
 
 test('sign-out evicts the cached session at once', async () => {

@@ -1,7 +1,9 @@
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, KeyRound } from 'lucide-react';
 import { QueryClientContext } from '@tanstack/react-query';
 import { useContext, useEffect, useState, type FormEvent } from 'react';
 import { api } from '../../api/client';
+import { mfaErrorMessage } from '../mfa/authApi';
+import { passkeysSupported } from '../mfa/webauthn';
 import { Button } from '../../ui/primitives/button';
 import { Input } from '../../ui/primitives/input';
 import { Label } from '../../ui/primitives/label';
@@ -11,6 +13,7 @@ import {
   attemptSignIn,
   isSecurePasteContext,
   sendVerificationOtp,
+  signInWithPasskey,
   startGoogleSignIn,
   verifyEmailOtp,
   type MeView,
@@ -23,6 +26,7 @@ export const SIGN_IN_REASONS: Record<string, string> = {
     'You have signed out. That token was revoked, so paste a different one to sign in again.',
   'revoke-failed':
     'You have signed out here, but the server could not be reached to revoke that token. It may still be valid; revoke it with runbook token revoke if that matters.',
+  'mfa-signed-out': 'You have signed out. Sign in again when you have your second factor.',
 };
 
 export interface SignInFormProps {
@@ -125,6 +129,7 @@ export function SignInForm({
   const [emailError, setEmailError] = useState<string | null>(null);
   const [resendTimer, setResendTimer] = useState(0);
 
+  const [passkeyError, setPasskeyError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const queryClient = useContext(QueryClientContext);
   const reasonMessage = reason ? (SIGN_IN_REASONS[reason] ?? null) : null;
@@ -188,6 +193,21 @@ export function SignInForm({
     setBusy(false);
     if (err && !err.ok) {
       setEmailError(err.message);
+    }
+  }
+
+  async function handlePasskeySignIn() {
+    setBusy(true);
+    setEmailError(null);
+    setPasskeyError(null);
+    try {
+      const me = await signInWithPasskey();
+      queryClient?.clear();
+      onSignedIn(me);
+    } catch (err) {
+      setPasskeyError(mfaErrorMessage(err));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -374,6 +394,27 @@ export function SignInForm({
           >
             Continue with Google
           </Button>
+        </div>
+      ) : null}
+
+      {/* J-3: a passkey is both factors at once. */}
+      {otherMethods && passkeysSupported() ? (
+        <div className="grid gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={busy}
+            onClick={() => void handlePasskeySignIn()}
+            className="w-full"
+          >
+            <KeyRound aria-hidden="true" />
+            Sign in with a passkey
+          </Button>
+          {passkeyError ? (
+            <p role="alert" className="text-sm text-fg">
+              {passkeyError}
+            </p>
+          ) : null}
         </div>
       ) : null}
 

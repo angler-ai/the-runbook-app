@@ -1,0 +1,53 @@
+{
+  "name": "@runbook/runner",
+  "version": "0.1.1",
+  "license": "AGPL-3.0-only",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "workspaces": [
+    "packages/shared",
+    "packages/api",
+    "packages/worker",
+    "packages/sandbox-ctl",
+    "packages/vault",
+    "packages/gateway",
+    "packages/evals"
+  ],
+  "scripts": {
+    "build": "npm run wasm:build && tsc -b",
+    "typecheck": "tsc -p tsconfig.typecheck.json",
+    "lint": "eslint --max-warnings=0 .",
+    "pretest": "node scripts/build-wasm.mjs --if-available",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "npm run gen:check && npm run lint && npm run typecheck && npm run test && npm run build",
+    "gen:routes": "node --conditions=development scripts/gen-routes.ts",
+    "gen:core": "node scripts/gen-core-types.mjs",
+    "gen:check": "node --conditions=development scripts/gen-routes.ts --check && node scripts/gen-core-types.mjs --check",
+    "wasm:build": "node scripts/build-wasm.mjs",
+    "eval": "node --conditions=development packages/evals/src/cli.ts",
+    "eval:calibrate": "node --conditions=development packages/evals/src/calibrate.ts",
+    "test:evals": "vitest run packages/evals/test",
+    "eval:replay": "node --conditions=development packages/evals/src/replay-run.ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "@types/node": "22.20.5",
+    "@types/pg": "8.23.1",
+    "eslint": "9.39.5",
+    "globals": "17.13.0",
+    "openapi-typescript": "7.13.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.72.1",
+    "vitest": "5.0.5"
+  },
+  "overrides": {
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "11.0.1"
+    },
+    "@hono/node-server": "2.1.6"
+  }
+}

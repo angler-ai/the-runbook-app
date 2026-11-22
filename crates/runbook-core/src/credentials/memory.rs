@@ -1,10 +1,22 @@
 //! Single-threaded adapter used by the shared conformance cases.
 use super::*;
-use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    collections::BTreeMap,
+    rc::Rc,
+};
 #[derive(Clone, Default)]
 pub struct MemoryCredentials {
+    fail_next_lookup: Rc<Cell<bool>>,
     records: Rc<RefCell<BTreeMap<TokenId, CredentialRecord>>>,
     device_codes: Rc<RefCell<Vec<crate::device_codes::DeviceCodeRecord>>>,
+}
+
+impl MemoryCredentials {
+    /// Simulate a backend outage on exactly one hash lookup.
+    pub fn fail_next_lookup(&self) {
+        self.fail_next_lookup.set(true);
+    }
 }
 
 use crate::device_codes::{
@@ -78,6 +90,11 @@ impl CredentialStore for MemoryCredentials {
         &self,
         hash: &SecretHash,
     ) -> Result<Option<CredentialRecord>, CredentialError> {
+        if self.fail_next_lookup.replace(false) {
+            return Err(CredentialError::Backend(
+                "injected credential lookup failure",
+            ));
+        }
         Ok(self
             .records
             .borrow()

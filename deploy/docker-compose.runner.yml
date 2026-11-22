@@ -1,0 +1,138 @@
+# Included by both native Compose editions. Enable with --profile runner.
+x-runner: &runner
+  image: ${RUNNER_IMAGE:-ghcr.io/angler-ai/runbook-runner:0.1.1}
+  profiles: [runner]
+  restart: unless-stopped
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  networks:
+    - runner-internal
+    - runner-egress
+
+services:
+  runner-postgres:
+    image: postgres:16-alpine@sha256:aa6cb33cf4c19c765cefcf48d96176258800870a9a1e930ad126200f9d825139
+    profiles: [runner]
+    restart: unless-stopped
+    env_file:
+      - path: ./runner-config/postgres.env
+        required: false
+        format: raw
+    volumes:
+      - runner-pgdata:/var/lib/postgresql/data
+    networks: [runner-internal]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -q -h 127.0.0.1 -U runner_owner -d runner"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  runner-migrate:
+    <<: *runner
+    restart: "no"
+    networks: [runner-internal]
+    env_file:
+      - path: ./runner-config/migrate.env
+        required: false
+        format: raw
+    entrypoint: ["/usr/bin/tini", "--", "node", "/runner-install/migrate.mjs"]
+    volumes:
+      - ./runner-install/migrate.mjs:/runner-install/migrate.mjs:ro
+      - ./runner-install/migration-config.mjs:/runner-install/migration-config.mjs:ro
+    depends_on:
+      runner-postgres:
+        condition: service_healthy
+
+  runner-api:
+    <<: *runner
+    env_file:
+      - path: ./runner-config/api.env
+        required: false
+        format: raw
+    entrypoint: ["/usr/bin/tini", "--", "node", "/runner-install/api.mjs"]
+    volumes:
+      - ./runner-install/api.mjs:/runner-install/api.mjs:ro
+    expose: ["8094"]
+    ports:
+      - "${RUNNER_API_BIND:-127.0.0.1}:${RUNNER_API_PORT:-8090}:8090"
+    depends_on:
+      runner-migrate:
+        condition: service_completed_successfully
+
+  runner-worker:
+    <<: *runner
+    command: [worker]
+    env_file:
+      - path: ./runner-config/worker.env
+        required: false
+        format: raw
+    depends_on:
+      runner-migrate:
+        condition: service_completed_successfully
+      runner-sandbox-ctl:
+        condition: service_started
+
+  runner-sandbox-ctl:
+    <<: *runner
+    command: [sandbox-ctl]
+    env_file:
+      - path: ./runner-config/sandbox-ctl.env
+        required: false
+        format: raw
+    group_add: ["${RUNNER_DOCKER_GID:-0}"]
+    volumes:
+      - type: bind
+        source: ${RUNNER_HOST_DOCKER_SOCKET:-/var/run/docker.sock}
+        target: /var/run/docker.sock
+        bind:
+          create_host_path: false
+    depends_on:
+      runner-gateway:
+        condition: service_started
+
+  runner-vault:
+    <<: *runner
+    command: [vault]
+    user: "${RUNNER_KEK_UID:-10001}:${RUNNER_KEK_GID:-10001}"
+    env_file:
+      - path: ./runner-config/vault.env
+        required: false
+        format: raw
+    volumes:
+      - type: bind
+        source: ./runner-config/kek.json
+        target: /run/runner-kek.json
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      runner-migrate:
+        condition: service_completed_successfully
+
+  runner-gateway:
+    <<: *runner
+    command: [gateway]
+    container_name: "${COMPOSE_PROJECT_NAME:-runbook}-runner-gateway"
+    env_file:
+      - path: ./runner-config/gateway.env
+        required: false
+        format: raw
+    environment:
+      RUNNER_LISTEN: "${RUNNER_GATEWAY_CONTROL_IP:-172.31.89.10}:8092"
+    networks:
+      runner-internal:
+        ipv4_address: "${RUNNER_GATEWAY_CONTROL_IP:-172.31.89.10}"
+        aliases: [runner-gateway-control]
+      runner-egress: {}
+
+networks:
+  runner-internal:
+    internal: true
+    ipam:
+      config:
+        - subnet: "${RUNNER_INTERNAL_SUBNET:-172.31.89.0/24}"
+  runner-egress: {}
+
+volumes:
+  runner-pgdata:

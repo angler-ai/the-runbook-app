@@ -142,6 +142,15 @@ Two value formats appear throughout:
 - **Recipients** (owners, assignees, escalation) are `team:<slug>`,
   `user:<name>`, or a bare user name.
 
+## Runner targets and approval options
+
+A task can select a project runner agent with `agent: { name: deploy-checker }`
+and `actor: agent`. On an approval, `allow_agents: true` lets an agent
+decide, and `agent: { name: release-reviewer, after: 15m }` sets its runner
+target and delay. For a human gate on a destructive runner task, set
+`approves` to the option IDs that authorize the task. See
+[Approvals and destructive steps](/concepts/approvals/).
+
 ## Next
 
 <CardGrid>

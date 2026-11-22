@@ -20,6 +20,7 @@ fluent-uri = { version = "=0.4.1", default-features = false }
 # pure-Rust backend (miniz_oxide); no time, crypto or C codecs.
 zip = { version = "=8.6.0", default-features = false, features = ["deflate-flate2"] }
 flate2 = { version = "=1.1.11", default-features = false, features = ["rust_backend"] }
+ed25519-dalek = { version = "2", default-features = false, features = ["alloc"] }
 
 [dev-dependencies]
 # REP2 golden-structure tests read the PDF export of the flagship document.

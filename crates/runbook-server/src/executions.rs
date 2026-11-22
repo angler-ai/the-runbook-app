@@ -519,6 +519,7 @@ fn initial_view(
             .as_ref()
             .map(runbook_core::execution_document::parent_view),
         progress: None,
+        cost: None,
     }
 }
 fn admission_view(admission: Admission) -> ExecutionAdmissionView {
@@ -641,6 +642,8 @@ fn current_view(
             iterations: None,
             skip_reason: None,
             followup: None,
+            runner: None,
+            cost: None,
         });
     }
     runbook_core::execution_document::apply_amendment_facts(state, &mut view);

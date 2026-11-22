@@ -133,6 +133,7 @@ fn catalog() -> Value {
         "approval.escalated",
         "approval.expired",
         "approval.decided",
+        "lease.revoked",
         "step.blocked",
         "step.completed",
         "step.reminder",
@@ -144,6 +145,11 @@ fn catalog() -> Value {
         "memory.saved",
         "memory.edited",
         "runbook.published",
+        "runner.budget_threshold",
+        "runner.probe_succeeded",
+        "runner.secret_in_response",
+        "runner.binding_mismatch",
+        "runner.release_denied",
         "webhook.test"
     ])
 }

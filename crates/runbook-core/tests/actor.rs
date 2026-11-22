@@ -477,6 +477,7 @@ fn lease_and_log_replay_survive_claim_release_in_memory() {
         summary: None,
         evidence: vec![],
         logs: vec![],
+        cost: None,
     };
     let work = ready(begin_actor(&store, &directory, scope(), &exe())).unwrap();
     ready(report_step(
@@ -553,6 +554,7 @@ fn terminal_no_op_replay_preserves_completion_time() {
             summary: None,
             evidence: vec![],
             logs: vec![],
+            cost: None,
         },
         None,
     ))
@@ -1094,6 +1096,7 @@ fn admin_release_advances_generation_in_memory() {
         summary: None,
         evidence: vec![],
         logs: vec![],
+        cost: None,
     };
     assert_eq!(
         ready(report_step(

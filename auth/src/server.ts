@@ -21,6 +21,7 @@ import { ConfigError, loadConfig, type AuthConfig } from './config';
 import { databaseSettings } from './database';
 import { captureTransport, type MailTransport, smtpTransport } from './email';
 import { drizzleStore } from './limits';
+import { deliverMfaNotifications } from './mfa';
 import * as schema from './schema/pg';
 
 export { databaseSettings } from './database';
@@ -151,6 +152,7 @@ export async function startServer(env: Record<string, string | undefined> = proc
     server.once('error', reject);
     server.listen(settings.port, '127.0.0.1', () => resolve());
   });
+  const notifications = setInterval(() => { void deliverMfaNotifications(deps); }, 60_000).unref();
   const address = server.address();
   const port = typeof address === 'object' && address ? address.port : settings.port;
   return {
@@ -161,6 +163,7 @@ export async function startServer(env: Record<string, string | undefined> = proc
     // second and a half) ends with the pool closed: idle keep-alive
     // connections close at once, busy ones get a moment to finish.
     async close() {
+      clearInterval(notifications);
       const closed = new Promise<void>((resolve) => server.close(() => resolve()));
       server.closeIdleConnections?.();
       await Promise.race([closed, new Promise((resolve) => setTimeout(resolve, 1000).unref())]);
@@ -170,7 +173,40 @@ export async function startServer(env: Record<string, string | undefined> = proc
   };
 }
 
+/** Called by the native server's operator command. No listener is opened. */
+async function operatorReset(email: string): Promise<void> {
+  const settings = serverSettings(process.env);
+  if (settings.problems.length || !settings.database) throw new ConfigError(settings.problems);
+  const sql = postgres(settings.database.url, { ...settings.database.options, onnotice: () => {} });
+  try {
+    let config: AuthConfig | null = null;
+    try {
+      config = loadConfig({ ...process.env, RUNBOOK_AUTH_INTERNAL_SECRET: 'operator-reset-no-listener-000000000', RUNBOOK_AUTH_CAN_REGISTER_URL: 'http://127.0.0.1:1/internal/can-register' }, 'server');
+    } catch (error) {
+      if (!(error instanceof ConfigError)) throw error;
+    }
+    const store = drizzleStore(drizzle(sql, { schema }), schema);
+    const found = await store.resetMfa(email, null, 'operator');
+    if (found.length === 0) throw new Error('No auth account with that email address.');
+    if (config) await deliverMfaNotifications({ config, store, transport: transportFor(config) }, found[0].id);
+    process.stdout.write('MFA reset recorded. Existing sessions and OAuth tokens were revoked.\n');
+  } finally {
+    await sql.end({ timeout: 1 });
+  }
+}
+
 async function main(): Promise<void> {
+  if (process.argv[2] === 'mfa-reset') {
+    try {
+      const email = process.argv[3]?.trim().toLowerCase();
+      if (!email || process.argv.length !== 4 || !/^[^\s@]+@[^\s@]+$/.test(email)) throw new Error('A valid email address is required.');
+      await operatorReset(email);
+    } catch (error) {
+      process.stderr.write(error instanceof ConfigError ? `${error.message}\n` : 'MFA reset could not be completed. Check the account and auth database.\n');
+      process.exitCode = 1;
+    }
+    return;
+  }
   let running: RunningServer;
   try {
     running = await startServer(process.env);

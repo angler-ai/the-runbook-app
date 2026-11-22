@@ -78,6 +78,16 @@ pub fn notification_for(
                     _ => None,
                 });
         }
+        Event::DecisionLeaseEnded {
+            step_run_id,
+            lease_id,
+            reason,
+        } => {
+            intent.kind = "lease.revoked".into();
+            intent.step_run_ids.push(step_run_id.clone());
+            intent.reason = Some(reason.clone());
+            intent.detail = Some(serde_json::json!({ "lease_id": lease_id, "reason": reason }));
+        }
         Event::AgentWorkAvailable { work } => {
             intent.kind = "agent.work_available".into();
             intent.step_run_ids = work

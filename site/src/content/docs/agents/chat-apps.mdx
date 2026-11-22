@@ -89,7 +89,10 @@ and [skills guide](https://learn.chatgpt.com/docs/build-skills).
 </Steps>
 
 ChatGPT's deep research and company knowledge use the connector's read-only
-`search` and `fetch` tools to find and read your runbooks, runs and memory.
+`search` and `fetch` tools to find and read runbooks, runs and active
+memory across projects the grant can read. `search` returns up to 20
+matches with IDs and links. `fetch` reads one by ID. See the
+[MCP reference](/reference/mcp/#search).
 
 <Aside type="note" title="Write actions ask first">
 ChatGPT asks you to confirm a tool call that changes something, such as

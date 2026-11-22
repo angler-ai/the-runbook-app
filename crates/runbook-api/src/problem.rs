@@ -18,6 +18,15 @@ pub struct Response {
     /// A `302 Found` target (a person's Google photo, served from Google).
     /// Boxed: rare, and `Response` is an error type.
     pub location: Option<Box<String>>,
+    /// R0-5: a runner's answer passed through the proxy as it came, served
+    /// with `nosniff` and `Content-Security-Policy: sandbox`.
+    pub proxied: Option<Box<Proxied>>,
+}
+/// A proxied runner response body.
+#[derive(Clone, Debug)]
+pub struct Proxied {
+    pub content_type: &'static str,
+    pub bytes: Vec<u8>,
 }
 /// A body served with `Content-Disposition: attachment`.
 #[derive(Clone, Debug)]
@@ -41,6 +50,17 @@ impl Response {
             attachment: None,
             retry_after: None,
             location: None,
+            proxied: None,
+        }
+    }
+    /// R0-5: a runner's response through the proxy.
+    pub fn proxied(status: u16, content_type: &'static str, bytes: Vec<u8>, id: &str) -> Self {
+        Self {
+            proxied: Some(Box::new(Proxied {
+                content_type,
+                bytes,
+            })),
+            ..Self::json(status, Value::Null, id)
         }
     }
     pub fn markdown(status: u16, text: String, id: &str) -> Self {
@@ -76,6 +96,7 @@ impl Response {
             attachment: None,
             retry_after: None,
             location: None,
+            proxied: None,
         }
     }
 }

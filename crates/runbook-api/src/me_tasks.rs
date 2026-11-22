@@ -94,12 +94,19 @@ async fn dispatch<B: Backends>(backends: &B, r: &Request) -> Result<InboxPage, F
         .snapshot(&record.org_id)
         .await
         .map_err(|_| unavailable)?;
+    if !snapshot.users.get(user_id).is_some_and(|user| user.active) {
+        return Err((403, "auth.forbidden"));
+    }
     // Directory project access intersected with the credential's
     // project restrictions and executions:read (team membership alone
     // grants no project access).
     let mut readable: Vec<ProjectId> = vec![];
     let mut scope_missing = false;
-    for project in snapshot.projects.keys() {
+    for project in snapshot
+        .projects
+        .keys()
+        .filter(|project| snapshot.project_role(project, user_id).is_some())
+    {
         match authorize(&record, &snapshot, now, project, Scope::ExecutionsRead) {
             Ok(Principal::Human { .. }) => readable.push(project.clone()),
             Ok(_) => return Err((403, "auth.forbidden")),

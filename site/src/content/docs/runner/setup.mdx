@@ -1,0 +1,135 @@
+---
+title: Set up a runner
+description: Install the runner, register it with the core server, and run the first step.
+sidebar:
+  order: 2
+---
+
+## Enable the runner
+
+The runner is an optional part of a self-hosted Runbook install. On Docker, the opt-in switch is the Compose `runner` profile. On GKE, the Terraform switch `runner_enabled = true` provisions Cloud KMS and separate service accounts. Kubernetes workloads, Workload Identity bindings, and the Kubernetes sandbox backend are deferred.
+
+For Compose, start the core server with its signing key and configure an HTTPS origin that the core can reach for the runner API. Route `/runner/v1/` to the runner API on port 8090. The browser reaches the API through the core proxy. Use the same HTTPS origin for issuing the bootstrap token and for registration.
+
+### Configure Docker seccomp
+
+The runner requires Docker Engine 25 or newer with a confined daemon default seccomp profile. Enable the built-in profile on the engine that will run Compose.
+
+- **Docker Desktop on macOS.** Select the `desktop-linux` context with `docker context use desktop-linux`. In **Settings › Docker Engine**, merge `"seccomp-profile": "builtin"` into the existing JSON object, then choose **Apply & restart**. In **Settings › Advanced**, enable **Allow the default Docker socket to be used** so Compose can mount `/var/run/docker.sock` for the sandbox controller.
+- **Docker Engine on Linux.** On a standard systemd install, merge `"seccomp-profile": "builtin"` into `/etc/docker/daemon.json` and run `sudo systemctl restart docker`. Set `RUNNER_DOCKER_GID` to the group that owns the socket, for example `export RUNNER_DOCKER_GID="$(stat -c '%g' /var/run/docker.sock)"`.
+
+Check the server version and daemon security options before starting the runner profile.
+
+```sh
+docker version --format '{{.Server.Version}}'
+docker info --format '{{json .SecurityOptions}}'
+```
+
+With the built-in default, expect `name=seccomp,profile=builtin` in the output. If the profile is missing or the engine reports `name=seccomp,profile=unconfined`, the sandbox controller exits with `Docker must have a confined seccomp profile enabled`. An older server reports `Docker Engine 25 or newer is required`. After applying the daemon configuration, check `docker info` again. A per-container Compose security option leaves the daemon setting unchanged.
+
+[Docker Desktop settings](https://docs.docker.com/desktop/settings-and-maintenance/settings/) · [Docker daemon configuration](https://docs.docker.com/reference/cli/dockerd/)
+
+### Register and start Compose
+
+From the repository root, set the variables for your install and register the runner as an organization admin using Node.js 22.18 or newer. Use the same `COMPOSE_PROJECT_NAME` for setup and startup.
+
+- **Sign in with the runner scopes.** No token gets `runner:read` or `runner:admin` unless they are asked for, so the owner token from `bootstrap --with-token` and a plain `runbook login` can't register a runner (`auth.scope_missing`). Run `runbook login --scope runner:read --scope runner:admin`, with more `--scope` flags for anything else you need, and approve it in the browser as an org owner or admin.
+- **`CORE_URL` is the core's public origin (`RUNBOOK_ORIGIN` on Docker, `ORIGIN` on the Cloudflare API Worker).** The runner checks that signed grants come from it. Both this machine and the runner containers must reach it.
+- **The runner URL needs a publicly trusted certificate.** The core checks it against the public web roots, so a private CA doesn't work. Without a public host name, use a tunnel that gives you one, such as a Cloudflare Tunnel to `http://127.0.0.1:8090`.
+- **`RUNNER_VERSION`** is the runner release, the `version` in `runner/package.json` for a local build.
+- For a core on plain HTTP in local testing, set `RUNNER_INSECURE_CORE_HTTP=true` before setup. The [Compose guide](https://github.com/angler-ai/the-runbook-app/blob/main/deploy/README.md#optional-docker-runner) shows how to reach a localhost core from runner containers.
+
+```sh
+export COMPOSE_PROJECT_NAME=runbook
+export RUNNER_VERSION=0.1.1
+export RUNNER_IMAGE="runbook-runner:$RUNNER_VERSION"
+export RUNNER_SANDBOX_IMAGE="runbook-sandbox:$RUNNER_VERSION"
+docker build -f runner/Dockerfile -t "$RUNNER_IMAGE" .
+docker build -f runner/sandbox.Dockerfile -t "$RUNNER_SANDBOX_IMAGE" .
+
+runbook runner bootstrap --org "$ORG_ID" --url "$RUNNER_HTTPS_URL" |
+  node deploy/runner-install/setup.mjs "$CORE_URL" "$RUNNER_HTTPS_URL" "$ORG_ID" "$RUNNER_VERSION"
+
+export RUNNER_KEK_UID="$(id -u)" RUNNER_KEK_GID="$(id -g)"
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env --profile runner up -d
+runbook runner status --org "$ORG_ID" --json
+```
+
+The installer stores the core directory token as `CORE_DIRECTORY_TOKEN` in `deploy/runner-config/api.env`. The runner API uses it for heartbeats and directory sync. A replacement takes effect when you recreate `runner-api`. The runner API reads group project assignments from the core at startup and every minute. Removing a project blocks new admission and shows the affected active agents as paused. Restoring the assignment restores each agent's underlying status.
+
+If the runner origin resolves to a private address, set `RUNBOOK_RUNNER_PRIVATE_NETWORKS=true` on the core. Keep the generated `deploy/runner-config/` directory and runner database backups secure. Compose uses a separate Postgres database and a local key-encryption key held by the vault. [Review the Docker trust boundary](/runner/security/).
+
+### Verify the vault identity
+
+Fresh setup enrolls the vault identity with the core and prints its SHA-256 fingerprint. Compare it with `vault_identity_fingerprint` from `runbook runner status --org "$ORG_ID" --json` or the fingerprint in **Settings › Organization › Runner › Overview** before entering credentials. If it differs, investigate on the trusted vault host before proceeding.
+
+For a runner with no enrolled identity, read the public key on the vault host using the same Compose options as startup. An organization owner enrolls that key.
+
+```sh
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env --profile runner \
+  exec -T runner-vault node /app/bin/runner.mjs vault-identity
+runbook runner vault-identity --org "$ORG_ID" --public-key "$VAULT_PUBLIC_KEY"
+```
+
+Set `VAULT_PUBLIC_KEY` to the public key printed by the vault. Compute its fingerprint with `node -e 'console.log(require("node:crypto").createHash("sha256").update(Buffer.from(process.argv[1], "base64url")).digest("hex"))' "$VAULT_PUBLIC_KEY"` and compare it with runner status after enrollment. The registered signing identity authenticates the vault's rotating ingest keys.
+
+### Upgrade to 0.1.1
+
+1. Back up and update the core and sign-in service first. Check `curl -fsS "$CORE_URL/v1/meta"`. The core must report `runner_contract_version` **4** or higher.
+2. Back up the runner database and configuration. Stop the old runner services and let their writes finish. Build the versioned images as above and export `RUNNER_SANDBOX_IMAGE` to update the sandbox image. Set `RUNNER_VERSION=0.1.1`, then run `node deploy/runner-install/setup.mjs --upgrade "$CORE_URL" "$RUNNER_HTTPS_URL" "$ORG_ID" "$RUNNER_VERSION"`. Start the updated services together. Compose applies runner migration `0027_task_claim_ledger.sql` before the API starts. It links in-flight model and compute reservations to task claims so settled charges can reach the core even when a claim ends without a report. Check runner status and verify the vault identity.
+3. Verify sign-in, then [enable MFA](/security/multi-factor/) if desired. An owner should enroll a factor and preview the policy's lockout impact first. If a token gets `auth.mfa_token_replacement_required`, reissue it after a fresh check or approve a new CLI login in the browser with the required scopes.
+
+### Run two stacks on one Docker daemon
+
+Each core permits one runner installation per organization. Register the second stack to a different organization or a separate core instance. Use a separate checkout or copy of the Compose and installer layout for each stack so each gets its own `deploy/runner-config/`. Assign each a distinct `COMPOSE_PROJECT_NAME`, a different published `RUNNER_API_PORT` and HTTPS origin, a non-overlapping `RUNNER_INTERNAL_SUBNET` with its own `RUNNER_GATEWAY_CONTROL_IP`, and a separate `RUNNER_SANDBOX_SUBNET_POOL` in `runner-config/sandbox-ctl.env`. Point each reverse proxy or tunnel at its own port. If both stacks also run a core on the same host, use different core listen ports and public origins. Each sandbox controller removes every container labeled `runbook.sandbox` when it starts. Start or restart either stack while the other is idle.
+
+## Configure the runner
+
+Use the organization ID from your install and project and group IDs from your deployment. If the CLI cannot infer the organization or install, pass `--org` and `--install` where supported. The configuration files below contain only metadata.
+
+1. **Check readiness.** `runbook runner status` should show an online runner with a recent heartbeat and a ready worker.
+2. **Allow a project.** Find the group with `runbook runner group list`. Run `runbook runner group projects "$GROUP_ID" --file projects.json` with `{"project_ids":["PROJECT_ID"]}`, including every project you want to keep. Use `runbook runner group update` for group limits.
+3. **Set limits.** Review `runbook runner policy get`, then apply the desired settings with `runbook runner policy update --file policy.json`. For example, `{"org_cost_per_day_usd":5}` sets a $5 daily organization cap. Give a first step a [small budget that leaves room for a working turn and a final answer](/runner/limits/).
+4. **Set up a model.** Use `runbook runner credential types`, then [create, seal and test a model-provider credential](/runner/credentials/#enter-a-secret-with-the-cli). Use the resulting credential ID in `runbook runner provider create --file provider.json`, then pass the resulting provider ID to `runbook runner profile create --file profile.json`. Share the credential, provider and profile with the project.
+5. **Add MCP tools if needed.** Run `runbook runner mcp-server create --file mcp.json` with the server's `name`, `url`, `transport`, and `sharing`. For an authenticated server, include the `credential_id` of a tested `mcp-bearer` credential bound to the same URL. Run `runbook runner mcp-server discover "$SERVER_ID" --json`, review the tools, then run `runbook runner mcp-server pin "$SERVER_ID" "$SNAPSHOT_ID"`. Set labels with `runbook runner mcp-server label-tools "$SERVER_ID" --file labels.json` using a `tool_labels` map. Use `never_allowed` on the server to exclude tools entirely.
+6. **Run a first step.** [Create an agent](/runner/agents/#create-an-agent) and grant the profile and any integrations it needs. If using the CLI to publish, add `runbooks:read`, `runbooks:write` and `runbooks:publish` to your login scopes. For a new runbook, use `runbook push first-step.yaml --project "$PROJECT_ID" --draft` followed by `runbook publish "$RUNBOOK_ID" --project "$PROJECT_ID"` with the draft's runbook ID. If starting from the CLI, request `executions:start` and `executions:read` as well. Start the published runbook and check the step result, transcript, usage and any wait reason on the run page.
+
+For a stored model key, use provider metadata such as the following. Replace the endpoint and model with the ones you configured for the credential, and enter your provider's rates per million tokens. Use a separate file for the profile.
+
+```json title="provider.json"
+{
+  "name": "Primary models",
+  "type": "anthropic",
+  "auth": "stored",
+  "credential_id": "CREDENTIAL_ID",
+  "endpoint": "https://api.anthropic.com",
+  "models": [{"id": "MODEL_ID", "input_usd_per_million": 3, "output_usd_per_million": 15}],
+  "sharing": {"projects": ["PROJECT_ID"]}
+}
+```
+
+```json title="profile.json"
+{
+  "name": "default",
+  "provider_id": "PROVIDER_ID",
+  "model": "MODEL_ID",
+  "options": {"effort": "low"},
+  "sharing": {"projects": ["PROJECT_ID"]}
+}
+```
+
+The same checklist is in **Settings › Organization › Runner › Overview** for operators using the web app. The web app requires its own browser sign-in and refuses CLI tokens with runner scopes or `project:admin`.
+
+## Manage from the CLI and Runbook MCP
+
+The [CLI reference](/reference/cli/#runbook-runner) lists the setup and catalog commands. Use `runbook agents` for project agents. The [Runbook MCP](/reference/mcp/) lets an agent make supported management requests through its own credential. OAuth consent grants `runner:read` and `runner:admin` separately, and both are off by default.
+
+| Operation | Person using the web or CLI | Agent using MCP or an agent token |
+| --- | --- | --- |
+| Read runner status, agents, transcripts, or usage | Requires read access to the resource | Requires `runner:read` and access to the resource |
+| Edit an agent's description, instructions, or skills | Requires permission to edit the agent | Requires `runner:admin` and permission in the project |
+| Create an agent or widen tool, credential, egress, sharing, or budget access | Requires admin access to the resource | Widening writes enter the proposal queue for human approval |
+| Enter or rotate a secret | Enter it in the browser or CLI, which seals it locally | The tool provides a link and CLI command for a person to enter it |
+| Reduce access, such as pausing an agent or revoking a credential | Requires the applicable operator permission | A supported action requires the same resource permission and runner admin scope |
+
+Proposals show the requested changes and expire after seven days. Review the diff in **Proposals** before approving or rejecting it. Keep secret values out of chat, agent prompts, and MCP tool arguments.

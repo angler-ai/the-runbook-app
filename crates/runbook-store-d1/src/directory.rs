@@ -108,7 +108,7 @@ pub(crate) fn role_of(text: &str) -> Result<ProjectRole, DirectoryError> {
 /// The snapshot reads, in batch order (one consistent read).
 fn snapshot_reads(org: &str) -> Vec<Statement> {
     vec![
-        prepare("SELECT title FROM organization WHERE org_id = ?").bind(org),
+        prepare("SELECT title, security FROM organization WHERE org_id = ?").bind(org),
         prepare("SELECT revision FROM directory_revision WHERE org_id = ?").bind(org),
         prepare("SELECT user_id, name, active, org_role FROM org_user WHERE org_id = ?").bind(org),
         prepare("SELECT project_id, slug, title, archived FROM project WHERE org_id = ?").bind(org),
@@ -127,6 +127,8 @@ fn decode_snapshot(
     let Some(title) = rows[0].rows.first() else {
         return Ok(None);
     };
+    let security = serde_json::from_str(title.text(1).map_err(err)?)
+        .map_err(|_| DirectoryError::Backend("d1.invalid_security_policy"))?;
     let title = title.string(0).map_err(err)?;
     let revision = rows[1]
         .rows
@@ -183,6 +185,7 @@ fn decode_snapshot(
     Ok(Some(DirectorySnapshot {
         org_id: org_id.clone(),
         revision,
+        security,
         organization: OrganizationRecord {
             id: org_id.clone(),
             title,
@@ -361,6 +364,7 @@ fn plan_against(
             working = Some(DirectorySnapshot {
                 org_id: commit.org_id.clone(),
                 revision: 0,
+                security: Default::default(),
                 organization: OrganizationRecord {
                     id: commit.org_id.clone(),
                     title: title.clone(),
@@ -377,6 +381,25 @@ fn plan_against(
         let s = working.as_mut().ok_or(DirectoryError::NotFound)?;
         match mutation {
             DirectoryMutation::CreateOrganization { .. } => unreachable!(),
+            DirectoryMutation::SetOrgSecurity {
+                policy,
+                actor,
+                occurred_at_ms,
+            } => {
+                policy.validate()?;
+                let encoded = serde_json::to_string(policy)
+                    .map_err(|_| DirectoryError::Backend("d1.invalid_security_policy"))?;
+                statements.push(
+                    prepare("UPDATE organization SET security = ? WHERE org_id = ?")
+                        .bind(encoded.as_str())
+                        .bind(org),
+                );
+                statements.push(
+                    prepare("INSERT INTO org_security_audit (org_id, actor, policy, occurred_at_ms) VALUES (?, ?, ?, ?)")
+                        .bind(org).bind(actor.as_str()).bind(encoded.as_str()).bind(*occurred_at_ms),
+                );
+                s.security = *policy;
+            }
             DirectoryMutation::CreateUser(u) => {
                 if u.name.trim().is_empty() {
                     return Err(DirectoryError::Invalid("user name"));
@@ -1278,6 +1301,36 @@ impl<D: D1> AuthLinkStore for D1Directory<D> {
             .iter()
             .map(|row| row.string(0).map_err(err))
             .collect()
+    }
+    async fn auth_links_in_org(
+        &self,
+        org: &OrganizationId,
+    ) -> Result<Vec<AuthLink>, DirectoryError> {
+        self.db
+            .all(
+                prepare(format!(
+                    "SELECT {LINK_COLUMNS} FROM auth_link WHERE org_id = ? ORDER BY auth_user_id"
+                ))
+                .bind(org.as_str()),
+            )
+            .await
+            .map_err(err)?
+            .iter()
+            .map(link)
+            .collect()
+    }
+    async fn owner_reset_auth_users(
+        &self,
+        org: &OrganizationId,
+        user: &UserId,
+    ) -> Result<Vec<String>, DirectoryError> {
+        self.db.all(prepare("SELECT l.auth_user_id FROM auth_link l
+                     WHERE l.user_id = ?1 AND l.org_id = ?2
+                     AND EXISTS (SELECT 1 FROM org_user m WHERE m.user_id = l.user_id AND m.org_id = l.org_id AND m.active)
+                     AND NOT EXISTS (SELECT 1 FROM org_user m WHERE m.user_id = l.user_id AND m.org_id <> l.org_id)
+                     AND NOT EXISTS (SELECT 1 FROM auth_link f WHERE f.user_id = l.user_id AND f.org_id <> l.org_id)
+                     ORDER BY l.auth_user_id").bind(user.as_str()).bind(org.as_str()))
+            .await.map_err(err)?.iter().map(|row| row.string(0).map_err(err)).collect()
     }
     async fn invitations_for_email(
         &self,

@@ -7,17 +7,23 @@ pub mod directory;
 pub mod discovery;
 pub mod evidence;
 pub mod execution_access;
+pub mod grants;
 pub mod http;
 pub mod invitations;
 pub mod mcp;
 pub mod me;
 pub mod me_tasks;
 pub mod memory;
+pub mod mfa;
 pub mod oauth;
 pub mod pictures;
 pub mod problem;
 pub mod router;
 pub mod routes;
+pub mod runner_access;
+mod runner_context;
+pub mod runner_proxy;
+pub mod runners;
 pub mod session;
 pub mod slack;
 pub mod slack_app;
@@ -72,6 +78,8 @@ pub mod archives;
 pub enum Credential {
     /// The `Authorization: Bearer` secret (`trb_pat_`, `trb_svc_`, `trb_exe_` …).
     Bearer(String),
+    /// A bearer looked up once by the router and shared with its handler.
+    ResolvedBearer(String, Box<runbook_core::credentials::CredentialRecord>),
     /// A browser session the auth service vouched for, or (MCP2) an OAuth
     /// access token it introspected (`scopes` set): `/mcp` builds that one
     /// for its tools' in-process calls; it never comes from outside.
@@ -94,6 +102,9 @@ pub struct ResolvedSession {
     pub picture_url: Option<String>,
     pub session_id: String,
     pub expires_at_ms: i64,
+    pub mfa_verified_at: Option<i64>,
+    pub mfa_method: Option<session::MfaMethod>,
+    pub mfa_enrolled: Option<bool>,
     /// The directory principal the host linked this session to (D45), as
     /// `runbook_core::auth_links::session_credential` builds it from the
     /// directory for this request. `None` until linked: an unlinked session
@@ -131,7 +142,9 @@ impl Request {
     /// none, so every bearer-only route treats them as unauthenticated.
     pub fn bearer(&self) -> Option<&str> {
         match &self.credential {
-            Some(Credential::Bearer(secret)) => Some(secret),
+            Some(Credential::Bearer(secret) | Credential::ResolvedBearer(secret, _)) => {
+                Some(secret)
+            }
             Some(Credential::Session(_)) | None => None,
         }
     }
@@ -167,6 +180,7 @@ impl Request {
                     .filter(|record| record.kind == kind)
                     .ok_or(CredentialFailure::Invalid)
             }
+            Some(Credential::ResolvedBearer(_, record)) => Ok(record.as_ref().clone()),
             Some(Credential::Session(session)) => session
                 .principal
                 .as_deref()

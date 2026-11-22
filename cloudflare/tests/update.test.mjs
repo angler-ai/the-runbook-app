@@ -347,7 +347,7 @@ function fakeBundle(version) {
   };
   put('Cargo.toml', `[workspace.package]\nversion = "${version}"\n`);
   for (const f of ['build/index.js', 'wrangler.jsonc.example', 'wrangler.auth.jsonc.example', 'package.json', 'package-lock.json',
-    'README.md', 'scripts/update.mjs', 'migrations/d1/0001_history.sql', 'migrations/d1/1014_x.sql', 'migrations/do/0005_x.sql',
+    'README.md', 'scripts/update.mjs', 'scripts/mfa-reset.mjs', 'migrations/d1/0001_history.sql', 'migrations/d1/1014_x.sql', 'migrations/do/0005_x.sql',
     'migrations/orgdo/0001_x.sql', 'migrations/webhookdo/0002_x.sql']) {
     put(`cloudflare/${f}`);
   }

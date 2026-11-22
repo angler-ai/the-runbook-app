@@ -37,6 +37,7 @@ pub const CATALOG: &[&str] = &[
     "approval.escalated",
     "approval.expired",
     "approval.decided",
+    "lease.revoked",
     "step.blocked",
     "step.completed",
     "step.reminder",
@@ -48,6 +49,12 @@ pub const CATALOG: &[&str] = &[
     "memory.saved",
     "memory.edited",
     "runbook.published",
+    // R0-4: runner events, reported by the runner for the organization.
+    "runner.budget_threshold",
+    "runner.probe_succeeded",
+    "runner.secret_in_response",
+    "runner.binding_mismatch",
+    "runner.release_denied",
     TEST_EVENT,
 ];
 /// Events handed to people. Reaching no subscriber is shown on the execution.

@@ -33,6 +33,8 @@ These work with every command.
 - [`token`](#runbook-token): Create, list and revoke personal access tokens
 - [`apps`](#runbook-apps): List and disconnect the OAuth apps (MCP clients) you connected
 - [`webhook`](#runbook-webhook): Manage webhook subscriptions and deliveries
+- [`runner`](#runbook-runner): Manage the organization's runner
+- [`agents`](#runbook-agents): Manage runner agents
 - [`memory`](#runbook-memory): Search, save and manage runbook memory
 - [`archive`](#runbook-archive): List and download runbook execution archives
 - [`list`](#runbook-list): List a project's runbooks
@@ -1290,6 +1292,647 @@ runbook webhook rotate-secret <ID> [OPTIONS]
 - `--project <PROJECT>`: Project ID or slug Required. Environment: `RUNBOOK_PROJECT`.
 - `--idempotency-key <IDEMPOTENCY_KEY>`: Idempotency key
 - `--json`: Output response as JSON
+
+## `runbook runner`
+
+Manage the organization's runner
+
+```text
+runbook runner [OPTIONS] <COMMAND>
+```
+
+**Options**
+
+- `--org <ORG>`: Organization ID (defaults to the only visible organization)
+- `--install <INSTALL>`: Runner install ID for proxied operations
+- `--json`: Output JSON (including the token for bootstrap)
+
+**Commands**
+
+- [`bootstrap`](#runbook-runner-bootstrap): Issue a one-time runner bootstrap token
+- [`status`](#runbook-runner-status): Show the organization's runner installation status
+- [`vault-identity`](#runbook-runner-vault-identity): Register or replace the vault identity as an organization owner
+- [`credential`](#runbook-runner-credential): Manage runner credential metadata and secrets
+- [`provider`](#runbook-runner-provider): Manage model providers. Enter API keys with runner credential set.
+- [`profile`](#runbook-runner-profile): Manage model profiles
+- [`mcp-server`](#runbook-runner-mcp-server): Manage upstream MCP servers and trusted tool snapshots
+- [`policy`](#runbook-runner-policy): Manage runner policy and budgets
+- [`group`](#runbook-runner-group): Manage runner groups, limits and allowed projects
+- [`agent-profiles`](#runbook-runner-agent-profiles): Replace the profiles an agent is allowed to use
+
+### `runbook runner bootstrap`
+
+Issue a one-time runner bootstrap token
+
+```text
+runbook runner bootstrap [OPTIONS]
+```
+
+**Options**
+
+- `--url <URL>`: Runner API HTTPS base URL Required.
+
+### `runbook runner status`
+
+Show the organization's runner installation status
+
+```text
+runbook runner status
+```
+
+### `runbook runner vault-identity`
+
+Register or replace the vault identity as an organization owner
+
+```text
+runbook runner vault-identity [OPTIONS]
+```
+
+**Options**
+
+- `--public-key <PUBLIC_KEY>`: Base64url Ed25519 public key printed by the vault Required.
+
+### `runbook runner credential`
+
+Manage runner credential metadata and secrets
+
+```text
+runbook runner credential <COMMAND>
+```
+
+**Commands**
+
+- [`create`](#runbook-runner-credential-create): Create runner credential metadata from JSON
+- [`set`](#runbook-runner-credential-set): Seal a secret from stdin or a hidden prompt and store it in the vault
+- [`revoke`](#runbook-runner-credential-revoke): Revoke a runner credential
+- [`types`](#runbook-runner-credential-types): List credential types and their secret field names
+- [`test`](#runbook-runner-credential-test): Test a stored credential against its configured destination
+- [`label`](#runbook-runner-credential-label): Set the credential's access label
+- [`share`](#runbook-runner-credential-share): Replace project sharing from JSON containing sharing.projects
+
+#### `runbook runner credential create`
+
+Create runner credential metadata from JSON
+
+```text
+runbook runner credential create [OPTIONS]
+```
+
+**Options**
+
+- `--file <FILE>`: JSON file containing metadata only Required.
+
+#### `runbook runner credential set`
+
+Seal a secret from stdin or a hidden prompt and store it in the vault
+
+```text
+runbook runner credential set <CREDENTIAL> <FIELD> [OPTIONS]
+```
+
+**Arguments**
+
+- `CREDENTIAL`: Required.
+- `FIELD`: Required.
+
+**Options**
+
+- `--pin <PIN>`: Expected SHA-256 hex fingerprint of the vault ingest key
+- `--binding-pin <BINDING_PIN>`: Expected base64url SHA-256 hash of the credential destination binding
+- `--expected-config <EXPECTED_CONFIG>`: Local JSON file with the expected type, config and groups
+
+#### `runbook runner credential revoke`
+
+Revoke a runner credential
+
+```text
+runbook runner credential revoke <CREDENTIAL>
+```
+
+**Arguments**
+
+- `CREDENTIAL`: Required.
+
+#### `runbook runner credential types`
+
+List credential types and their secret field names
+
+```text
+runbook runner credential types
+```
+
+#### `runbook runner credential test`
+
+Test a stored credential against its configured destination
+
+```text
+runbook runner credential test <CREDENTIAL>
+```
+
+**Arguments**
+
+- `CREDENTIAL`: Required.
+
+#### `runbook runner credential label`
+
+Set the credential's access label
+
+```text
+runbook runner credential label <CREDENTIAL> <LABEL>
+```
+
+**Arguments**
+
+- `CREDENTIAL`: Required.
+- `LABEL`: Required. One of `read`, `write`, `destructive`.
+
+#### `runbook runner credential share`
+
+Replace project sharing from JSON containing sharing.projects
+
+```text
+runbook runner credential share <CREDENTIAL> [OPTIONS]
+```
+
+**Arguments**
+
+- `CREDENTIAL`: Required.
+
+**Options**
+
+- `--file <FILE>`: Required.
+
+### `runbook runner provider`
+
+Manage model providers. Enter API keys with runner credential set.
+
+```text
+runbook runner provider <COMMAND>
+```
+
+**Commands**
+
+- [`list`](#runbook-runner-provider-list): List catalog entries
+- [`get`](#runbook-runner-provider-get): Show one catalog entry
+- [`create`](#runbook-runner-provider-create): Create an entry from public JSON configuration
+- [`update`](#runbook-runner-provider-update): Patch an entry from public JSON configuration
+- [`delete`](#runbook-runner-provider-delete): Delete a catalog entry
+
+#### `runbook runner provider list`
+
+List catalog entries
+
+```text
+runbook runner provider list
+```
+
+#### `runbook runner provider get`
+
+Show one catalog entry
+
+```text
+runbook runner provider get <ID>
+```
+
+**Arguments**
+
+- `ID`: Required.
+
+#### `runbook runner provider create`
+
+Create an entry from public JSON configuration
+
+```text
+runbook runner provider create [OPTIONS]
+```
+
+**Options**
+
+- `--file <FILE>`: Required.
+
+#### `runbook runner provider update`
+
+Patch an entry from public JSON configuration
+
+```text
+runbook runner provider update <ID> [OPTIONS]
+```
+
+**Arguments**
+
+- `ID`: Required.
+
+**Options**
+
+- `--file <FILE>`: Required.
+
+#### `runbook runner provider delete`
+
+Delete a catalog entry
+
+```text
+runbook runner provider delete <ID>
+```
+
+**Arguments**
+
+- `ID`: Required.
+
+### `runbook runner profile`
+
+Manage model profiles
+
+```text
+runbook runner profile <COMMAND>
+```
+
+**Commands**
+
+- [`list`](#runbook-runner-profile-list): List catalog entries
+- [`get`](#runbook-runner-profile-get): Show one catalog entry
+- [`create`](#runbook-runner-profile-create): Create an entry from public JSON configuration
+- [`update`](#runbook-runner-profile-update): Patch an entry from public JSON configuration
+- [`delete`](#runbook-runner-profile-delete): Delete a catalog entry
+
+#### `runbook runner profile list`
+
+List catalog entries
+
+```text
+runbook runner profile list
+```
+
+#### `runbook runner profile get`
+
+Show one catalog entry
+
+```text
+runbook runner profile get <ID>
+```
+
+**Arguments**
+
+- `ID`: Required.
+
+#### `runbook runner profile create`
+
+Create an entry from public JSON configuration
+
+```text
+runbook runner profile create [OPTIONS]
+```
+
+**Options**
+
+- `--file <FILE>`: Required.
+
+#### `runbook runner profile update`
+
+Patch an entry from public JSON configuration
+
+```text
+runbook runner profile update <ID> [OPTIONS]
+```
+
+**Arguments**
+
+- `ID`: Required.
+
+**Options**
+
+- `--file <FILE>`: Required.
+
+#### `runbook runner profile delete`
+
+Delete a catalog entry
+
+```text
+runbook runner profile delete <ID>
+```
+
+**Arguments**
+
+- `ID`: Required.
+
+### `runbook runner mcp-server`
+
+Manage upstream MCP servers and trusted tool snapshots
+
+```text
+runbook runner mcp-server <COMMAND>
+```
+
+**Commands**
+
+- [`list`](#runbook-runner-mcp-server-list): List catalog entries
+- [`get`](#runbook-runner-mcp-server-get): Show one catalog entry
+- [`create`](#runbook-runner-mcp-server-create): Create an entry from public JSON configuration
+- [`update`](#runbook-runner-mcp-server-update): Patch an entry from public JSON configuration
+- [`delete`](#runbook-runner-mcp-server-delete): Delete a catalog entry
+- [`discover`](#runbook-runner-mcp-server-discover): Discover tools on the configured upstream MCP server
+- [`pin`](#runbook-runner-mcp-server-pin): Pin a previously discovered tool snapshot
+- [`label-tools`](#runbook-runner-mcp-server-label-tools): Replace tool labels from JSON containing a tool_labels map
+
+#### `runbook runner mcp-server list`
+
+List catalog entries
+
+```text
+runbook runner mcp-server list
+```
+
+#### `runbook runner mcp-server get`
+
+Show one catalog entry
+
+```text
+runbook runner mcp-server get <ID>
+```
+
+**Arguments**
+
+- `ID`: Required.
+
+#### `runbook runner mcp-server create`
+
+Create an entry from public JSON configuration
+
+```text
+runbook runner mcp-server create [OPTIONS]
+```
+
+**Options**
+
+- `--file <FILE>`: Required.
+
+#### `runbook runner mcp-server update`
+
+Patch an entry from public JSON configuration
+
+```text
+runbook runner mcp-server update <ID> [OPTIONS]
+```
+
+**Arguments**
+
+- `ID`: Required.
+
+**Options**
+
+- `--file <FILE>`: Required.
+
+#### `runbook runner mcp-server delete`
+
+Delete a catalog entry
+
+```text
+runbook runner mcp-server delete <ID>
+```
+
+**Arguments**
+
+- `ID`: Required.
+
+#### `runbook runner mcp-server discover`
+
+Discover tools on the configured upstream MCP server
+
+```text
+runbook runner mcp-server discover <ID>
+```
+
+**Arguments**
+
+- `ID`: Required.
+
+#### `runbook runner mcp-server pin`
+
+Pin a previously discovered tool snapshot
+
+```text
+runbook runner mcp-server pin <ID> <SNAPSHOT_ID>
+```
+
+**Arguments**
+
+- `ID`: Required.
+- `SNAPSHOT_ID`: Required.
+
+#### `runbook runner mcp-server label-tools`
+
+Replace tool labels from JSON containing a tool_labels map
+
+```text
+runbook runner mcp-server label-tools <ID> [OPTIONS]
+```
+
+**Arguments**
+
+- `ID`: Required.
+
+**Options**
+
+- `--file <FILE>`: Required.
+
+### `runbook runner policy`
+
+Manage runner policy and budgets
+
+```text
+runbook runner policy <COMMAND>
+```
+
+**Commands**
+
+- [`get`](#runbook-runner-policy-get): Show runner policy and budgets
+- [`update`](#runbook-runner-policy-update): Update policy, budgets and per-project limits from JSON
+
+#### `runbook runner policy get`
+
+Show runner policy and budgets
+
+```text
+runbook runner policy get
+```
+
+#### `runbook runner policy update`
+
+Update policy, budgets and per-project limits from JSON
+
+```text
+runbook runner policy update [OPTIONS]
+```
+
+**Options**
+
+- `--file <FILE>`: Required.
+
+### `runbook runner group`
+
+Manage runner groups, limits and allowed projects
+
+```text
+runbook runner group <COMMAND>
+```
+
+**Commands**
+
+- [`list`](#runbook-runner-group-list): List runner groups
+- [`get`](#runbook-runner-group-get): Show a runner group
+- [`update`](#runbook-runner-group-update): Modify group configuration, limits and budgets from JSON
+- [`projects`](#runbook-runner-group-projects): Replace allowed projects from JSON containing project_ids
+
+#### `runbook runner group list`
+
+List runner groups
+
+```text
+runbook runner group list
+```
+
+#### `runbook runner group get`
+
+Show a runner group
+
+```text
+runbook runner group get <GROUP>
+```
+
+**Arguments**
+
+- `GROUP`: Required.
+
+#### `runbook runner group update`
+
+Modify group configuration, limits and budgets from JSON
+
+```text
+runbook runner group update <GROUP> [OPTIONS]
+```
+
+**Arguments**
+
+- `GROUP`: Required.
+
+**Options**
+
+- `--file <FILE>`: Required.
+
+#### `runbook runner group projects`
+
+Replace allowed projects from JSON containing project_ids
+
+```text
+runbook runner group projects <GROUP> [OPTIONS]
+```
+
+**Arguments**
+
+- `GROUP`: Required.
+
+**Options**
+
+- `--file <FILE>`: Required.
+
+### `runbook runner agent-profiles`
+
+Replace the profiles an agent is allowed to use
+
+```text
+runbook runner agent-profiles <AGENT> [OPTIONS]
+```
+
+**Arguments**
+
+- `AGENT`: Required.
+
+**Options**
+
+- `--project <PROJECT>`: Required. Environment: `RUNBOOK_PROJECT`.
+- `--file <FILE>`: JSON file containing a profiles array of profile IDs Required.
+
+## `runbook agents`
+
+Manage runner agents
+
+```text
+runbook agents [OPTIONS] <COMMAND>
+```
+
+**Options**
+
+- `--org <ORG>`: Organization ID (defaults to the only visible organization)
+- `--install <INSTALL>`: Runner install ID
+- `--project <PROJECT>`: Project ID Environment: `RUNBOOK_PROJECT`.
+- `--json`: Output JSON
+
+**Commands**
+
+- [`list`](#runbook-agents-list): List the project's runner agents
+- [`get`](#runbook-agents-get): Show a runner agent
+- [`create`](#runbook-agents-create): Create a runner agent from JSON
+- [`update`](#runbook-agents-update): Update a runner agent from a JSON patch
+- [`pause`](#runbook-agents-pause): Pause a runner agent
+
+### `runbook agents list`
+
+List the project's runner agents
+
+```text
+runbook agents list
+```
+
+### `runbook agents get`
+
+Show a runner agent
+
+```text
+runbook agents get <AGENT>
+```
+
+**Arguments**
+
+- `AGENT`: Required.
+
+### `runbook agents create`
+
+Create a runner agent from JSON
+
+```text
+runbook agents create [OPTIONS]
+```
+
+**Options**
+
+- `--file <FILE>`: JSON file containing the agent configuration Required.
+
+### `runbook agents update`
+
+Update a runner agent from a JSON patch
+
+```text
+runbook agents update <AGENT> [OPTIONS]
+```
+
+**Arguments**
+
+- `AGENT`: Required.
+
+**Options**
+
+- `--file <FILE>`: JSON file containing the agent fields to change Required.
+
+### `runbook agents pause`
+
+Pause a runner agent
+
+```text
+runbook agents pause <AGENT>
+```
+
+**Arguments**
+
+- `AGENT`: Required.
 
 ## `runbook memory`
 

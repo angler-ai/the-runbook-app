@@ -491,3 +491,28 @@ fn device_login_asks_for_narrow_scopes_unless_told_otherwise() {
     );
     assert_eq!(o.status.code(), Some(2), "{}", err(&o));
 }
+
+#[test]
+fn device_login_says_the_browser_may_ask_for_a_second_factor_and_waits() {
+    let home = tempfile::tempdir().unwrap();
+    let (host, server) = serve(vec![
+        device_code_reply("http://fake", 1),
+        pending_reply(),
+        token_reply(),
+    ]);
+    let o = cli(
+        &host,
+        home.path(),
+        &["login", "--no-browser"],
+        &[("RUNBOOK_TEST_DEVICE_POLL_SCALE_MS", "10")],
+        None,
+    );
+    assert_eq!(o.status.code(), Some(0), "{}", err(&o));
+    let stderr = err(&o);
+    let note = stderr.find("second factor").expect(&stderr);
+    // Before the wait, after the code to type.
+    assert!(stderr.find("WDJB-MJHT").unwrap() < note, "{stderr}");
+    assert!(stderr.contains("passkey or authenticator code"), "{stderr}");
+    assert!(stderr.contains("this command waits"), "{stderr}");
+    assert_eq!(server.join().unwrap().len(), 3);
+}

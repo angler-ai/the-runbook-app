@@ -57,9 +57,10 @@ pub struct Request<'a> {
     pub if_match: Option<&'a str>,
 }
 
-/// A successful response body and its `ETag`, if any.
+/// A successful response status, body and its `ETag`, if any.
 #[derive(Debug, PartialEq)]
 pub struct Reply {
+    pub status: u16,
     pub body: serde_json::Value,
     pub etag: Option<String>,
 }
@@ -76,10 +77,37 @@ pub enum ApiError {
     Transport(String),
 }
 
+/// What to do about an MFA refusal (J-4): the CLI cannot present a second
+/// factor itself, so it sends the person to the browser.
+pub fn mfa_hint(code: &str) -> Option<&'static str> {
+    match code {
+        "auth.mfa_step_up" => Some(
+            "this action needs a recent second-factor check, which a CLI token cannot give; \
+             do it in the web app, which asks for your passkey or authenticator code",
+        ),
+        "auth.mfa_token_replacement_required" => Some(
+            "this token was created without a recent second-factor check, so it can't do \
+             sensitive actions; replace it with `runbook login`, approved in the browser with \
+             your passkey or authenticator code",
+        ),
+        "auth.mfa_required" => Some(
+            "your organization requires a second factor; sign in to the web app, set up a \
+             passkey or authenticator app in Account > Security, then run `runbook login` again",
+        ),
+        _ => None,
+    }
+}
+
 impl fmt::Display for ApiError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ApiError::Problem { code, message, .. } => write!(f, "{code}: {message}"),
+            ApiError::Problem { code, message, .. } => {
+                write!(f, "{code}: {message}")?;
+                match mfa_hint(code) {
+                    Some(hint) => write!(f, "\nhint: {hint}"),
+                    None => Ok(()),
+                }
+            }
             ApiError::Transport(err) => write!(f, "network error: {err}"),
         }
     }
@@ -578,6 +606,9 @@ impl ApiClient {
         if !self.token.is_empty() {
             req = req.set("Authorization", &format!("Bearer {}", self.token));
         }
+        if r.path.starts_with("/v1/runners/") && r.path.contains("/proxy/runner/v1/") {
+            req = req.set("X-Runbook-CSRF", "1");
+        }
         for (k, v) in r.query {
             req = req.query(k, v);
         }
@@ -595,10 +626,14 @@ impl ApiClient {
             Ok(resp) if (300..400).contains(&resp.status()) => Err(redirect_refused(resp.status())),
             Ok(resp) => {
                 let etag = resp.header("ETag").map(str::to_owned);
-                let body = resp
-                    .into_json()
-                    .map_err(|e| ApiError::Transport(e.to_string()))?;
-                Ok(Reply { body, etag })
+                let status = resp.status();
+                let body = if status == 204 {
+                    serde_json::Value::Null
+                } else {
+                    resp.into_json()
+                        .map_err(|e| ApiError::Transport(e.to_string()))?
+                };
+                Ok(Reply { status, body, etag })
             }
             Err(ureq::Error::Status(status, resp)) => {
                 let body: serde_json::Value = resp.into_json().unwrap_or_default();
@@ -712,5 +747,38 @@ mod problem_mapping_tests {
             panic!("not a problem");
         };
         assert_eq!((code.as_str(), message.as_str()), ("error", ""));
+    }
+
+    /// Release gate 2026-11-21: the core proxy relays the runner's own error
+    /// envelope (`{"error":{"code","message"}}`), and `runbook runner
+    /// credential set` printed a bare `error: ` for it.
+    #[test]
+    fn runner_error_envelopes_keep_their_code_and_message() {
+        let body = json!({"error": {"code": "credential.invalid",
+                                    "message": "invalid credential configuration"}});
+        let ApiError::Problem {
+            status,
+            code,
+            message,
+            ..
+        } = problem_from_body(400, &body)
+        else {
+            panic!("not a problem");
+        };
+        assert_eq!(
+            (status, code.as_str(), message.as_str()),
+            (
+                400,
+                "credential.invalid",
+                "invalid credential configuration"
+            )
+        );
+        // A core problem with its own code is read as before.
+        let ApiError::Problem { code, .. } =
+            problem_from_body(403, &json!({"code": "auth.csrf", "error": {"code": "x"}}))
+        else {
+            panic!("not a problem");
+        };
+        assert_eq!(code, "auth.csrf");
     }
 }

@@ -15,6 +15,41 @@
       "when": 1794540334803,
       "tag": "0001_oauth_provider",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1795291450549,
+      "tag": "0002_mfa",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1795292092278,
+      "tag": "0003_mfa_security_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1795295316351,
+      "tag": "0004_mfa_reset_generation",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1795295561952,
+      "tag": "0005_mfa_notification_outbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1795295561953,
+      "tag": "0006_mfa_recovery_audit",
+      "breakpoints": true
     }
   ]
 }

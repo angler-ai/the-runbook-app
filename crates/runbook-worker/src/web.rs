@@ -10,10 +10,8 @@
 //!   other files revalidate, and every response carries the CSP,
 //!   `Referrer-Policy` and `nosniff`.
 //!
-//! The hashed bundles (`/assets/*`) and the manifest are served by
-//! the assets engine without running the Worker (`run_worker_first` in
-//! `wrangler.dev.jsonc`), with the same headers from the generated
-//! `_headers` file (`scripts/dev-stack.mjs`).
+//! The Worker serves assets too so HTTPS app responses share the same
+//! transport security headers.
 use runbook_api::web::{CONTENT_SECURITY_POLICY, IMMUTABLE, api_owns};
 use worker::{Fetcher, Headers, Method, Request, RequestInit, Response, Result};
 

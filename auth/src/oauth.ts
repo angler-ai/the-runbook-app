@@ -20,11 +20,17 @@
 import { APIError, createAuthEndpoint } from 'better-auth/api';
 import { constantTimeEqual, makeSignature } from 'better-auth/crypto';
 import { getOAuthProviderApi, oauthProvider, oauthProviderAuthServerMetadata } from '@better-auth/oauth-provider';
+import { isLoopbackOrigin } from './config';
 
 export const ACCESS_TOKEN_PREFIX = 'trb_oat_';
 export const REFRESH_TOKEN_PREFIX = 'trb_ort_';
 export const OFFLINE_ACCESS = 'offline_access';
 export const PUBLISH = 'runbooks:publish';
+/** R0-2: the runner scopes, opt-in like publishing (runner design §11.5). */
+export const RUNNER_READ = 'runner:read';
+export const RUNNER_ADMIN = 'runner:admin';
+/** Scopes granted only when the person ticks their box. */
+export const OPT_IN: ReadonlySet<string> = new Set([PUBLISH, RUNNER_READ, RUNNER_ADMIN]);
 
 /**
  * The scopes an MCP client may ask for, in consent order, with the consent
@@ -39,6 +45,8 @@ export const SCOPES: ReadonlyArray<readonly [string, string]> = [
   ['executions:start', 'Start runs'],
   ['executions:act', 'Claim, work on and report steps'],
   ['skills:read', 'Read the skills runbooks use'],
+  [RUNNER_READ, "Read the organization's runner, its agents, their activity and costs"],
+  [RUNNER_ADMIN, "Propose changes to the runner's agents (a person approves anything that widens access)"],
   [OFFLINE_ACCESS, 'Stay connected without signing in again'],
 ];
 const SCOPE_NAMES = SCOPES.map(([name]) => name);
@@ -82,6 +90,19 @@ export function oauthPlugins(origin: string) {
   });
   const opts = provider.options as unknown as ProviderOptions;
   type Adapter = { findOne(q: unknown): Promise<unknown>; findMany(q: unknown): Promise<unknown[]>; updateMany(q: unknown): Promise<unknown>; deleteMany(q: unknown): Promise<unknown> };
+  async function currentFactors(adapter: Adapter, userId: string) {
+    const where = [{ field: 'userId', value: userId }];
+    const [passkey, totp] = await Promise.all([
+      adapter.findOne({ model: 'passkey', where }),
+      adapter.findOne({ model: 'twoFactor', where: [...where, { field: 'verified', value: true }] }),
+    ]);
+    return { passkey: !!passkey, totp: !!totp };
+  }
+
+  function currentProof(method: string | undefined, factors: Awaited<ReturnType<typeof currentFactors>>): boolean {
+    return method === 'passkey' ? factors.passkey : (method === 'totp' || method === 'backup_code') && factors.totp;
+  }
+
   const grantOf = async (adapter: Adapter, clientId: string, userId: string) =>
     (await adapter.findOne({
       model: 'oauthConsent',
@@ -130,7 +151,7 @@ export function oauthPlugins(origin: string) {
         const row = (await ctx.context.adapter.findOne({
           model: 'oauthAccessToken',
           where: [{ field: 'token', value: await api.hashToken(token.slice(ACCESS_TOKEN_PREFIX.length), 'access_token') }],
-        })) as { clientId?: string; userId?: string; resources?: unknown; scopes?: unknown; expiresAt?: Date | string; revoked?: unknown } | null;
+        })) as { clientId?: string; userId?: string; resources?: unknown; scopes?: unknown; expiresAt?: Date | string; revoked?: unknown; mfaVerifiedAt?: Date; mfaMethod?: string } | null;
         if (!row?.clientId || !row.userId || row.revoked || !row.expiresAt) return null;
         const expiresAt = new Date(row.expiresAt).getTime();
         if (!(expiresAt > Date.now())) return null;
@@ -142,6 +163,8 @@ export function oauthPlugins(origin: string) {
         // Re-check 1: a grant revoked by the person, or past its absolute
         // lifetime, ends its tokens at once.
         if (!(await grantAlive(ctx.context.adapter as unknown as Adapter, row.clientId, row.userId))) return null;
+        const factors = await currentFactors(ctx.context.adapter as unknown as Adapter, user.id);
+        const proof = currentProof(row.mfaMethod, factors);
         const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token)));
         return {
           auth_user_id: user.id,
@@ -152,6 +175,9 @@ export function oauthPlugins(origin: string) {
           expires_at: expiresAt,
           scope: Array.isArray(row.scopes) ? row.scopes.filter((x) => typeof x === 'string').join(' ') : '',
           client_id: row.clientId,
+          mfa_enrolled: factors.passkey || factors.totp,
+          mfa_verified_at: proof && row.mfaVerifiedAt ? new Date(row.mfaVerifiedAt).getTime() : null,
+          mfa_method: proof ? row.mfaMethod : null,
         };
       }),
       /**
@@ -166,9 +192,11 @@ export function oauthPlugins(origin: string) {
         const row = (await adapter.findOne({
           model: 'oauthRefreshToken',
           where: [{ field: 'token', value: await getOAuthProviderApi(ctx as never, opts).hashToken(token.slice(REFRESH_TOKEN_PREFIX.length), 'refresh_token') }],
-        })) as { clientId?: string; userId?: string } | null;
+        })) as { clientId?: string; userId?: string; mfaMethod?: string } | null;
         if (!row?.clientId || !row.userId) return { allowed: true };
-        return { allowed: await grantAlive(adapter, row.clientId, row.userId) };
+        const alive = await grantAlive(adapter, row.clientId, row.userId);
+        const proofStillLive = !row.mfaMethod || currentProof(row.mfaMethod, await currentFactors(adapter, row.userId));
+        return { allowed: alive && proofStillLive };
       }),
       /** Re-check 1: a person's connected apps (their consents), for Rust's `/v1/me/apps`. */
       runbookGrants: createAuthEndpoint('/runbook/oauth/grants', { method: 'POST', metadata: { SERVER_ONLY: true } }, async (ctx) => {
@@ -377,7 +405,7 @@ export function displayName(name: string | null | undefined): string {
 export function redirectHost(uri: string): string {
   try {
     const url = new URL(uri);
-    if (url.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)) return `${url.host} (an app on this computer)`;
+    if (url.protocol === 'http:' && isLoopbackOrigin(url.origin)) return `${url.host} (an app on this computer)`;
     return url.protocol === 'https:' || url.protocol === 'http:' ? url.host : `${url.protocol}// (an app on this computer)`;
   } catch {
     return 'an unknown address';
@@ -388,7 +416,7 @@ function consentPage(query: string, view: ConsentView, email: string, message: s
   const client = displayName(view.client_name);
   const rows = SCOPES.filter(([name]) => view.scopes.includes(name))
     .map(([name, text]) => {
-      const optIn = name === PUBLISH;
+      const optIn = OPT_IN.has(name);
       return `<label><input type="checkbox" name="scope" value="${name}"${optIn ? '' : ' checked'}> ${escape(text)} <code>${name}</code>${optIn ? ' (not granted unless you tick it)' : ''}</label>`;
     })
     .join('\n');
@@ -503,6 +531,7 @@ export async function clientEndpoint(deps: GatewayDeps, raw: Request): Promise<R
   return deps.auth.handler(new Request(raw.url, { method: raw.method, headers, body }));
 }
 
+// Match the OAuth provider’s exact host allowlist for plain-HTTP redirects.
 const LOOPBACK_HTTP = /^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?\//;
 /**
  * MCP clients on a person's machine (Claude Code, editors) register loopback

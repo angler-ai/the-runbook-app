@@ -20,7 +20,17 @@ import { useInbox } from '../inbox/hooks';
 import { PaletteHost } from '../palette/PaletteHost';
 import { CreateProjectDialog } from '../admin/CreateProjectDialog';
 import { StartRunDialog } from '../start/StartRunDialog';
-import { BookOpen, Brain, House, Inbox, Play, Settings, Sparkles, Webhook } from 'lucide-react';
+import {
+  BookOpen,
+  Bot,
+  Brain,
+  House,
+  Inbox,
+  Play,
+  Settings,
+  Sparkles,
+  Webhook,
+} from 'lucide-react';
 import {
   AppShell,
   BrandLockup,
@@ -39,8 +49,13 @@ import type { ProjectView } from '../../api/hooks';
 import { ProjectSwitcher, UserMenu } from './ShellMenus';
 import { WelcomeDialog } from '../profile/WelcomeDialog';
 import { signOut, validateMeForSignIn } from '../auth/session';
+import { isPartialMe } from '../mfa/hooks';
+import { MfaGate } from '../mfa/MfaGate';
 import { OrgProvider, useOrgContext } from './OrgContext';
 import { pickProject, rememberProject, useLastProject } from './currentProject';
+
+import { useRunnerStatus } from '../runner/api';
+import { projectAllowed } from '../runner/presentation';
 
 function ShellChrome({ children }: { children?: ReactNode }) {
   const me = useMe();
@@ -59,6 +74,7 @@ function ShellChrome({ children }: { children?: ReactNode }) {
     execution: params.exe ? executionDocument.data?.header.project_id : undefined,
     remembered,
   });
+  const runner = useRunnerStatus(orgId);
   const fromPage =
     projects.length > 0 &&
     (Boolean(params.project && current && [current.id, current.slug].includes(params.project)) ||
@@ -130,6 +146,20 @@ function ShellChrome({ children }: { children?: ReactNode }) {
       </main>
     );
   }
+  // J-3: a partial session (the org requires MFA and this one has none yet)
+  // reaches nothing else; verify or enroll here, or sign out.
+  if (isPartialMe(me.data)) {
+    const { search } = router.state.location as { search: { return_to?: unknown } };
+    return (
+      <MfaGate
+        security={me.data.security}
+        returnTo={typeof search.return_to === 'string' ? search.return_to : null}
+        signingOut={signingOut}
+        onSignOut={() => void onSignOut()}
+        onDone={() => void me.refetch()}
+      />
+    );
+  }
   if (me.isError) {
     const error = me.error instanceof ApiError ? me.error : null;
     return (
@@ -182,6 +212,17 @@ function ShellChrome({ children }: { children?: ReactNode }) {
             active:
               pathname.startsWith(`/p/${current.slug}/executions`) || pathname.startsWith('/x/'),
           },
+          ...(projectAllowed(runner.data, current.id)
+            ? [
+                {
+                  id: 'agents',
+                  label: 'Agents',
+                  href: `/p/${current.slug}/agents`,
+                  icon: Bot,
+                  active: pathname.startsWith(`/p/${current.slug}/agents`),
+                },
+              ]
+            : []),
           {
             id: 'skills',
             label: 'Skills',
@@ -432,6 +473,9 @@ export function shellBreadcrumbs(
   }
   if (pathname.startsWith('/settings/organization')) {
     return [{ label: 'Settings' }, { label: 'Organization' }];
+  }
+  if (pathname === '/settings/security') {
+    return [{ label: 'Account settings', href: '/settings' }, { label: 'Security' }];
   }
   if (pathname === '/settings' || pathname.startsWith('/settings/')) {
     return [{ label: 'Account settings' }];

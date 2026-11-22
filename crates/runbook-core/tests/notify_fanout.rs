@@ -60,6 +60,8 @@ fn intent(kind: &str, recipients: Vec<RecipientRef>) -> NotificationIntent {
             path: "signoff".into(),
             title: "Sign off".into(),
             actor_kind: runbook_model::ActorKind::Human,
+            agent_id: None,
+            group_id: None,
         }],
         params: None,
         detail: None,

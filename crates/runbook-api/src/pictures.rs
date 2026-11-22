@@ -269,6 +269,42 @@ async fn dispatch<B: Backends>(backends: &B, r: &Request) -> Result<Reply, Failu
                     title: new_title,
                 });
             }
+            // R0-3: the project's default runner agent, kept beside the
+            // directory (it changes only what later publishes resolve).
+            if let Some(default_agent) = &request.default_agent {
+                admin()?;
+                use runbook_core::agent_directory::AgentDirectory;
+                let store = backends.runners();
+                if let Some(name) = default_agent
+                    && name != runbook_model::EXTERNAL_AGENT
+                    && !store
+                        .project_agents(&record.org_id, &project)
+                        .await
+                        .map_err(|_| UNAVAILABLE)?
+                        .iter()
+                        .any(|a| {
+                            &a.name == name && a.status != runbook_model::AgentStatus::Archived
+                        })
+                {
+                    return Err((422, "spec.agent_unknown"));
+                }
+                store
+                    .set_default_agent(&record.org_id, &project, default_agent.as_deref())
+                    .await
+                    .map_err(|e| e.status())?;
+                if mutations.is_empty() {
+                    let view = &snapshot.projects[&project];
+                    let mut body = json!(ProjectView {
+                        id: project.clone(),
+                        org_id: record.org_id.clone(),
+                        slug: view.slug.clone(),
+                        title: view.title.clone(),
+                        archived: snapshot.archived_projects.contains(&project),
+                    });
+                    body["default_agent"] = json!(default_agent);
+                    return Ok(Reply::Json(200, body));
+                }
+            }
             if mutations.is_empty() {
                 return Err((422, "request.invalid"));
             }

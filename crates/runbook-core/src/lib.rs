@@ -62,3 +62,13 @@ pub mod notify;
 pub mod pending;
 pub mod slack;
 pub mod uploads;
+
+// R0-1: runner grants and user assertions.
+pub mod signing;
+
+// R0-2: the runner registry.
+pub mod runners;
+// R0-3: the agent directory.
+pub mod agent_directory;
+// R0-4: runner claims and release grants.
+pub mod grants;

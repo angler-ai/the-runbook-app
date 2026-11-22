@@ -1,0 +1,21 @@
+---
+title: The runner
+description: Run agent steps on infrastructure your organization manages.
+sidebar:
+  order: 1
+---
+
+The optional runner claims and executes agent steps on your infrastructure. It hosts agent configurations, calls model providers and MCP servers, and starts a sandbox when an agent needs to execute code. The core server stores your runbooks, controls who can claim a step, and records the step's result.
+
+Organization owners and admins manage runners, groups, model providers and profiles, MCP servers, credentials, policy and budgets under **Settings › Organization › Runner**. A project gets an **Agents** page when a runner group allows that project. Each project sees the resources shared with it and defines its own agents.
+
+Either edition of the core can use the runner. On Cloudflare the core runs
+in Workers and the runner runs on separate infrastructure you manage.
+Docker sandboxes suit development and single-tenant installations. Control
+of the Docker host gives access to the whole runner stack.
+
+- [Set up a runner](/runner/setup/) and check that a first step runs.
+- [Add credentials](/runner/credentials/) for providers, MCP servers, and API access.
+- [Create an agent](/runner/agents/) and target it from a runbook.
+- [Set limits and budgets](/runner/limits/) for the work it can do.
+- [Review the security boundaries](/runner/security/) before choosing where to run it.

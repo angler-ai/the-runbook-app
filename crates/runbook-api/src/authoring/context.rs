@@ -80,6 +80,18 @@ impl<D: DirectoryOperations, C: CredentialStore, F: AuthoringFactory> AuthoringS
         };
         let mut context = compile_context(&directory, source)
             .map_err(|_| error(r, 503, "vars.invalid_stored_declarations"))?;
+        // R0-3: agent steps resolve against the project's agent directory
+        // and default agent (kept in the core, so this works while the
+        // runner is offline).
+        let runner = store.runner_agents().await.map_err(|e| store_error(r, e))?;
+        context.agents = Some(
+            runner
+                .agents
+                .into_iter()
+                .map(|entry| (entry.name.clone(), entry))
+                .collect(),
+        );
+        context.default_agent = runner.default_agent;
         // LANG4: the project's runbooks this source calls, pinned from the
         // catalog (a reference that does not resolve stays out, and the
         // compiler reports it).

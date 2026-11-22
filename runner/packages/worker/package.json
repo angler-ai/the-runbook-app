@@ -1,0 +1,24 @@
+{
+  "name": "@runbook/runner-worker",
+  "version": "0.1.1",
+  "license": "AGPL-3.0-only",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "exports": {
+    "./*": {
+      "development": "./src/*.ts",
+      "types": "./dist/*.d.ts",
+      "default": "./dist/*.js"
+    }
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@runbook/runner-shared": "0.1.1",
+    "ai": "7.0.178",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1"
+  }
+}

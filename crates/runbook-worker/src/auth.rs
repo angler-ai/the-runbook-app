@@ -199,7 +199,7 @@ impl WorkersSessions {
     /// MCP2: a connected-app call (`oauth/grants`, `oauth/grants/revoke`).
     /// A revoke clears this isolate's cache; other isolates keep a revoked
     /// token's positive entry for at most `SESSION_CACHE_MS` (30 s).
-    pub async fn oauth_apps(
+    pub async fn auth_internal(
         &self,
         route: &str,
         body: &serde_json::Value,
@@ -211,7 +211,7 @@ impl WorkersSessions {
                 Some(body.to_string()),
             )
             .await;
-        if route.ends_with("/revoke") {
+        if route.ends_with("/revoke") || route == "mfa/reset" {
             CACHE.with(|cache| cache.borrow_mut().clear());
         }
         answer
@@ -309,7 +309,9 @@ impl WorkersSessions {
                 let Some(session) = parse_session(&answer) else {
                     return Ok(None);
                 };
-                CACHE.with(|cache| cache.borrow_mut().insert(key, (session.clone(), at)));
+                if answer.get("mfa_enrolled").is_none() {
+                    CACHE.with(|cache| cache.borrow_mut().insert(key, (session.clone(), at)));
+                }
                 Ok(Some(session))
             }
             None => {
@@ -325,6 +327,9 @@ impl WorkersSessions {
                         picture_url: None,
                         session_id: String::new(),
                         expires_at_ms: 0,
+                        mfa_verified_at: None,
+                        mfa_method: None,
+                        mfa_enrolled: Some(false),
                         principal: None,
                         scopes: None,
                     };

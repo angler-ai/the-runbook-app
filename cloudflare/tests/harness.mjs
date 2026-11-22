@@ -40,7 +40,7 @@ export const DEPLOY = { config: 'wrangler.jsonc', dir: buildDir, name: 'runbook-
 
 /** Start one local workerd with the api Worker (or `worker`, e.g. CONFORMANCE). */
 /** `d1`: more local D1 bindings beside the config's (CF11's shards). */
-export async function startWorker({ faults = true, worker = API, vars = {}, d1 = {}, without = [] } = {}) {
+export async function startWorker({ faults = true, worker = API, vars = {}, d1 = {}, without = [], outboundService, serviceBindings = {} } = {}) {
   assertBuilt(worker.dir);
   const temp = await mkdtemp(join(tmpdir(), 'runbook-cf-'));
   // Bindings, the SQLite Durable Object class and the compatibility date
@@ -57,6 +57,8 @@ export async function startWorker({ faults = true, worker = API, vars = {}, d1 =
     convertV4MiniflareOptions({
       ...options,
       durableObjects,
+      ...(outboundService && { outboundService }),
+      serviceBindings: { ...options.serviceBindings, ...serviceBindings },
       d1Databases: { ...(options.d1Databases ?? {}), ...d1 },
       name: worker.name,
       modulesRoot: worker.dir,

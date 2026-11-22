@@ -27,9 +27,8 @@ import RunRecord from '../../components/RunRecord.astro';
 ## One run, start to finish
 
 The graph above is this runbook. An agent claimed both checks through the
-CLI and reported what it found. A person on call made the decision, because
-agents can never cast an approval. Roll back would have run only if they
-had chosen it. The run keeps all of it as a record you can read, search and
+CLI and reported what it found. A person on call made the decision. Only a
+human decision to roll back would have let the destructive step proceed. The run keeps all of it as a record you can read, search and
 export.
 
 <div class="rb-pair">
@@ -54,6 +53,7 @@ spec:
       approval:
         prompt: Keep ${{ inputs.service }} at this version?
         options: [keep, rollback]
+        approves: [rollback]
         approvers: { teams: [oncall] }
     - id: roll_back
       if: "${{ steps.decide.outputs.decision == 'rollback' }}"
@@ -81,11 +81,13 @@ what they reported and the evidence they attached.
   </Card>
   <Card title="Agents do the toil" icon="rocket">
     Claude Code, Codex, Cursor or your own agent claim steps under a lease,
-    report outputs and attach evidence, through the CLI or MCP.
+    report outputs and attach evidence through the CLI or MCP. The optional
+    runner executes targeted steps using the providers and tools you configure.
   </Card>
   <Card title="People keep the judgment" icon="approve-check">
     Approvals by named people, destructive steps that need a human,
-    take-overs, reminders and escalation. Agents never cast human approvals.
+    take-overs, reminders and escalation. Routine approvals can opt in to an
+    agent decision.
   </Card>
   <Card title="A record you can read" icon="open-book">
     Every run reads like a document: who did each step, their outputs, logs
@@ -99,6 +101,7 @@ what they reported and the evidence they attached.
   <LinkCard title="Get started" description="Run the server with Docker, on your Cloudflare account or on GKE, then your first runbook." href="/getting-started/docker/" />
   <LinkCard title="Write runbooks" description="The language: steps, data, expressions and control flow, with every key." href="/language/overview/" />
   <LinkCard title="Connect your agent" description="Claude Code, Codex, Cursor or your own, and a library of ready-to-paste prompts." href="/agents/" />
+  <LinkCard title="Run agents on your infrastructure" description="Configure project agents, credential access, sandboxes and budgets." href="/runner/" />
   <LinkCard title="React to events" description="Signed webhooks for approvals, steps, runs and agent work." href="/webhooks/" />
   <LinkCard title="Operate it" description="Install, sign-in, storage, upgrades, backups and monitoring." href="/operating/" />
   <LinkCard title="Call the API" description="Every route and schema, with requests you can try against your server." href="/api/" />

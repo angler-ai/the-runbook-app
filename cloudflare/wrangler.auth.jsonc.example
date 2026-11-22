@@ -25,6 +25,9 @@
       "migrations_dir": "../auth/drizzle/sqlite"
     }
   ],
+  // Delivers queued MFA security emails (enrollment, removal, resets,
+  // including `npm run mfa:reset`) once a minute (README §7).
+  "triggers": { "crons": ["* * * * *"] },
   // The api Worker, for the can-register callback (D45) without a public hop.
   "services": [{ "binding": "API", "service": "runbook-api" }],
   // Email codes through Cloudflare Email Service (D48,

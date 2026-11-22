@@ -83,6 +83,7 @@ fn header(state: &ExecutionState) -> ExecutionView {
         superseded_by: None,
         parent: None,
         progress: None,
+        cost: None,
     }
 }
 

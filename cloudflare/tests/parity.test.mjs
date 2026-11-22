@@ -99,9 +99,7 @@ test('D1 schema migrations apply and match the PostgreSQL manifest exactly', asy
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
 
   const d1Tables = manifest.tables.filter((t) => t.target === 'd1');
-  // SLACK1: 47 with project_slack; 49 with user_picture and project_picture.
-  // to each subscription's WebhookDO.
-  assert.equal(d1Tables.length, 49, 'expected exactly 49 D1 tables in manifest');
+  assert.equal(d1Tables.length, 61, 'expected exactly 61 D1 tables in manifest');
 
   for (const table of d1Tables) {
     const info = await db.prepare(`PRAGMA table_info(${table.name})`).all();

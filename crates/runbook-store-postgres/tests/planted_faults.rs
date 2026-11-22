@@ -107,6 +107,7 @@ fn wide_commit() -> ExecutionCommit {
         verdict: None,
         outputs: Data::new(),
         summary: None,
+        runner: None,
     }];
     b.derived_outbox = terminal.derived_outbox;
     b

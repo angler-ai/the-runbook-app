@@ -29,6 +29,7 @@ async fn concurrent_requests_stay_within_the_pool_and_reuse_connections() {
                 .query(
                     "SELECT pid FROM pg_stat_activity \
                      WHERE datname = current_database() AND pid <> pg_backend_pid() \
+                     AND backend_type = 'client backend' \
                      ORDER BY pid",
                     &[],
                 )
@@ -64,6 +65,7 @@ async fn concurrent_requests_stay_within_the_pool_and_reuse_connections() {
                 .query(
                     "SELECT count(*) FROM pg_stat_activity \
                      WHERE datname = current_database() AND pid <> pg_backend_pid() \
+                     AND backend_type = 'client backend' \
                      AND state IN ('active', 'idle in transaction', \
                      'idle in transaction (aborted)')",
                     &[],

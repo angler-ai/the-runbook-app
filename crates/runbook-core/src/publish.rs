@@ -33,6 +33,7 @@ pub struct PreparedPublication {
     pub source: String,
     pub snapshot: Vec<u8>,
     pub pins: SelectedPins,
+    pub warnings: Vec<Diagnostic>,
 }
 
 fn wire(diagnostic: runbook_spec::Diagnostic) -> Diagnostic {
@@ -54,7 +55,11 @@ fn wire_all(diagnostics: Vec<runbook_spec::Diagnostic>) -> Vec<Diagnostic> {
 /// result means the source could publish against this context (D23).
 pub fn draft_diagnostics(source: &str, context: &runbook_spec::CompileContext) -> Vec<Diagnostic> {
     match runbook_spec::parse(source).and_then(|spec| runbook_spec::compile(&spec, context)) {
-        Ok(compiled) => wire_all(runbook_spec::validate_policy(&compiled)),
+        Ok(compiled) => {
+            let mut diagnostics = runbook_spec::validate_policy(&compiled);
+            diagnostics.extend(runbook_spec::publication_approval_diagnostics(compiled.ir()).0);
+            wire_all(diagnostics)
+        }
         Err(diagnostics) => wire_all(diagnostics),
     }
 }
@@ -71,7 +76,10 @@ pub fn prepare(
 ) -> Result<PreparedPublication, Vec<Diagnostic>> {
     let spec = runbook_spec::parse(source).map_err(wire_all)?;
     let compiled = runbook_spec::compile(&spec, context).map_err(wire_all)?;
-    let policy = runbook_spec::validate_policy(&compiled);
+    let mut policy = runbook_spec::validate_policy(&compiled);
+    let (approval_errors, approval_warnings) =
+        runbook_spec::publication_approval_diagnostics(compiled.ir());
+    policy.extend(approval_errors);
     if !policy.is_empty() {
         return Err(wire_all(policy));
     }
@@ -88,6 +96,7 @@ pub fn prepare(
     Ok(PreparedPublication {
         version_id,
         semantic_hash: *compiled.hash(),
+        warnings: wire_all(approval_warnings),
         snapshot_digest: Sha256::digest(&snapshot).into(),
         snapshot_size: snapshot.len() as u64,
         source: source.to_owned(),

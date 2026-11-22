@@ -1,3 +1,6 @@
+import { Link } from '@tanstack/react-router';
+import { useRunnerStatus } from '../runner/api';
+import { SetupCard } from '../runner/presentation';
 import { useMemo, useState } from 'react';
 import { useSearch } from '@tanstack/react-router';
 import { PageHeader } from '../../ui/layout/PageHeader';
@@ -31,8 +34,15 @@ import {
 import { InviteMemberDialog } from './InviteMemberDialog';
 import { CreateTeamDialog } from './CreateTeamDialog';
 import { CreateServiceTokenDialog } from './CreateServiceTokenDialog';
-import { FolderKanban, Key, Mail, Plus, Shield, UserPlus, Users, X } from 'lucide-react';
+import { FolderKanban, Key, Lock, Mail, Plus, Shield, UserPlus, Users, X } from 'lucide-react';
 import { OrgProjectsTab } from './OrgProjectsTab';
+import { OrgSecurityTab } from '../mfa/OrgSecurityTab';
+import { useMySecurity, useResetMemberMfa } from '../mfa/hooks';
+import { TokenReplacementBadge } from '../settings/TokenReplacementBadge';
+import { OPERATOR_RESET_HINT, securityCodeMessage } from '../mfa/messages';
+import { ConfirmDialog } from '../../ui/actions/ConfirmDialog';
+import { toast } from 'sonner';
+import { ApiError } from '../../api/client';
 
 export function OrganizationAdminPage() {
   const me = useMe();
@@ -42,7 +52,10 @@ export function OrganizationAdminPage() {
   let initialTab = 'members';
   try {
     const search = useSearch({ strict: false }) as { tab?: string };
-    if (search?.tab && ['members', 'projects', 'teams', 'tokens'].includes(search.tab)) {
+    if (
+      search?.tab &&
+      ['members', 'projects', 'teams', 'tokens', 'security'].includes(search.tab)
+    ) {
       initialTab = search.tab;
     }
   } catch {
@@ -53,9 +66,34 @@ export function OrganizationAdminPage() {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [createTeamOpen, setCreateTeamOpen] = useState(false);
   const [createTokenOpen, setCreateTokenOpen] = useState(false);
+  const [resetTarget, setResetTarget] = useState<DirectoryUserView | null>(null);
 
   const orgId = org?.id;
+  const runner = useRunnerStatus(me.data?.org.id);
   const isOwnerOrAdmin = me.data?.org.role === 'owner' || me.data?.org.role === 'admin';
+  const isOwner = me.data?.org.role === 'owner';
+  const resetMfaMutation = useResetMemberMfa(orgId);
+
+  async function resetMfa(user: DirectoryUserView) {
+    try {
+      await resetMfaMutation.mutateAsync(user.id);
+      toast.success(
+        `${user.name}'s second factors were reset. They set up a new one next time they sign in.`,
+      );
+    } catch (err) {
+      const code = err instanceof ApiError ? err.code : null;
+      toast.error(
+        code === 'auth.mfa_step_up'
+          ? 'Confirm it is you with a second factor, then reset again.'
+          : code === 'resource.not_found'
+            ? `${user.name} has no sign-in identity to reset.`
+            : code === 'auth.mfa_operator_reset_required'
+              ? `${user.name} also belongs to another organization or shares a sign-in, so an owner cannot reset them. ${OPERATOR_RESET_HINT}`
+              : ((code && securityCodeMessage(code)) ??
+                'The second factors could not be reset. Try again.'),
+      );
+    }
+  }
   const hasProjectAdminScope = Boolean(me.data?.credential.scopes?.includes('project:admin'));
   const hasTokensManageScope = Boolean(me.data?.credential.scopes?.includes('tokens:manage'));
 
@@ -74,6 +112,10 @@ export function OrganizationAdminPage() {
   const invitations = (invitationsQuery.data ?? []).filter((i) => i.state === 'pending');
   const teams = teamsQuery.data ?? [];
   const serviceTokens = serviceTokensQuery.data ?? [];
+  // A service token needs issuance proof whenever the organization requires
+  // MFA for any role. Token managers are owners or admins, whom every
+  // required setting covers, so their own requirement says whether it is on.
+  const serviceTokensNeedProof = useMySecurity(hasTokensManageScope).data?.mfa_required === true;
 
   if (me.isLoading) {
     return (
@@ -119,6 +161,17 @@ export function OrganizationAdminPage() {
         description={`Organization settings, access, and credentials for ${org?.title ?? 'the organization'}.`}
       />
 
+      {runner.data && (
+        <div className="mb-6">
+          {runner.data.status === 'none' ? (
+            <SetupCard admin={isOwnerOrAdmin} />
+          ) : (
+            <Link to="/settings/organization/runner" className="text-accent underline">
+              Runner
+            </Link>
+          )}
+        </div>
+      )}
       <Tabs value={tab} onValueChange={setTab} className="gap-6">
         <TabsList className="mb-6">
           <TabsTrigger value="members" className="gap-2">
@@ -146,6 +199,12 @@ export function OrganizationAdminPage() {
               {serviceTokens.length}
             </span>
           </TabsTrigger>
+          {isOwner ? (
+            <TabsTrigger value="security" className="gap-2">
+              <Lock className="size-4" />
+              <span>Security</span>
+            </TabsTrigger>
+          ) : null}
         </TabsList>
 
         {/* Members & Invitations Tab */}
@@ -224,21 +283,34 @@ export function OrganizationAdminPage() {
                             )}
                           </td>
                           <td className="px-4 py-3 text-right">
-                            {user.id !== me.data?.user?.id && user.role !== 'owner' ? (
-                              <Button
-                                variant="secondary"
-                                size="sm"
-                                disabled={updateUserMutation.isPending}
-                                onClick={() =>
-                                  void updateUserMutation.mutateAsync({
-                                    userId: user.id,
-                                    active: !user.active,
-                                  })
-                                }
-                              >
-                                {user.active ? 'Deactivate' : 'Reactivate'}
-                              </Button>
-                            ) : null}
+                            <div className="flex justify-end gap-2">
+                              {isOwner && user.id !== me.data?.user?.id ? (
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  disabled={resetMfaMutation.isPending}
+                                  aria-label={`Reset MFA for ${user.name}`}
+                                  onClick={() => setResetTarget(user)}
+                                >
+                                  Reset MFA
+                                </Button>
+                              ) : null}
+                              {user.id !== me.data?.user?.id && user.role !== 'owner' ? (
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  disabled={updateUserMutation.isPending}
+                                  onClick={() =>
+                                    void updateUserMutation.mutateAsync({
+                                      userId: user.id,
+                                      active: !user.active,
+                                    })
+                                  }
+                                >
+                                  {user.active ? 'Deactivate' : 'Reactivate'}
+                                </Button>
+                              ) : null}
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -390,6 +462,10 @@ export function OrganizationAdminPage() {
           )}
         </TabsContent>
 
+        <TabsContent value="security">
+          <OrgSecurityTab orgId={orgId} isOwner={isOwner} />
+        </TabsContent>
+
         <TabsContent value="projects">
           <OrgProjectsTab canEdit={isOwnerOrAdmin && hasProjectAdminScope} />
         </TabsContent>
@@ -459,6 +535,9 @@ export function OrganizationAdminPage() {
                         <div className="flex flex-col">
                           <span>{token.name}</span>
                           <span className="font-mono text-2xs text-fg-muted">{token.id}</span>
+                          {serviceTokensNeedProof && token.fresh_mfa_at_issue !== true ? (
+                            <TokenReplacementBadge guidance="Create a new service token here (you will confirm it is you), move the pipeline to it, then revoke this one." />
+                          ) : null}
                         </div>
                       </td>
                       <td className="px-4 py-3 text-fg">
@@ -515,6 +594,20 @@ export function OrganizationAdminPage() {
           )}
         </TabsContent>
       </Tabs>
+
+      <ConfirmDialog
+        open={resetTarget !== null}
+        onOpenChange={(open) => (open ? undefined : setResetTarget(null))}
+        title={`Reset ${resetTarget?.name ?? 'this member'}'s second factors?`}
+        description="This removes their passkeys, authenticator app and backup codes, signs them out everywhere and revokes their app authorizations. They get an email and set up a new factor when they next sign in."
+        confirmLabel="Reset MFA"
+        destructive
+        onConfirm={() => {
+          const target = resetTarget;
+          setResetTarget(null);
+          if (target) void resetMfa(target);
+        }}
+      />
 
       <InviteMemberDialog open={inviteOpen} onOpenChange={setInviteOpen} />
       <CreateTeamDialog open={createTeamOpen} onOpenChange={setCreateTeamOpen} />

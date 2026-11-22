@@ -94,23 +94,31 @@ resource "kubernetes_deployment" "runbook" {
         # Pods read the ConfigMap and the Secret only at start: a change to
         # either rolls the Deployment (a rotated Slack, SMTP or Google secret
         # takes effect on apply). Hashes only; no values.
-        annotations = {
+        annotations = merge({
           "runbook.dev/config-sha256" = sha256(jsonencode(kubernetes_config_map.runbook_config.data))
-          "runbook.dev/secret-sha256" = nonsensitive(sha256(jsonencode(kubernetes_secret.runbook_secrets.data)))
-        }
+          }, var.manage_secret_values ? {
+          "runbook.dev/secret-sha256" = nonsensitive(sha256(jsonencode(kubernetes_secret.runbook_secrets[0].data)))
+        } : {})
       }
 
       spec {
         service_account_name             = kubernetes_service_account.runbook_ksa.metadata[0].name
         termination_grace_period_seconds = 45
+        automount_service_account_token  = false
+
+        security_context {
+          seccomp_profile {
+            type = "RuntimeDefault"
+          }
+        }
 
         # Cloud SQL Auth Proxy sidecar container
         # Note: hashicorp/kubernetes provider does not yet support restart_policy in init_container (native sidecars).
         # Cloud SQL Auth Proxy runs as a standard sidecar with health checks and max-sigterm-delay.
         container {
           name  = "cloud-sql-proxy"
-          image = "gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.14.2"
-          args = [
+          image = var.cloud_sql_proxy_image
+          args = concat([
             "--private-ip",
             "--structured-logs",
             "--port=5432",
@@ -118,7 +126,7 @@ resource "kubernetes_deployment" "runbook" {
             "--http-address=0.0.0.0",
             "--max-sigterm-delay=30s",
             google_sql_database_instance.postgres.connection_name,
-          ]
+          ], local.proxy_auth_args)
 
           startup_probe {
             http_get {
@@ -131,8 +139,13 @@ resource "kubernetes_deployment" "runbook" {
           }
 
           security_context {
+            read_only_root_filesystem  = true
             run_as_non_root            = true
             allow_privilege_escalation = false
+
+            capabilities {
+              drop = ["ALL"]
+            }
           }
 
           resources {
@@ -161,7 +174,7 @@ resource "kubernetes_deployment" "runbook" {
 
           env_from {
             secret_ref {
-              name = kubernetes_secret.runbook_secrets.metadata[0].name
+              name = local.workload_secret_name
             }
           }
 
@@ -217,6 +230,10 @@ resource "kubernetes_deployment" "runbook" {
             run_as_user                = 10001
             run_as_group               = 10001
             allow_privilege_escalation = false
+
+            capabilities {
+              drop = ["ALL"]
+            }
           }
 
           volume_mount {

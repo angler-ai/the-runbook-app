@@ -35,13 +35,15 @@ All configuration is environment; nothing is baked into the image. Copy
 
 | Variable | Example | Description |
 | --- | --- | --- |
-| `RUNBOOK_WEBHOOK_SECRET_KEY` |  | Required. Seals webhook subscription secrets at rest: 32 random bytes, base64. Generate once and keep it; losing it makes stored webhook secrets unreadable (rotate the subscriptions then). openssl rand -base64 32 |
+| `RUNBOOK_WEBHOOK_SECRET_KEY` |  | Required. Seals webhook subscription secrets at rest, and the runner's signing keys: 32 random bytes, base64. Generate once and keep it; losing it makes stored webhook secrets unreadable (rotate the subscriptions then) and replaces the signing keys. openssl rand -base64 32 |
 | `RUNBOOK_ORIGIN` | `http://localhost:8080` | The public URL users and the CLI reach the server at (scheme://host[:port], no path). Behind a TLS proxy this is the https:// URL. A plain http:// origin on a non-loopback host makes `serve` print a warning at startup: bearer tokens would cross the network unencrypted. |
 | `RUNBOOK_BIND_ADDRESS` | `127.0.0.1` | Host interface and port the server is published on. Loopback by default; set RUNBOOK_BIND_ADDRESS=0.0.0.0 only behind a firewall or TLS proxy. |
 | `RUNBOOK_HOST_PORT` | `8080` |  |
 | `RUNBOOK_TRUSTED_PROXIES` |  | The reverse proxies whose X-Forwarded-For (or Forwarded) header names the client: a comma list of addresses or CIDR blocks; empty trusts none, and every client then shares the proxy's address in the per-IP sign-in limits. With a TLS proxy on this host in front of the loopback port, connections reach the container from the Docker bridge gateway, so trust the bridge (for example 172.16.0.0/12). Trust a proxy only when nothing else can reach the published port: a trusted peer may claim any client address. |
 | `RUNBOOK_ALLOW_PRIVATE_WEBHOOK_TARGETS` | `false` | Webhook targets on private, loopback or plain-http addresses (self-hosted receivers on the same network). Link-local (cloud metadata) needs its own flag. |
 | `RUNBOOK_ALLOW_LINK_LOCAL_WEBHOOK_TARGETS` | `false` |  |
+| `RUNBOOK_RUNNER_PRIVATE_NETWORKS` | `false` | The runner (optional add-on): its URL may be a private, loopback or plain-http address (a runner on the same network). Link-local and cloud metadata addresses are always refused. |
+| `RUNBOOK_RUNNER_CLIENT_CERT` |  | A PEM file with the client certificate and key the server presents to the runner (mutual TLS), when the runner requires one. |
 | `RUNBOOK_WEB_DIR` |  | The web UI the image ships, served on RUNBOOK_ORIGIN (open it in a browser). On by default; uncomment to serve the API alone. |
 
 ## Sign-in (D48)

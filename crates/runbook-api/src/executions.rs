@@ -252,6 +252,14 @@ impl<D: DirectoryOperations, C: CredentialStore, B: ExecutionBackend> ExecutionS
             .snapshot(&record.org_id)
             .await
             .map_err(|_| error(503, "storage.unavailable"))?;
+        if let Some(crate::Credential::Session(session)) = &r.credential
+            && let runbook_core::credentials::CredentialPrincipal::User { user_id, .. } =
+                &record.principal
+            && let Some(user) = snapshot.users.get(user_id)
+            && crate::mfa::partial(session, snapshot.security, user.role, now)
+        {
+            return Err(error(403, "auth.mfa_required"));
+        }
         let execution = params
             .get("exe")
             .map(|id| {

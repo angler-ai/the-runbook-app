@@ -269,6 +269,7 @@ macro_rules! native_d1_own {
     };
 }
 native_d1_own!(
+    d1_runner_registration_and_rejoin => "d1::runner_registration_and_rejoin",
     d1_a_release_never_strands_a_waiter_queued_meanwhile => "d1::a_release_never_strands_a_waiter_queued_meanwhile",
     d1_an_admission_rechecks_a_pool_released_meanwhile => "d1::an_admission_rechecks_a_pool_released_meanwhile",
     d1_one_replay_key_reserves_one_run => "d1::one_replay_key_reserves_one_run",

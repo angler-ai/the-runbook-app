@@ -7,7 +7,7 @@ import { MAX_LCS_CELLS, computeLineOperations, computeUnifiedDiff } from './diff
 import { DiffView } from './DiffView';
 import { ExecutionTable } from './ExecutionTable';
 import { FilterBar, type ExecutionStatus } from './FilterBar';
-import { InboxList } from './InboxList';
+import { InboxList, inboxAgentText } from './InboxList';
 import { VersionList } from './VersionList';
 
 describe('LCS line diff algorithm (diff.ts)', () => {
@@ -212,11 +212,7 @@ describe('ExecutionTable', () => {
     const onSelect = vi.fn();
 
     const { container } = render(
-      <ExecutionTable
-        executions={executions}
-        now={1060000}
-        onSelectExecution={onSelect}
-      />,
+      <ExecutionTable executions={executions} now={1060000} onSelectExecution={onSelect} />,
     );
 
     expect(screen.getByText('Production Deploy')).toBeInTheDocument();
@@ -352,9 +348,7 @@ describe('InboxList', () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();
 
-    const { container } = render(
-      <InboxList items={inboxItems} onSelectTask={onSelect} />,
-    );
+    const { container } = render(<InboxList items={inboxItems} onSelectTask={onSelect} />);
 
     expect(screen.getByText(/Approvals \(1\)/)).toBeInTheDocument();
     expect(screen.getByText('Sign off rollout')).toBeInTheDocument();
@@ -380,6 +374,45 @@ describe('InboxList', () => {
       expect(row).toHaveClass('focus-visible:outline-2', 'focus-visible:outline-accent');
       expect(row).not.toHaveClass('focus-visible:outline-none');
     }
+  });
+
+  // R1-D2: an approval a runner agent may decide says so, and when.
+  it('marks approvals an agent may decide, and when', async () => {
+    const now = 1_000_000;
+    const runInfo = new Map([
+      [
+        'exe_1',
+        {
+          agentDecides: {
+            name: 'release-reviewer',
+            readyAtMs: now + 15 * 60_000,
+            reviewing: false,
+            abstained: false,
+          },
+        },
+      ],
+      // A human task in a run whose approval agent data is present is not marked.
+      ['exe_2', { agentDecides: { name: 'x', reviewing: true, abstained: false } }],
+    ]);
+    const { container, rerender } = render(
+      <InboxList items={inboxItems} runInfo={runInfo} now={now} />,
+    );
+    const marks = container.querySelectorAll('[data-slot="inbox-agent-decides"]');
+    expect(marks).toHaveLength(1);
+    expect(marks[0]).toHaveTextContent('Agent release-reviewer may decide in 15m');
+    await expectNoAxeViolations(container);
+
+    rerender(<InboxList items={inboxItems} runInfo={runInfo} now={now + 20 * 60_000} />);
+    expect(screen.getByText('Agent release-reviewer may decide now')).toBeInTheDocument();
+  });
+
+  it('words a reviewing or abstained agent', () => {
+    const agent = { name: 'r', readyAtMs: 5, reviewing: false, abstained: false };
+    expect(inboxAgentText({ ...agent, reviewing: true }, 0)).toBe('Agent r is reviewing');
+    expect(inboxAgentText({ ...agent, abstained: true }, 0)).toBe('Agent r abstained');
+    expect(inboxAgentText({ name: 'r', reviewing: false, abstained: false }, 0)).toBe(
+      'Agent r may decide now',
+    );
   });
 
   it('renders EmptyState when inbox is clear', async () => {

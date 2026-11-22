@@ -736,15 +736,15 @@ function EditorSession({
         actionId: action.id,
       });
       publishAction.current = null;
-      // Publication compiled this exact source on the server: nothing to report.
       setServer({ source: current.source, revision: current.revision, diagnostics: [] });
       setConflict(null);
+      const publication =
+        version.runbook_version === action.latestBefore
+          ? `Unchanged; same as v${version.runbook_version}. Nothing new was published.`
+          : `Published v${version.runbook_version}.`;
       setNotice({
         tone: 'status',
-        text:
-          version.runbook_version === action.latestBefore
-            ? `Unchanged; same as v${version.runbook_version}. Nothing new was published.`
-            : `Published v${version.runbook_version}.`,
+        text: [publication, ...(version.warnings ?? []).map(({ message }) => message)].join(' '),
       });
     } catch (error) {
       if (isDefinitive(error)) publishAction.current = null;

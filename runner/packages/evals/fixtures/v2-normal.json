@@ -1,0 +1,113 @@
+{
+  "modelId": "fixture",
+  "calls": [
+    {
+      "requestHash": "4d448fa573a85a6cf541c9be65a1590398db7b9a18e967568f9b33ac05462709",
+      "parts": [
+        {
+          "type": "tool-input-start",
+          "id": "read-1",
+          "toolName": "read"
+        },
+        {
+          "type": "tool-input-delta",
+          "id": "read-1",
+          "delta": "{\"path\":\"service.log\"}"
+        },
+        {
+          "type": "tool-input-end",
+          "id": "read-1"
+        },
+        {
+          "type": "tool-call",
+          "toolCallId": "read-1",
+          "toolName": "read",
+          "input": "{\"path\":\"service.log\"}"
+        },
+        {
+          "type": "finish",
+          "finishReason": {
+            "unified": "tool-calls",
+            "raw": "tool_use"
+          },
+          "usage": {
+            "inputTokens": {
+              "total": 10,
+              "noCache": 8,
+              "cacheRead": 2,
+              "cacheWrite": 0
+            },
+            "outputTokens": {
+              "total": 5,
+              "text": 5,
+              "reasoning": 0
+            }
+          }
+        }
+      ]
+    },
+    {
+      "requestHash": "442165a8ca6b2ff30e4a042ef96138e2c6d74846d162b91d9852f5c471bd0d6b",
+      "parts": [
+        {
+          "type": "tool-input-start",
+          "id": "finish-1",
+          "toolName": "submit_result"
+        },
+        {
+          "type": "tool-input-delta",
+          "id": "finish-1",
+          "delta": "{\"outputs\":{\"job\":21,\"kind\":\"disk_failure\"},\"checklist\":[\"Inspect the relevant evidence\"],\"summary\":\"The disk failure started the retry cascade.\",\"evidence\":[{\"claim\":\"Originating error\",\"tool_call_ids\":[\"read-1\"]}],\"unverified\":[]}"
+        },
+        {
+          "type": "tool-input-end",
+          "id": "finish-1"
+        },
+        {
+          "type": "tool-call",
+          "toolCallId": "finish-1",
+          "toolName": "submit_result",
+          "input": "{\"outputs\":{\"job\":21,\"kind\":\"disk_failure\"},\"checklist\":[\"Inspect the relevant evidence\"],\"summary\":\"The disk failure started the retry cascade.\",\"evidence\":[{\"claim\":\"Originating error\",\"tool_call_ids\":[\"read-1\"]}],\"unverified\":[]}"
+        },
+        {
+          "type": "finish",
+          "finishReason": {
+            "unified": "tool-calls",
+            "raw": "tool_use"
+          },
+          "usage": {
+            "inputTokens": {
+              "total": 10,
+              "noCache": 8,
+              "cacheRead": 2,
+              "cacheWrite": 0
+            },
+            "outputTokens": {
+              "total": 5,
+              "text": 5,
+              "reasoning": 0
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "answer": {
+    "status": "submitted",
+    "outputs": {
+      "job": 21,
+      "kind": "disk_failure"
+    },
+    "summary": "The disk failure started the retry cascade.",
+    "checklist": [
+      "Inspect the relevant evidence"
+    ],
+    "toolCalls": 1
+  },
+  "toolNames": [
+    "read"
+  ],
+  "toolHashes": [
+    "14face313594adcb0bcc4d789ecc727c9a60d121198a8c338ed3b6cd3c5d0d98"
+  ]
+}

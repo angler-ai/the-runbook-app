@@ -45,6 +45,10 @@ pub struct PostgresBackends {
     pub(crate) origin: String,
     /// SLACK1 stage 2: the operator's Slack app.
     pub(crate) slack: Option<runbook_core::slack::SlackApp>,
+    /// R0-1: the runner signing keys.
+    pub(crate) signer: crate::signing::ServerSigner,
+    /// R0-2: the runner settings.
+    pub(crate) runner: crate::config::RunnerConfig,
 }
 
 impl PostgresBackends {
@@ -66,6 +70,8 @@ impl PostgresBackends {
             objects,
             origin: server.origin.clone(),
             slack: server.slack.clone(),
+            signer: crate::signing::ServerSigner::new(&server.database, &server.webhooks),
+            runner: server.runner.clone(),
         }
     }
 }
@@ -146,6 +152,7 @@ impl Backends for PostgresBackends {
     type Executions = crate::executions::PostgresExecutionBackend;
     type Authoring = PostgresAuthoring;
     type Archives = crate::daily_archives::PostgresArchiveBackend;
+    type Runners = runbook_store_postgres::PostgresRunners;
     type Notify = runbook_store_postgres::PostgresNotify;
 
     fn directory(&self) -> PostgresDirectory {
@@ -180,6 +187,21 @@ impl Backends for PostgresBackends {
     ) -> Result<Vec<runbook_core::triggers::PublishedVersion>, runbook_core::StoreError> {
         runbook_store_postgres::published_versions(&self.config).await
     }
+    fn runners(&self) -> runbook_store_postgres::PostgresRunners {
+        runbook_store_postgres::PostgresRunners::new(self.config.clone())
+    }
+    fn runner_private_networks(&self) -> bool {
+        self.runner.private_networks
+    }
+    async fn runner_fetch(
+        &self,
+        request: runbook_api::runner_proxy::RunnerHttpRequest,
+    ) -> Result<runbook_api::runner_proxy::RunnerHttpResponse, &'static str> {
+        let config = self.runner.clone();
+        tokio::task::spawn_blocking(move || crate::runner_proxy::fetch(&config, request))
+            .await
+            .unwrap_or(Err("runner.unreachable"))
+    }
     fn archives(&self) -> crate::daily_archives::PostgresArchiveBackend {
         crate::daily_archives::PostgresArchiveBackend {
             config: self.config.clone(),
@@ -204,13 +226,13 @@ impl Backends for PostgresBackends {
     fn try_image_slot(&self) -> Option<tokio::sync::OwnedSemaphorePermit> {
         self.image_slot.clone().try_acquire_owned().ok()
     }
-    async fn oauth_apps(
+    async fn auth_internal(
         &self,
         route: &'static str,
         body: serde_json::Value,
     ) -> Result<Option<serde_json::Value>, runbook_api::session::Unavailable> {
         match &self.auth {
-            Some(sessions) => sessions.oauth_apps(route, &body).await,
+            Some(sessions) => sessions.auth_internal(route, &body).await,
             None => Ok(None),
         }
     }
@@ -231,6 +253,16 @@ impl Backends for PostgresBackends {
     }
     async fn slack_respond(&self, url: &str, body: &serde_json::Value) -> Result<(), String> {
         crate::slack_http::SlackHttp.respond(url, body).await
+    }
+    async fn signing_keys(
+        &self,
+    ) -> Result<runbook_core::signing::KeyRing, runbook_core::signing::SigningError> {
+        self.signer.ring().await
+    }
+    async fn jwks(
+        &self,
+    ) -> Result<runbook_core::signing::Jwks, runbook_core::signing::SigningError> {
+        self.signer.jwks().await
     }
     fn wall_clock_ms(&self) -> i64 {
         std::time::SystemTime::now()
@@ -321,6 +353,13 @@ impl Backends for PostgresBackends {
         metadata: &TokenMetadata,
     ) -> Result<(), CredentialError> {
         self.credentials().insert_issued(record, metadata).await
+    }
+    async fn token_metadata(
+        &self,
+        org: &OrganizationId,
+        id: &runbook_model::TokenId,
+    ) -> Result<TokenMetadata, CredentialError> {
+        self.credentials().metadata(org, id).await
     }
     async fn tokens_of_org(
         &self,

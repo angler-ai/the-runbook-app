@@ -179,6 +179,8 @@ mod tests {
             actor: runbook_model::ActorRef::System,
             event: Event::StepClaimed {
                 step_run_id: "sr_00000000000000000000000001".parse().unwrap(),
+                agent_version_id: None,
+                claim_id: None,
             },
         };
         let text = serde_json::to_vec(&event).unwrap().len() as u64;

@@ -1,0 +1,190 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Synthetic internal signing secret for the auth stub."
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ["(?:^|/)auth/tests/support/stubs\\.mjs$"]
+regexes = [
+  "\\A\\x74est-internal-secret-0123456789abcdef0123456789\\z",
+]
+
+[[allowlists]]
+description = "Synthetic token identifier for the D1/Postgres comparison."
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ["(?:^|/)cloudflare/tests/d1-psql\\.test\\.mjs$"]
+regexes = [
+  "\\A\\x74ok_01JABCDEFGHJKMNPQRSTVWXYZ0\\z",
+]
+
+[[allowlists]]
+description = "Synthetic internal signing secret for the Worker harness."
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ["(?:^|/)cloudflare/tests/harness\\.mjs$"]
+regexes = [
+  "\\A\\x63f7-internal-secret-0123456789abcdef0123456789\\z",
+]
+
+[[allowlists]]
+description = "Synthetic token identifier for the local-origin test."
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ["(?:^|/)cloudflare/tests/local-origin\\.test\\.mjs$"]
+regexes = [
+  "\\A\\x74ok_01JABCDEFGHJKMNPQRSTVWXYZ9\\z",
+]
+
+[[allowlists]]
+description = "Synthetic signing secret for the test Worker."
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ["(?:^|/)cloudflare/tests/portable\\.test\\.mjs$"]
+regexes = [
+  "\\A\\x63f8-operator-secret-0123456789abcdef0123456789\\z",
+]
+
+[[allowlists]]
+description = "Synthetic signing secret for the shard test."
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ["(?:^|/)cloudflare/tests/shards\\.test\\.mjs$"]
+regexes = [
+  "\\A\\x63f11-operator-secret-0123456789abcdef0123456789\\z",
+]
+
+[[allowlists]]
+description = "Expected request field names in the CLI tests."
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ["(?:^|/)crates/runbook-cli/tests/run\\.rs$"]
+regexes = [
+  "\\A\\x69dem-key-abc-123\\z",
+]
+
+[[allowlists]]
+description = "Synthetic signing secret for the Slack signature unit test."
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ["(?:^|/)crates/runbook-core/src/slack\\.rs$"]
+regexes = [
+  "\\A\\x38f742231b10e8888abcd99yyyzzz85a5\\z",
+]
+
+[[allowlists]]
+description = "Synthetic PEM text exercising log framing."
+condition = "AND"
+targetRules = ["private-key"]
+paths = ["(?:^|/)crates/runbook-core/tests/log_framing\\.rs$"]
+regexes = [
+  "\\A\\x2d----BEGIN PRIVATE KEY-----\",\n            \"private material\",\n            \"-----END PRIVATE KEY-----\\z",
+]
+
+[[allowlists]]
+description = "Synthetic and malformed PEM text exercising streaming redaction."
+condition = "AND"
+targetRules = ["private-key"]
+paths = ["(?:^|/)crates/runbook-core/tests/redact\\.rs$"]
+regexes = [
+  "(?s)\\A\\x2d----BEGIN PRIVATE KEY-----\\\\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\\\\n-----END PRIVATE .*      \\(\n            \"token=x-----BEGIN PRIVATE KEY-----\\z",
+  "(?s)\\A\\x2d----BEGIN PRIVATE KEY-----\\\\nU2Vuc2l0aXZl\\\\n-----END PRIVATE KEY----- after\\\\nnext.*l\"\\),\n        \\(\n            \"-----BEGIN PRIVATE KEY-----\\z",
+  "(?s)\\A\\x2d----BEGIN PRIVATE KEY-----\\\\n\\{\\}\\\\n-----END PRIVATE KEY----- done\",\n            \"a.*\\.push\\(&format!\\(\n        \"-----BEGIN \\{\\} PRIVATE KEY-----\\z",
+  "(?s)\\A\\x2d----BEGIN RSA PRIVATE KEY-----\"\\.into\\(\\),\n        \"U2Vuc2l0aXZlMQ==\"\\.into\\(\\),\n    .*XZlMg==\"\\.into\\(\\),\n        \"-----END RSA PRIVATE KEY-----\\z",
+]
+
+[[allowlists]]
+description = "Synthetic PEM text exercising the redactor."
+condition = "AND"
+targetRules = ["private-key"]
+paths = ["(?:^|/)crates/runbook-core/tests/redact_fuzz\\.rs$"]
+regexes = [
+  "\\A\\x2d----BEGIN PRIVATE KEY-----\\\\nU2Vuc2l0aXZl\\\\n-----END PRIVATE KEY-----\\\\nmid\\\\n-----END PRIVATE KEY-----\\z",
+]
+
+[[allowlists]]
+description = "Synthetic PEM text generated for redactor coverage."
+condition = "AND"
+targetRules = ["private-key"]
+paths = ["(?:^|/)crates/runbook-core/tests/support/redact_gen\\.rs$"]
+regexes = [
+  "\\A\\x2d----BEGIN PRIVATE KEY-----\\\\n\u00a4\\\\n\u00a7\\\\n-----END PRIVATE KEY-----\",\n    \"-----BEGIN RSA PRIVATE KEY-----\\z",
+]
+
+[[allowlists]]
+description = "Synthetic PEM text testing MCP log redaction."
+condition = "AND"
+targetRules = ["private-key"]
+paths = ["(?:^|/)crates/runbook-mcp/src/logs\\.rs$"]
+regexes = [
+  "(?s)\\A\\x2d----BEGIN PRIVATE KEY----- \\{\\}\", filler\\(window \\* 2\\)\\),\n            \\),\n        \\];\n.*    \\.chain\\(\\[\n                \"-----END PRIVATE KEY-----\\z",
+  "\\A\\x2d----BEGIN PRIVATE KEY-----\",\n                &\\[\n                    \"MIIEvQIBADANBgkqhkiG9w0BAQEFAASC\",\n                    \"SUPERSECRETKEYBODY\",\n                    \"-----END PRIVATE KEY-----\\z",
+  "\\A\\x2d----BEGIN PRIVATE KEY-----\",\n            \"MIIEvQIBADANBgkqhkiG9w0BAQEFAASC\",\n            \"-----END PRIVATE KEY-----\\z",
+]
+
+[[allowlists]]
+description = "Synthetic Slack tokens and PEM text testing redaction parity."
+condition = "AND"
+targetRules = ["private-key"]
+paths = ["(?:^|/)crates/runbook-redact-wasm/tests/redact_fixtures\\.json$"]
+regexes = [
+  "(?s)\\A\\x2d----BEGIN EC PRIVATE KEY-----\\\\nU2Vuc2l0aXZl\\\\n-----END EC PRIVATE KEY----- after.*   \"input\": \"before -----BEGIN OPENSSH PRIVATE KEY-----\\z",
+  "\\A\\x2d----BEGIN PRIVATE KEY-----\\\\nU2Vuc2l0aXZl\\\\n-----END PRIVATE KEY----- after\",\n      \"expected\": \"before \\[REDACTED:private_key\\] after\"\n    \\},\n    \\{\n      \"input\": \"before -----BEGIN RSA PRIVATE KEY-----\\z",
+]
+
+[[allowlists]]
+description = "Synthetic Slack tokens and PEM text testing redaction parity."
+condition = "AND"
+targetRules = ["slack-legacy-workspace-token"]
+paths = ["(?:^|/)crates/runbook-redact-wasm/tests/redact_fixtures\\.json$"]
+regexes = [
+  "\\A\\x78oxa-Sensitive\\z",
+  "\\A\\x78oxr-Sensitive\\z",
+]
+
+[[allowlists]]
+description = "Synthetic token identifier for the pilot example."
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ["(?:^|/)crates/runbook-server/tests/pilot_examples\\.rs$"]
+regexes = [
+  "\\A\\x74ok_01JABCDEFGHJKMNPQRSTVWXYZ9\\z",
+]
+
+[[allowlists]]
+description = "Deterministic test vector encoded from the bytes 0 through 31."
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ["(?:^|/)crates/runbook-store-conformance/src/credentials\\.rs$"]
+regexes = [
+  "\\A\\x74rb_pat_AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8\\z",
+]
+
+[[allowlists]]
+description = "Literal ellipsis placeholder in the kubectl example."
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ["(?:^|/)examples/webhooks/kubernetes-job/README\\.md$"]
+regexes = [
+  "\\A\\x61nthropic-api-key=\\.\\.\\.\\z",
+]
+
+[[allowlists]]
+description = "Migration filenames asserted by the database role test."
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ["(?:^|/)runner/packages/shared/test/db-roles\\.test\\.ts$"]
+regexes = [
+  "\\A\\x30019_reservation_capability\\z",
+  "\\A\\x30022_vault_proposal_policy\\z",
+]
+
+[[allowlists]]
+description = "Synthetic PAT used to test secret-shape detection."
+condition = "AND"
+targetRules = ["github-pat"]
+paths = ["(?:^|/)runner/packages/shared/test/secret-shape\\.test\\.ts$"]
+regexes = [
+  "\\A\\x67hp_FAKEfakeFAKEfakeFAKEfakeFAKEfake1234\\z",
+]

@@ -242,6 +242,7 @@ fn defaults() -> TaskDefaults {
         },
         on_failure: FailurePolicy::Fail,
         followup: None,
+        agent: None,
     }
 }
 impl Reader<'_> {
@@ -588,6 +589,37 @@ impl Reader<'_> {
         } else {
             AgentHints::default()
         };
+        // R0-3: the runner agent keys. The name falls back to
+        // `spec.defaults.agent` for agent steps; publish resolves it.
+        let actor = self.actor(map, path, def.actor)?;
+        let (agent_name, agent_limits) = match map.get("agent") {
+            Some(v) => {
+                let agent_path = pointer(path, "agent");
+                let m = self.object(v, &agent_path)?;
+                (
+                    self.agent_name(m, &agent_path)?,
+                    self.agent_limits(m, &agent_path)?,
+                )
+            }
+            None => (None, AgentLimits::default()),
+        };
+        if agent_name.is_some() && actor != Actor::Agent {
+            return Err(self.err(
+                "spec.agent_requires_agent_actor",
+                &pointer(&pointer(path, "agent"), "name"),
+            ));
+        }
+        let agent_target = match agent_name {
+            Some(name) => Some(AgentTarget::Named { name }),
+            None if actor == Actor::Agent => {
+                def.agent.clone().map(|name| AgentTarget::Named { name })
+            }
+            None => None,
+        };
+        let connections = map
+            .get("connections")
+            .map(|value| self.strings(value, &pointer(path, "connections")))
+            .transpose()?;
         let evidence = if let Some(v) = map.get("evidence") {
             let p = pointer(path, "evidence");
             let m = self.object(v, &p)?;
@@ -633,7 +665,7 @@ impl Reader<'_> {
             }
         };
         Ok(Task {
-            actor: self.actor(map, path, def.actor)?,
+            actor,
             assignee,
             assignment,
             retry: self.retry(map, path, &def.retry)?,
@@ -649,6 +681,49 @@ impl Reader<'_> {
             outputs: self.schema(map, "outputs", path)?,
             evidence,
             agent,
+            agent_target,
+            agent_limits: (!agent_limits.is_empty()).then_some(agent_limits),
+            connections,
+        })
+    }
+    /// R0-3: `agent.name` (a non-empty string of at most 128 characters).
+    fn agent_name(&self, map: &Map<String, Value>, path: &str) -> Result<Option<String>> {
+        let name = self.optional_string(map, "name", path)?;
+        if let Some(name) = &name
+            && (name.trim().is_empty() || name.chars().count() > 128)
+        {
+            return Err(self.err("spec.invalid_value", &pointer(path, "name")));
+        }
+        Ok(name)
+    }
+    /// R0-3: `agent.model`, `max_cost_usd` (> 0), `max_tokens` (a positive
+    /// integer) and `network` (host names).
+    fn agent_limits(&self, map: &Map<String, Value>, path: &str) -> Result<AgentLimits> {
+        let max_cost_usd = map
+            .get("max_cost_usd")
+            .map(|v| {
+                v.as_f64()
+                    .filter(|n| n.is_finite() && *n > 0.0)
+                    .ok_or_else(|| self.err("spec.invalid_value", &pointer(path, "max_cost_usd")))
+            })
+            .transpose()?;
+        let max_tokens = map
+            .get("max_tokens")
+            .map(|v| {
+                crate::schema::integer_value(v)
+                    .and_then(|n| u64::try_from(n).ok())
+                    .filter(|n| *n > 0)
+                    .ok_or_else(|| self.err("spec.invalid_value", &pointer(path, "max_tokens")))
+            })
+            .transpose()?;
+        Ok(AgentLimits {
+            model: self.optional_string(map, "model", path)?,
+            max_cost_usd,
+            max_tokens,
+            network: map
+                .contains_key("network")
+                .then(|| self.optional_strings(map, "network", path))
+                .transpose()?,
         })
     }
     fn evidence_kinds(
@@ -699,6 +774,14 @@ impl Reader<'_> {
             def.on_failure = self.failure(m, "/spec/defaults", def.on_failure)?;
             def.retry = self.retry(m, "/spec/defaults", &def.retry)?;
             def.followup = self.followup(m, "/spec/defaults", None)?;
+            if let Some(agent) = m.get("agent") {
+                let p = "/spec/defaults/agent";
+                let a = self.object(agent, p)?;
+                def.agent = Some(
+                    self.agent_name(a, p)?
+                        .ok_or_else(|| self.err("spec.required", &pointer(p, "name")))?,
+                );
+            }
         }
         let inputs = self.schema(body, "inputs", "/spec")?;
         let triggers = self.triggers(body, &inputs)?;
@@ -953,6 +1036,7 @@ impl Reader<'_> {
                                 | "outputs"
                                 | "evidence"
                                 | "agent"
+                                | "connections"
                         )
                 }
                 Some("steps") => matches!(key.as_str(), "steps" | "catch" | "finally" | "catch_on"),
@@ -1483,9 +1567,45 @@ impl Reader<'_> {
             Some("fail") => ExpiredPolicy::Fail,
             _ => return Err(self.err("spec.invalid_value", &pointer(path, "on_expired"))),
         };
+        let approves = if map.contains_key("approves") {
+            let values = self.optional_strings(map, "approves", path)?;
+            let mut seen = BTreeSet::new();
+            for (index, option) in values.iter().enumerate() {
+                if !ids.contains(option) || !seen.insert(option) {
+                    return Err(self.err(
+                        "spec.invalid_value",
+                        &pointer(&pointer(path, "approves"), &index.to_string()),
+                    ));
+                }
+            }
+            Some(values)
+        } else {
+            None
+        };
+        let allow_agents = self.boolean(map, "allow_agents", path, false)?;
+        let agent_path = pointer(path, "agent");
+        let (agent_target, agent_limits, agent_after) = if let Some(agent) = map.get("agent") {
+            if !allow_agents {
+                return Err(self.err("spec.agent_requires_allow_agents", &agent_path));
+            }
+            let agent = self.object(agent, &agent_path)?;
+            let limits = self.agent_limits(agent, &agent_path)?;
+            let name = self
+                .agent_name(agent, &agent_path)?
+                .ok_or_else(|| self.err("spec.required", &pointer(&agent_path, "name")))?;
+            let target = Some(AgentTarget::Named { name });
+            (
+                target,
+                (!limits.is_empty()).then_some(limits),
+                self.optional_duration(agent, "after", &agent_path)?,
+            )
+        } else {
+            (None, None, None)
+        };
         Ok(Approval {
             prompt: self.required_string(map, "prompt", path)?,
             options,
+            approves,
             approvers,
             min: self.optional_positive(map, "min", path, 1)?,
             timeout,
@@ -1495,7 +1615,10 @@ impl Reader<'_> {
                 .optional_duration(map, "escalation_timeout", path)?
                 .or(timeout),
             on_expired,
-            allow_agents: self.boolean(map, "allow_agents", path, false)?,
+            allow_agents,
+            agent_target,
+            agent_limits,
+            agent_after,
         })
     }
 }

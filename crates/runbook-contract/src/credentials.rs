@@ -69,6 +69,22 @@ pub(super) fn register(paths: &mut Map<String, Value>) {
             op["requestBody"] = json!({"required":true,"content":{"application/json":{"schema":{"$ref":format!("#/components/schemas/{request}")}}}});
         }
         op["responses"][status] = json!({"description":"Committed response; credentials are shown once.","headers":{"Cache-Control":{"schema":{"type":"string","const":"no-store"}}},"content":{"application/json":{"schema":if response.is_empty(){json!({"type":"null"})}else{json!({"$ref":format!("#/components/schemas/{response}")})}}}});
+        if method == "get" && path == "/v1/step-runs/{sr}" {
+            op["description"] = json!(format!(
+                "{} Runner claim tokens also read their leased approval as decision work.",
+                op["description"].as_str().unwrap_or_default()
+            ));
+            op["responses"]["200"]["content"]["application/json"]["schema"] = json!({
+                "oneOf": [
+                    {"$ref":"#/components/schemas/ClaimedStepRead"},
+                    {"$ref":"#/components/schemas/ClaimedDecisionRead"}
+                ]
+            });
+            op["x-principals"]
+                .as_array_mut()
+                .expect("GET principal list")
+                .push(json!("claim_token"));
+        }
         for (code, codes) in [
             (
                 "401",

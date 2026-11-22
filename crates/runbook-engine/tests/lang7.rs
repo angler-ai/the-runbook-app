@@ -158,6 +158,8 @@ fn a_person_takes_over_a_ready_agent_task() {
     trace.append(
         Event::StepClaimed {
             step_run_id: id.clone(),
+            agent_version_id: None,
+            claim_id: None,
         },
         human(),
         10,
@@ -249,6 +251,8 @@ fn a_take_over_is_only_a_persons_claim_of_an_agent_task() {
         trace.append(
             Event::StepClaimed {
                 step_run_id: id.clone(),
+                agent_version_id: None,
+                claim_id: None,
             },
             claimant,
             10,
@@ -272,6 +276,8 @@ fn a_released_take_over_is_cleared() {
     trace.append(
         Event::StepClaimed {
             step_run_id: id.clone(),
+            agent_version_id: None,
+            claim_id: None,
         },
         human(),
         10,

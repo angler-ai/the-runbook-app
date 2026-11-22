@@ -7,6 +7,7 @@ import { drizzle } from 'drizzle-orm/d1';
 import { type App, createApp, createAuth } from './app';
 import { ConfigError, loadConfig } from './config';
 import { bindingTransport, cloudflareTransport, type EmailBinding, type EmailServiceBinding } from './email';
+import { deliverMfaNotifications } from './mfa';
 import { drizzleStore } from './limits';
 import * as schema from './schema/sqlite';
 
@@ -24,7 +25,8 @@ export interface Env {
 }
 
 // One app per isolate and environment object.
-const apps = new WeakMap<object, App | 'misconfigured'>();
+type WorkerApp = App & { deliverNotifications(): Promise<void> };
+const apps = new WeakMap<object, WorkerApp | 'misconfigured'>();
 
 const misconfigured = () =>
   new Response(JSON.stringify({ code: 'auth.misconfigured', message: 'The sign-in service is misconfigured; see its logs.' }), {
@@ -32,7 +34,7 @@ const misconfigured = () =>
     headers: { 'content-type': 'application/json' },
   });
 
-function build(env: Env): App | 'misconfigured' {
+function build(env: Env): WorkerApp | 'misconfigured' {
   let config;
   try {
     config = loadConfig(env, 'worker');
@@ -58,16 +60,27 @@ function build(env: Env): App | 'misconfigured' {
       ? (input: Request | string | URL, init?: RequestInit) => env.API!.fetch(new Request(input, init))
       : (input: Request | string | URL, init?: RequestInit) => fetch(input, init),
   };
-  return createApp(deps, config.methods.length > 0 ? createAuth(deps) : null);
+  return { ...createApp(deps, config.methods.length > 0 ? createAuth(deps) : null),
+    deliverNotifications: () => deliverMfaNotifications(deps),
+  };
+}
+
+function appFor(env: Env) {
+  let app = apps.get(env);
+  if (!app) {
+    app = build(env);
+    apps.set(env, app);
+  }
+  return app;
 }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    let app = apps.get(env);
-    if (!app) {
-      app = build(env);
-      apps.set(env, app);
-    }
+    const app = appFor(env);
     return app === 'misconfigured' ? misconfigured() : app.fetch(request);
+  },
+  async scheduled(_event: ScheduledController, env: Env): Promise<void> {
+    const app = appFor(env);
+    if (app !== 'misconfigured') await app.deliverNotifications();
   },
 };

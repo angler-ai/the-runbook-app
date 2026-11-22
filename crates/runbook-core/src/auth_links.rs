@@ -88,6 +88,18 @@ pub trait AuthLinkStore {
         &self,
         user_id: &UserId,
     ) -> impl Future<Output = Result<Vec<String>, DirectoryError>>;
+    /// Only the links established in this organization, sorted by auth user ID.
+    fn auth_links_in_org(
+        &self,
+        org: &OrganizationId,
+    ) -> impl Future<Output = Result<Vec<AuthLink>, DirectoryError>>;
+    /// Links eligible for organization-owner recovery. Requires active
+    /// membership here, no membership elsewhere and no foreign auth link.
+    fn owner_reset_auth_users(
+        &self,
+        org: &OrganizationId,
+        user: &UserId,
+    ) -> impl Future<Output = Result<Vec<String>, DirectoryError>>;
     /// Global read for `can-register`: pending invitations naming this email
     /// that have not expired at `now_ms`.
     fn invitations_for_email(
@@ -354,6 +366,12 @@ pub fn session_credential(
         {
             scopes.insert(scope);
         }
+    }
+    // R0-2: every member reads the runner (the runner narrows to their
+    // projects); org owners and admins administer it.
+    scopes.insert(Scope::RunnerRead);
+    if org_admin {
+        scopes.insert(Scope::RunnerAdmin);
     }
     let digest = secret_hash(&format!("session:{session_id}"));
     Some(CredentialRecord {

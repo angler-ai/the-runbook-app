@@ -168,8 +168,21 @@ pub fn apply_amendment_facts(state: &ExecutionState, view: &mut ExecutionView) {
             listed.iterations = iterations_of(step);
             listed.skip_reason = skip_reason_of(step);
             listed.followup = followup_of(step);
+            listed.runner = runner_of(state, step);
+            listed.cost = step.runner.cost.map(runbook_engine::RecordedCost::to_cost);
         }
     }
+    // R0-6: the run's cost is its steps' (every step, listed or not).
+    view.cost = state
+        .steps
+        .iter()
+        .filter_map(|step| step.runner.cost.as_ref())
+        .fold(None, |total: Option<runbook_engine::RecordedCost>, cost| {
+            let mut total = total.unwrap_or_default();
+            total.add(cost);
+            Some(total)
+        })
+        .map(runbook_engine::RecordedCost::to_cost);
     view.progress = Some(progress_of(state));
 }
 
@@ -200,6 +213,49 @@ pub fn progress_of(state: &ExecutionState) -> runbook_model::ExecutionProgressVi
         done: u32::try_from(done).unwrap_or(u32::MAX),
         total: u32::try_from(top.len()).unwrap_or(u32::MAX),
     }
+}
+
+/// The runner agent a task or approval targets, as resolved at publish.
+pub fn runner_of(
+    state: &ExecutionState,
+    step: &StepState,
+) -> Option<runbook_model::StepRunnerView> {
+    let (target, limits) = match &state.node(&step.step_id)?.kind {
+        NodeKind::Task(task) => (&task.agent_target, &task.agent_limits),
+        NodeKind::Approval(approval) => (&approval.agent_target, &approval.agent_limits),
+        _ => return None,
+    };
+    let Some(runbook_spec::ir::AgentTarget::Runner { agent_id, name, .. }) = target else {
+        return None;
+    };
+    let runner = &step.runner;
+    let approval = step.approval.as_ref();
+    Some(runbook_model::StepRunnerView {
+        agent_id: agent_id.clone(),
+        agent_name: name.clone(),
+        model: limits.as_ref().and_then(|l| l.model.clone()),
+        agent_version_id: runner.agent_version_id.clone(),
+        waiting_reason: runner.waiting_reason.clone(),
+        waiting_detail: runner.waiting_detail.clone(),
+        releases: runner
+            .releases
+            .iter()
+            .map(|r| runbook_model::StepCredentialRelease {
+                credential_id: r.credential_id.clone(),
+                credential_version: r.credential_version,
+                delivery: r.delivery.clone(),
+                runner_id: r.runner_id.clone(),
+                at: r.at_ms,
+                revoked: r.revoked.clone(),
+            })
+            .collect(),
+        released_never_reported: runner.released_never_reported,
+        decision_ready_at_ms: approval
+            .and_then(|a| a.requested.as_ref())
+            .and_then(|r| r.request.agent_ready_at_ms),
+        decision_lease: approval.and_then(|a| a.decision_lease.clone()),
+        agent_notes: approval.map(|a| a.agent_notes.clone()).unwrap_or_default(),
+    })
 }
 
 /// UI-2: a task's declared actor; `None` for other steps.
@@ -567,6 +623,8 @@ fn approval_view(state: &ExecutionState, step: &StepState, id: &StepRunId) -> Op
         escalated: approval.escalation.is_some(),
         quorum: NonZeroU32::new(definition.min).unwrap_or(NonZeroU32::MIN),
         decisions: decisions_of(approval),
+        decision_lease: approval.decision_lease.clone(),
+        agent_notes: approval.agent_notes.clone(),
     })
 }
 
@@ -606,6 +664,13 @@ pub(crate) fn decisions_of(approval: &runbook_engine::ApprovalState) -> Vec<Deci
 /// An agent decision with its provenance (F94).
 pub(crate) fn agent_record(agent: &runbook_engine::AgentDecision) -> DecisionRecord {
     DecisionRecord::Agent {
+        principal: agent
+            .principal
+            .starts_with("runner:")
+            .then(|| agent.principal.clone()),
+        evidence: agent.evidence.clone(),
+        evidence_source: (agent.principal.starts_with("runner:") && !agent.evidence.is_empty())
+            .then_some(runbook_model::AgentEvidenceSource::RunnerReported),
         agent_name: agent.agent_name.clone(),
         model: agent.model.clone(),
         session_id: agent.session_id.clone(),
@@ -801,9 +866,11 @@ pub fn render_markdown_named(
                         model,
                         option,
                         comment,
+                        evidence,
+                        evidence_source,
                         ..
                     } => format!(
-                        "- Agent {}{} chose {}{}",
+                        "- Agent {}{} chose {}{}{}",
                         escape(agent_name),
                         model
                             .as_deref()
@@ -813,11 +880,46 @@ pub fn render_markdown_named(
                         comment
                             .as_deref()
                             .map(|c| format!(": {}", escape(c)))
-                            .unwrap_or_default()
+                            .unwrap_or_default(),
+                        if evidence.is_empty() {
+                            String::new()
+                        } else {
+                            format!(
+                                " ({}evidence: {})",
+                                if evidence_source.is_some() {
+                                    "runner-reported "
+                                } else {
+                                    ""
+                                },
+                                evidence
+                                    .iter()
+                                    .map(|e| escape(e))
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            )
+                        }
                     ),
                 };
                 out.push_str(&line);
                 out.push('\n');
+            }
+            // R1-D2: a runner agent reviewing now, and its abstentions.
+            if let Some(lease) = &approval.decision_lease {
+                out.push_str(&format!(
+                    "- Agent {} is reviewing; people can still decide\n",
+                    escape(&lease.agent_name)
+                ));
+            }
+            for note in &approval.agent_notes {
+                out.push_str(&format!(
+                    "- Agent {}{} abstained: {}\n",
+                    escape(&note.agent_name),
+                    note.model
+                        .as_deref()
+                        .map(|m| format!(" ({})", escape(m)))
+                        .unwrap_or_default(),
+                    escape(&note.reason)
+                ));
             }
             out.push('\n');
         }

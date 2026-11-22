@@ -31,6 +31,7 @@ fn report(trace: &Trace, step: &str, evidence: &[&str]) -> ReportRequest {
         summary: None,
         evidence: evidence.iter().map(|e| e.to_string()).collect(),
         logs: vec![],
+        cost: None,
     }
 }
 fn node<'a>(trace: &'a Trace, step: &str) -> &'a runbook_spec::ir::Node {

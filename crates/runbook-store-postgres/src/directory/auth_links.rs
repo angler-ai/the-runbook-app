@@ -242,6 +242,36 @@ impl AuthLinkStore for PostgresDirectory {
             .map(|row| row.get::<_, String>(0))
             .collect())
     }
+    async fn auth_links_in_org(
+        &self,
+        org: &OrganizationId,
+    ) -> Result<Vec<AuthLink>, DirectoryError> {
+        let conn = self.pool.get().await.map_err(connection)?;
+        conn.client()
+            .query(
+                &format!("SELECT {LINK_COLUMNS} FROM runbook.auth_link WHERE org_id = $1 ORDER BY auth_user_id"),
+                &[&org.as_str()],
+            )
+            .await
+            .map_err(db)?
+            .iter()
+            .map(link)
+            .collect()
+    }
+    async fn owner_reset_auth_users(
+        &self,
+        org: &OrganizationId,
+        user: &UserId,
+    ) -> Result<Vec<String>, DirectoryError> {
+        let conn = self.pool.get().await.map_err(connection)?;
+        Ok(conn.client().query("SELECT l.auth_user_id FROM runbook.auth_link l
+                     WHERE l.user_id = $1 AND l.org_id = $2
+                     AND EXISTS (SELECT 1 FROM runbook.org_user m WHERE m.user_id = l.user_id AND m.org_id = l.org_id AND m.active)
+                     AND NOT EXISTS (SELECT 1 FROM runbook.org_user m WHERE m.user_id = l.user_id AND m.org_id <> l.org_id)
+                     AND NOT EXISTS (SELECT 1 FROM runbook.auth_link f WHERE f.user_id = l.user_id AND f.org_id <> l.org_id)
+                     ORDER BY l.auth_user_id", &[&user.as_str(), &org.as_str()])
+            .await.map_err(db)?.iter().map(|row| row.get::<_, String>(0)).collect())
+    }
     async fn invitations_for_email(
         &self,
         email: &str,

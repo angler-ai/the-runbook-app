@@ -46,6 +46,7 @@ import { statusWords, useStatusAnnouncements } from './announce';
 import { useLiveExecution } from './live';
 import { StepActions } from './StepActions';
 import { tabClaims } from './session';
+import { RunnerStep } from './RunnerStep';
 import { StepAssignment } from './StepAssignment';
 import { useDirectoryNames, type DirectoryNames } from '../context/names';
 import { useOrgContext } from '../context/OrgContext';
@@ -164,6 +165,7 @@ function ChecklistTab({
 }
 
 function SectionWithLogs({
+  projectId,
   executionId,
   section,
   step,
@@ -175,6 +177,7 @@ function SectionWithLogs({
   names,
   runPaused,
 }: {
+  projectId?: string | null;
   executionId: string;
   section: Parameters<typeof StepSection>[0]['section'];
   step: Parameters<typeof StepActions>[0]['step'];
@@ -230,6 +233,7 @@ function SectionWithLogs({
         teamNameOf={names.teamName}
       />
       <StepAssignment section={section} nameOf={names.nameOf} />
+      <RunnerStep step={step} project={projectId ?? undefined} />
       <StepActions
         executionId={executionId}
         section={section}
@@ -240,6 +244,7 @@ function SectionWithLogs({
         names={names}
         onFormShownChange={setFormShown}
         runPaused={runPaused}
+        project={projectId ?? undefined}
       />
     </div>
   );
@@ -597,6 +602,7 @@ export function ExecutionDocumentPage({
           <div>
             {doc.sections.map((section, index) => (
               <SectionWithLogs
+                projectId={doc.header.project_id}
                 key={section.step_run_id}
                 executionId={executionId}
                 section={section}

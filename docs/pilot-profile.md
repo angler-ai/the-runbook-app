@@ -80,7 +80,8 @@ unmodified flagship run end to end. From that evidence alone the pilot makes
 | `join: any` / `{at_least: n}` (LANG2) | Supported: the parallel succeeds once `n` branches succeeded and fails once that can no longer happen; either way its open branches are cancelled. `fail_fast` is for `join: all` only |
 | `on_conflict: reject` / `cancel_previous` (LANG3) | Supported: when the key's pool has no free slot, `reject` refuses the start (409 `execution.concurrency_conflict`, nothing written) and `cancel_previous` cancels the waiters and the holder (the oldest one when `limit > 1`), recording the replacing run on them, and queues the new run first in line; it starts when the cancelled holder closes, so mutual exclusion holds while it cleans up |
 | GitHub sync | Later |
-| `pattern` constraints and input types (LANG5) | Supported: linear-time regex dialect, whole-value matching; `multi_enum`, `date`, `datetime`, `duration`, `url`, `email`, `user`. `secret_ref` and agent caps remain rejected |
+| `pattern` constraints and input types (LANG5) | Supported: linear-time regex dialect, whole-value matching; `multi_enum`, `date`, `datetime`, `duration`, `url`, `email`, `user`. `secret_ref` remains rejected |
+| Runner agent keys (R0) | Supported: `agent.name` (with `external` reserved for external agents), `agent.model`, `agent.max_cost_usd`, `agent.max_tokens`, `agent.network`, step `connections` and `spec.defaults.agent`, checked at publish against the project's agent directory; `agent.runner` is retired (`spec.retired_key`) |
 | `file` and `screenshot` evidence (UP1) | Supported: a report names finalized uploads by `evd_` ID (`POST /v1/step-runs/{sr}/evidence`, then `.../finalize`); `screenshot` needs an image, `file` any upload. Servers advertise `capabilities.uploads: true` once `RUNBOOK_UPLOAD_SIGNING_KEY` and a separate `RUNBOOK_USERCONTENT_ORIGIN` are set (UP2: the user-content listener serves signed file URLs; images are re-encoded without EXIF and get thumbnails); otherwise they refuse slots |
 | PDF and JUnit reports | Later; reports render as JSON and Markdown |
 | Web UI, hosted runners, vaults, model billing, SSO, remote MCP OAuth | Later |
@@ -563,16 +564,20 @@ Publication constraints that apply on top of the tables:
 | `spec.steps.*.end.message` | `"example"` | `A9/A19` |
 | `spec.agents.params` | `{"repo": "acme/api", "workflow": "runbook-resume.yml"}` | `C1` |
 | `spec.agents.params.x-opaque.nested` | `null` | `C1` |
+| `spec.steps.*.agent.name` | `"deploy-checker"` | `R0` |
+| `spec.steps.*.agent.model` | `"fast"` | `R0` |
+| `spec.steps.*.agent.max_cost_usd` | `0.5` | `R0` |
+| `spec.steps.*.agent.max_tokens` | `1000` | `R0` |
+| `spec.steps.*.agent.network` | `["api.example.com"]` | `R0` |
+| `spec.steps.*.connections` | `["datadog-readonly"]` | `R0` |
+| `spec.defaults.agent.name` | `"deploy-checker"` | `R0` |
 
 ### Rejected keys
 
 | Path | Example value | Diagnostic code |
 | --- | --- | --- |
 | `spec.steps.*.evidence.required.0` | `"video"` | `spec.unsupported_value` |
-| `spec.steps.*.agent.runner` | `true` | `spec.unsupported_feature` |
-| `spec.steps.*.agent.model` | `true` | `spec.unsupported_feature` |
-| `spec.steps.*.agent.max_cost_usd` | `true` | `spec.unsupported_feature` |
-| `spec.steps.*.agent.max_tokens` | `true` | `spec.unsupported_feature` |
+| `spec.steps.*.agent.runner` | `true` | `spec.retired_key` |
 | `kind` | `"StepLibrary"` | `spec.unsupported_kind` |
 | `apiVersion` | `"therunbook.app/v2"` | `spec.unsupported_api_version` |
 | `spec.magic` | `true` | `spec.unknown_key` |

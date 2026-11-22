@@ -14,11 +14,32 @@ upgrade notes and schema version) and the image
 `linux/amd64` and `linux/arm64`. Read the [release notes](/changelog/)
 before updating.
 
-<Aside type="caution" title="Before the first release">
-Nothing is published yet. Until it is, update from a git checkout:
-`deploy/update.sh --source git` (compose) or
-`npm run update -- --source checkout` (Cloudflare).
-</Aside>
+## Upgrade to v0.1.1
+
+1. **Back up and update the core and sign-in service first.**
+   - **Containers:** Update the image on every replica. Core PostgreSQL
+     migrations run before serving traffic, unless you run
+     `runbook-server migrate` separately. The sign-in service applies its
+     own migrations (`0002`–`0006` for MFA) in the `auth` schema before logging `auth service ready`.
+     Finish replacing old replicas before checking sensitive actions.
+   - **Cloudflare:** From `cloudflare/`, run `npm run update -- --to 0.1.1`.
+     The updater bookmarks D1, applies the core and sign-in migrations,
+     then deploys the sign-in Worker before the API Worker. For a manual
+     update, apply both sets of migrations before traffic. Run
+     `npx wrangler d1 migrations apply DB --remote -c wrangler.auth.prod.jsonc`
+     for the sign-in Worker, using your own config if it differs. Keep
+     `"triggers": { "crons": ["* * * * *"] }` in that config so the Worker
+     sends queued security emails.
+2. **Check `GET /v1/meta`, then update the runner if you have one.** Verify
+   the target release and a `runner_contract_version` of at least 4. Stop
+   old runner API instances and let active writes finish before applying
+   the runner database migrations. Migration `0018` removes the old
+   credential writer's permissions. Upgrade the runner components together
+   and have an owner register the vault identity before using the upgraded
+   browser or CLI to enter credentials. See [runner setup](/runner/setup/).
+3. **Enable MFA after checking sign-in.** Have an owner enroll a factor
+   and preview the people affected by the policy before enabling it.
+   See [Multi-factor sign-in](/security/multi-factor/).
 
 ## Update
 
@@ -100,9 +121,11 @@ npm run update -- --to 0.3.1 --yes   # a named release
 
 ## Rollback
 
-Every migration keeps the previous release working (expand, then contract
-in a later release), so rolling the **code** back is safe on the migrated
-schema.
+Core releases have a rollback floor for the migrated schema. Before
+rolling back, also check whether the old version can read run events
+written by the newer one. Runner database migrations have their own
+compatibility requirements. After runner migration `0018`, an old runner
+API cannot write credentials.
 
 <Tabs syncKey="edition">
 <TabItem label="Docker compose">
@@ -156,6 +179,6 @@ failed and rolled back, `4` failed and not rolled back.
 
 ```sh
 runbook version                                # this CLI's release and the server's
-curl -s https://runbooks.example.com/v1/meta   # "version" and "schema"
+curl -s https://runbooks.example.com/v1/meta   # release, schema and runner contract
 runbook-server --version                       # release, schema and rollback floor
 ```

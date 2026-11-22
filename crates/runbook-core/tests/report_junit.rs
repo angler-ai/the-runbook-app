@@ -184,6 +184,7 @@ fn header(state: &ExecutionState) -> ExecutionView {
         superseded_by: None,
         parent: None,
         progress: None,
+        cost: None,
     }
 }
 
@@ -277,6 +278,7 @@ fn golden_report_matches_exact_xml() {
             summary: Some("rates ok".into()),
             evidence: vec![],
             logs: vec![],
+            cost: None,
         },
         None,
     ))
@@ -345,6 +347,7 @@ fn summary_with_special_characters_is_escaped_and_stripped() {
             superseded_by: None,
             parent: None,
             progress: None,
+            cost: None,
         },
         sections: vec![make_section(
             "vuln_check",
@@ -409,6 +412,7 @@ fn failures_and_skipped_counts_match() {
             superseded_by: None,
             parent: None,
             progress: None,
+            cost: None,
         },
         sections: vec![
             make_section(
@@ -533,6 +537,7 @@ fn output_order_is_deterministic() {
             superseded_by: None,
             parent: None,
             progress: None,
+            cost: None,
         },
         sections: vec![
             make_section(
@@ -607,6 +612,8 @@ fn named_junit_names_people_and_reports_only_when_terminal() {
         escalation_recipients: vec![],
         escalated: false,
         quorum: NonZeroU32::MIN,
+        decision_lease: None,
+        agent_notes: vec![],
         decisions: vec![runbook_model::DecisionRecord::Human {
             user_id: alice.clone(),
             membership_revision: std::num::NonZeroU64::MIN,
@@ -658,6 +665,7 @@ fn named_junit_names_people_and_reports_only_when_terminal() {
             summary: Some("rates ok".into()),
             evidence: vec![],
             logs: vec![],
+            cost: None,
         },
         None,
     ))

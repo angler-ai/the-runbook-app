@@ -53,3 +53,14 @@
 /site/.astro/
 .astro/
 /site/public/api/
+
+# Runner (runner/): dependencies, build output and the redaction wasm built
+# by `npm run wasm:build` (R1-F3).
+/runner/eval-results/
+/runner/node_modules/
+/runner/packages/*/node_modules/
+/runner/packages/*/dist/
+/runner/packages/shared/wasm/*.wasm
+
+# Local runner evaluation artifacts
+eval-results/

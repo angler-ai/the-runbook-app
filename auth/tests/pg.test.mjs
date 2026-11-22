@@ -15,7 +15,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
-import { behaviourSuite, cookieHeader, post } from './support/suite.mjs';
+import { behaviourSuite, cookieHeader, post, signInByEmail } from './support/suite.mjs';
+import { mfaSuite } from './support/mfa.mjs';
 import { oauthSuite } from './support/oauth.mjs';
 import { ALLOWED_DOMAINS, AUTH_SECRET, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, INTERNAL_SECRET, ORIGIN, googleMock, outboundPolicy, startCanRegister, startSmtp } from './support/stubs.mjs';
 
@@ -88,6 +89,25 @@ describe('server.ts on Node/Postgres', { skip: adminUrl ? false : 'set DATABASE_
     async setSessionExpiry(id, ms) {
       await sql`UPDATE auth.session SET expires_at = ${new Date(ms)} WHERE id = ${id}`;
     },
+    async mfaAudit(id) {
+      return sql`SELECT action, notification, notified_at FROM auth.mfa_audit WHERE user_id = ${id}`;
+    },
+    async rejectMfaAudit() {
+      await sql`CREATE FUNCTION auth.fail_mfa_audit() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN RAISE EXCEPTION 'test audit write failure'; END; $$`;
+      await sql`CREATE TRIGGER fail_mfa_audit BEFORE INSERT ON auth.mfa_audit
+        FOR EACH ROW EXECUTE FUNCTION auth.fail_mfa_audit()`;
+    },
+    async restoreMfaAudit() {
+      await sql`DROP TRIGGER fail_mfa_audit ON auth.mfa_audit`;
+      await sql`DROP FUNCTION auth.fail_mfa_audit()`;
+    },
+    async setTotpSetupExpiry(id, ms) {
+      await sql`UPDATE auth.verification SET expires_at = ${new Date(ms)} WHERE identifier = ${`totp-setup:${id}`}`;
+    },
+    async setSessionCreatedAt(id, ms) {
+      await sql`UPDATE auth.session SET created_at = ${new Date(ms)} WHERE id = ${id}`;
+    },
     async resetLimits() {
       await sql`DELETE FROM auth.send_limit WHERE key NOT LIKE 'known:%'`;
     },
@@ -154,21 +174,61 @@ describe('server.ts on Node/Postgres', { skip: adminUrl ? false : 'set DATABASE_
     await canRegister?.close();
   });
 
+  test('MFA migration accepts legacy writes after reset and fences explicit stale generations', async () => {
+    await sql`INSERT INTO auth."user" (id, name, email) VALUES ('legacy-pg-account', 'Legacy', 'legacy-pg@example.test')`;
+    await sql`UPDATE auth."user" SET mfa_generation = 1 WHERE id = 'legacy-pg-account'`;
+    const [session] = await sql`INSERT INTO auth.session (id, token, user_id, expires_at, updated_at)
+      VALUES ('legacy-pg-session', 'legacy-pg-session', 'legacy-pg-account', now() + interval '1 minute', now())
+      RETURNING mfa_generation`;
+    const [passkey] = await sql`INSERT INTO auth.passkey (id, public_key, user_id, credential_id, counter, device_type, backed_up)
+      VALUES ('legacy-pg-passkey', 'pk', 'legacy-pg-account', 'legacy-pg-credential', 0, 'singleDevice', false)
+      RETURNING mfa_generation`;
+    assert.equal(session.mfa_generation, 1);
+    assert.equal(passkey.mfa_generation, 1);
+    await assert.rejects(sql`INSERT INTO auth.session (id, token, user_id, expires_at, updated_at, mfa_generation)
+      VALUES ('stale-pg-session', 'stale-pg-session', 'legacy-pg-account', now() + interval '1 minute', now(), 0)`, /MFA generation changed/);
+
+    await sql`INSERT INTO auth.oauth_client (id, client_id, redirect_uris) VALUES ('legacy-client', 'legacy-client', '{}')`;
+    await sql`INSERT INTO auth.oauth_refresh_token (id, token, client_id, session_id, user_id, scopes)
+      VALUES ('legacy-refresh', 'legacy-refresh', 'legacy-client', 'legacy-pg-session', 'legacy-pg-account', '{}')`;
+    await sql`INSERT INTO auth.oauth_access_token (id, token, client_id, refresh_id, session_id, user_id, scopes)
+      VALUES ('legacy-access', 'legacy-access', 'legacy-client', 'legacy-refresh', 'legacy-pg-session', 'legacy-pg-account', '{}')`;
+    const [access] = await sql`SELECT mfa_verified_at, mfa_method FROM auth.oauth_access_token WHERE id = 'legacy-access'`;
+    assert.deepEqual(access, { mfa_verified_at: null, mfa_method: null });
+  });
+
   behaviourSuite(h);
+  mfaSuite(h);
   oauthSuite(h);
+
+  test('operator reset runs without a listener and records the actor', async () => {
+    const email = 'mfa-operator-reset@example.test';
+    h.canRegister.state.allowed.add(email);
+    const { cookie } = await signInByEmail(h, email);
+    const started = await post(h, '/two-factor/enable', {}, { cookie });
+    assert.equal(started.status, 200);
+    const result = await runProcess(baseEnv(database.url), { untilReady: false, args: ['mfa-reset', email] });
+    assert.equal(result.code, 0, result.stderr);
+    assert.match(result.stdout, /MFA reset recorded/);
+    assert.equal(await h.count('session', email), 0);
+    const [{ actor, action }] = await sql`SELECT m.actor, m.action
+      FROM auth.mfa_audit m JOIN auth."user" u ON u.id = m.user_id
+      WHERE u.email = ${email} AND m.action = 'mfa.reset'`;
+    assert.deepEqual({ actor, action }, { actor: 'operator', action: 'mfa.reset' });
+  });
 
   test('tables live in the auth schema only', async () => {
     const outside = await sql`SELECT table_schema, table_name FROM information_schema.tables WHERE table_schema NOT IN ('auth', 'pg_catalog', 'information_schema')`;
     assert.deepEqual([...outside], []);
     const tables = (await sql`SELECT table_name FROM information_schema.tables WHERE table_schema = 'auth' ORDER BY 1`).map((r) => r.table_name);
-    assert.deepEqual(tables, ['__drizzle_migrations', 'account', 'oauth_access_token', 'oauth_client', 'oauth_client_assertion', 'oauth_client_resource', 'oauth_consent', 'oauth_refresh_token', 'oauth_resource', 'rate_limit', 'send_limit', 'session', 'user', 'verification']);
+    assert.deepEqual(tables, ['__drizzle_migrations', 'account', 'mfa_audit', 'oauth_access_token', 'oauth_client', 'oauth_client_assertion', 'oauth_client_resource', 'oauth_consent', 'oauth_refresh_token', 'oauth_resource', 'passkey', 'rate_limit', 'send_limit', 'session', 'two_factor', 'user', 'verification']);
   });
 });
 
 /** Runs `node dist/server.mjs` and resolves with its ready line or its exit. */
-function runProcess(env, { untilReady = true } = {}) {
+function runProcess(env, { untilReady = true, args = [] } = {}) {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [join(root, 'dist/server.mjs')], { env: { PATH: process.env.PATH, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, [join(root, 'dist/server.mjs'), ...args], { env: { PATH: process.env.PATH, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (c) => {
@@ -225,7 +285,7 @@ describe('server.ts process', { skip: adminUrl ? false : 'set DATABASE_URL to a 
       RUNBOOK_AUTH_EMAIL_TRANSPORT: 'capture',
       RUNBOOK_AUTH_CAPTURE_FILE: join(tmpdir(), 'never-written.jsonl'),
       RUNBOOK_AUTH_SECRET: AUTH_SECRET,
-      RUNBOOK_ORIGIN: ORIGIN,
+      RUNBOOK_ORIGIN: 'http://runbook.localhost.example',
       RUNBOOK_AUTH_CAN_REGISTER_URL: 'http://127.0.0.1:9/internal/auth/can-register',
     });
     assert.equal(code, 78);
@@ -261,7 +321,7 @@ describe('server.ts process', { skip: adminUrl ? false : 'set DATABASE_URL to a 
   test('capture on a loopback origin: codes in JSONL, plain-http cookie name', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'runbook-auth-capture-'));
     const canRegister = await startCanRegister();
-    const origin = 'http://localhost:8080';
+    const origin = 'http://runbook.localhost.:8080';
     canRegister.state.allowed.add('cap@example.test');
     const { child, ready } = await runProcess({
       ...baseEnv(database.url),

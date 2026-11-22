@@ -12,7 +12,7 @@ import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
 Back up **PostgreSQL**: `pg_dump`, or your provider's backups and
 point-in-time recovery (the GKE Terraform module's Cloud SQL has both).
-With blobs in PostgreSQL (the default), that's everything.
+With blobs in PostgreSQL (the default), that covers the core's database and files.
 
 ```sh
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env exec -T postgres \
@@ -47,6 +47,14 @@ A database backup is only half a restore without these:
 | `RUNBOOK_UPLOAD_SIGNING_KEY` | Signs file URLs. A new one only invalidates links already handed out |
 
 Tokens are stored as hashes, so a backup holds no usable token.
+
+## Runner backups
+
+If you use the runner, back up its PostgreSQL database separately. Protect
+the vault's key-encryption key and the runner configuration needed to
+restore it. A backup with wrapped keys can retain access to older secret
+versions, so restrict access to backups and set their retention with that
+in mind. See [runner credential storage](/runner/security/#storage-and-rotation).
 
 ## Project exports
 

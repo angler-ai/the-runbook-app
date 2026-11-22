@@ -496,6 +496,7 @@ impl PostgresExecutionStore {
                     .await?;
             }
         }
+        crate::runner_ready::sync(c, &self.scope, &batch.execution_id, p).await?;
         self.checkpoint(WriteStage::Projection)?;
 
         for change in &batch.timers {

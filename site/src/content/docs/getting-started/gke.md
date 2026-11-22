@@ -13,13 +13,13 @@ Google Cloud:
 - Cloud SQL for PostgreSQL 16 on a private IP, with backups and
   point-in-time recovery, reached through the Cloud SQL Auth Proxy sidecar
   with Workload Identity;
-- secrets in Secret Manager;
+- credentials in a Kubernetes Secret, optionally provisioned outside Terraform;
 - a GKE Ingress with a reserved static IP, Google-managed certificates and
   an HTTP-to-HTTPS redirect;
 - blobs in PostgreSQL (`blob_store = "postgres"`, the default) or in a
   private GCS bucket (`blob_store = "gcs"`).
 
-You need Terraform 1.5.0 or newer, an authenticated `gcloud`, and a VPC
+You need Terraform 1.9 or newer, an authenticated `gcloud`, and a VPC
 network and subnetwork.
 
 ## 1. Build and push the image
@@ -27,7 +27,7 @@ network and subnetwork.
 ```sh
 REGION="us-central1"
 PROJECT="my-gcp-project"
-IMAGE="$REGION-docker.pkg.dev/$PROJECT/runbook/server:0.1.0"
+IMAGE="$REGION-docker.pkg.dev/$PROJECT/runbook/server:0.1.1"
 gcloud artifacts repositories create runbook --repository-format=docker \
   --location="$REGION" --project="$PROJECT"
 gcloud auth configure-docker "$REGION-docker.pkg.dev"
@@ -49,7 +49,7 @@ network            = "default"
 subnetwork         = "default"
 create_cluster     = false
 cluster_name       = "my-existing-cluster"
-image              = "us-central1-docker.pkg.dev/my-gcp-project/runbook/server:0.1.0"
+image              = "us-central1-docker.pkg.dev/my-gcp-project/runbook/server:0.1.1"
 app_domain         = "runbooks.example.com"
 usercontent_domain = "files.example-usercontent.com" # "" if uploads are off
 auth_methods       = "email"
@@ -64,6 +64,15 @@ state, so keep the state in a private, encrypted bucket:
 terraform init -backend-config="bucket=my-terraform-state-bucket" \
   -backend-config="prefix=runbook/gcp-gke"
 ```
+
+To keep credentials out of new Terraform state and plans, set
+`manage_secret_values = false` and provision the named Kubernetes Secret
+before workloads start. To use Cloud SQL IAM database authentication,
+set `database_auth = "iam"` and grant the IAM database user the
+migration privileges. See the [module README](https://github.com/angler-ai/the-runbook-app/blob/main/deploy/terraform/gcp-gke/README.md)
+for the staged setup and upgrade steps. The module enables SQL deletion
+protection and ingress NetworkPolicies by default. It also pins the Cloud
+SQL Auth Proxy image and applies pod security settings.
 
 ## 3. Apply
 

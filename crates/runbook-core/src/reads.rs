@@ -109,6 +109,8 @@ pub fn resume_brief(state: &ExecutionState, audience: Option<ActorKind>) -> Resu
             path: path_of(step),
             title: runbook_engine::step_title(state, step).unwrap_or_else(|| step.step_id.clone()),
             actor_kind,
+            agent_id: None,
+            group_id: None,
         });
     }
     let terminal = matches!(

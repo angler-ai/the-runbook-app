@@ -283,6 +283,24 @@ impl<D: D1> D1Credentials<D> {
             .map_err(err)
     }
 
+    pub async fn metadata(
+        &self,
+        org: &OrganizationId,
+        id: &TokenId,
+    ) -> Result<TokenMetadata, CredentialError> {
+        let rows = self
+            .db
+            .all(
+                prepare("SELECT payload FROM credential WHERE org_id = ? AND id = ?")
+                    .bind(org.as_str())
+                    .bind(id.as_str()),
+            )
+            .await
+            .map_err(err)?;
+        rows.first().map_or(Ok(TokenMetadata::default()), |row| {
+            metadata_of(row.text(0).map_err(err)?)
+        })
+    }
     /// The organization's live credentials with their metadata, by ID.
     pub async fn list_org(
         &self,

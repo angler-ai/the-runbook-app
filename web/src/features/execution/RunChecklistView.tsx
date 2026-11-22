@@ -69,7 +69,11 @@ function StatusGlyph({
     (verdict ? VERDICT_ICON[verdict] : undefined) ?? STATUS_ICON[status] ?? STATUS_ICON.pending!;
   const Glyph = entry.icon;
   return (
-    <span data-status={status} data-verdict={verdict ?? undefined} className="inline-flex items-center">
+    <span
+      data-status={status}
+      data-verdict={verdict ?? undefined}
+      className="inline-flex items-center"
+    >
       <Glyph className={cn('size-4 shrink-0', entry.className, className)} aria-hidden="true" />
       <span className="sr-only">{entry.words}: </span>
     </span>
@@ -84,6 +88,7 @@ function ChecklistRow({
   capabilities,
   documentAt,
   runPaused,
+  project,
 }: {
   item: ChecklistStepItem;
   names: DirectoryNames;
@@ -92,10 +97,12 @@ function ChecklistRow({
   capabilities: Parameters<typeof StepActions>[0]['capabilities'];
   documentAt: number;
   runPaused: boolean;
+  project?: string;
 }) {
   const isOpen = item.status === 'ready' || item.status === 'waiting' || item.status === 'claimed';
   const isDone = item.status === 'succeeded';
-  const isFailed = item.status === 'failed' || item.status === 'timed_out' || item.status === 'expired';
+  const isFailed =
+    item.status === 'failed' || item.status === 'timed_out' || item.status === 'expired';
   const isSkipped = item.status === 'skipped';
   const isCancelled = item.status === 'cancelled';
 
@@ -167,6 +174,7 @@ function ChecklistRow({
             documentAt={documentAt}
             names={names}
             runPaused={runPaused}
+            project={project}
           />
         </div>
       ) : null}
@@ -197,7 +205,10 @@ export function RunChecklistView({
 }: RunChecklistViewProps) {
   const header = doc.header;
   const progress = computeChecklistProgress(doc, outline);
-  const percent = progress.total > 0 ? Math.round((Math.min(progress.done, progress.total) / progress.total) * 100) : 0;
+  const percent =
+    progress.total > 0
+      ? Math.round((Math.min(progress.done, progress.total) / progress.total) * 100)
+      : 0;
   const sections = buildChecklistSections(doc, outline);
   const allLeafItems = extractLeafItems(sections);
   const nextUpItems = allLeafItems.filter(
@@ -231,7 +242,10 @@ export function RunChecklistView({
         </div>
 
         {/* Progress bar at the top */}
-        <div data-slot="checklist-progress" className="rounded-md border border-border bg-surface-raised p-4">
+        <div
+          data-slot="checklist-progress"
+          className="rounded-md border border-border bg-surface-raised p-4"
+        >
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <span className="text-sm font-semibold text-fg">
@@ -274,9 +288,7 @@ export function RunChecklistView({
           aria-label="Next up"
           className="rounded-lg border border-border bg-surface-raised p-4 sm:p-5 print:border-0 print:p-0"
         >
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-fg-muted">
-            Next up
-          </h3>
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-fg-muted">Next up</h3>
           <div className="mt-3 space-y-2">
             {nextUpItems.map((item) => (
               <div
@@ -310,6 +322,7 @@ export function RunChecklistView({
                       documentAt={documentAt}
                       names={names}
                       runPaused={runPaused}
+                      project={doc.header.project_id ?? undefined}
                     />
                   </div>
                 ) : null}
@@ -334,6 +347,7 @@ export function RunChecklistView({
                   capabilities={capabilities}
                   documentAt={documentAt}
                   runPaused={runPaused}
+                  project={doc.header.project_id ?? undefined}
                 />
               </div>
             );
@@ -367,6 +381,7 @@ export function RunChecklistView({
                       capabilities={capabilities}
                       documentAt={documentAt}
                       runPaused={runPaused}
+                      project={doc.header.project_id ?? undefined}
                     />
                   ))}
                 </div>
@@ -399,6 +414,7 @@ export function RunChecklistView({
                           capabilities={capabilities}
                           documentAt={documentAt}
                           runPaused={runPaused}
+                          project={doc.header.project_id ?? undefined}
                         />
                       ))}
                     </div>
@@ -419,9 +435,7 @@ export function RunChecklistView({
                 <div className="flex items-center justify-between gap-2">
                   <h4 className="text-sm font-semibold text-fg">{section.title}</h4>
                   {section.branchLabel ? (
-                    <span className="font-mono text-2xs text-fg-muted">
-                      {section.branchLabel}
-                    </span>
+                    <span className="font-mono text-2xs text-fg-muted">{section.branchLabel}</span>
                   ) : null}
                 </div>
                 <div className="space-y-2">
@@ -435,6 +449,7 @@ export function RunChecklistView({
                       capabilities={capabilities}
                       documentAt={documentAt}
                       runPaused={runPaused}
+                      project={doc.header.project_id ?? undefined}
                     />
                   ))}
                 </div>
@@ -462,6 +477,7 @@ export function RunChecklistView({
                       capabilities={capabilities}
                       documentAt={documentAt}
                       runPaused={runPaused}
+                      project={doc.header.project_id ?? undefined}
                     />
                   ))}
                 </div>

@@ -3,6 +3,9 @@
 //! [`HttpResponse`] back into its own response; nothing here knows axum,
 //! hyper or the Workers runtime.
 
+/// Applied by each host when the configured app origin uses HTTPS.
+pub const STRICT_TRANSPORT_SECURITY: &str = "max-age=31536000; includeSubDomains";
+
 /// The largest JSON request body (`/v1` and `/mcp`): twice the compiler's
 /// 1 MiB source ceiling plus room for the JSON around it, so a source at
 /// the ceiling saves even when every byte is escaped. The native server's
@@ -215,12 +218,20 @@ pub fn decode(
     if !bytes.is_empty() && !is_json(headers) {
         return Err(Response::error(415, "request.content_type", request_id));
     }
-    let body = if bytes.is_empty() {
+    let mut body = if bytes.is_empty() {
         serde_json::Value::Null
     } else {
         serde_json::from_slice(bytes)
             .map_err(|_| Response::error(422, "request.invalid_json", request_id))?
     };
+    // R0-5: the runner proxy keeps its CSRF header and raw query.
+    if crate::runner_proxy::recognizes(path) {
+        body = crate::runner_proxy::envelope(
+            headers.get(crate::runner_proxy::CSRF_HEADER),
+            query,
+            body,
+        );
+    }
     let query = serde_urlencoded::from_str(query.unwrap_or(""))
         .map_err(|_| Response::error(400, "request.invalid_query", request_id))?;
     Ok(crate::Request {
@@ -301,6 +312,18 @@ pub fn encode(response: crate::problem::Response) -> HttpResponse {
     // ARC: a stale archive day asks for a retry after its rewrite.
     if let Some(seconds) = response.retry_after {
         out = out.header("retry-after", seconds.to_string());
+    }
+    // R0-5: a runner's response, as it came, never sniffed or run as a page.
+    if let Some(proxied) = response.proxied {
+        out = out
+            .header("x-content-type-options", "nosniff")
+            .header("content-security-policy", "sandbox");
+        if response.status == 204 {
+            return out;
+        }
+        out = out.header("content-type", proxied.content_type);
+        out.body = proxied.bytes;
+        return out;
     }
     if response.status == 204 {
         return out;

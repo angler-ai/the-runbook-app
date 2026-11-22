@@ -22,6 +22,9 @@ resource "kubernetes_manifest" "backend_config" {
     }
     spec = merge(
       {
+        customResponseHeaders = {
+          headers = ["Strict-Transport-Security: max-age=${var.hsts_max_age}${var.hsts_include_subdomains ? "; includeSubDomains" : ""}"]
+        }
         healthCheck = {
           checkIntervalSec   = 10
           timeoutSec         = 3

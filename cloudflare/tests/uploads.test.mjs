@@ -41,6 +41,14 @@ after(async () => {
   await worker?.dispose();
 });
 
+test('applies HSTS on the app and user-content hosts for HTTPS origin', async () => {
+  const expected = 'max-age=31536000; includeSubDomains';
+  for (const origin of [APP, CONTENT]) {
+    const response = await worker.mf.dispatchFetch(`${origin}/v1/not-found`);
+    assert.equal(response.headers.get('strict-transport-security'), expected);
+  }
+});
+
 async function json(method, path, body, { key, ifMatch } = {}) {
   const headers = { authorization: `Bearer ${pat}` };
   if (key) headers['idempotency-key'] = key;

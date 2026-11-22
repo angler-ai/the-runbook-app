@@ -8,6 +8,8 @@ license = "AGPL-3.0-only"
 
 [dependencies]
 base64 = "0.22"
+clap = "4"
+email_address = "0.2"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 runbook-engine = { path = "../runbook-engine" }
 runbook-spec = { path = "../runbook-spec" }
@@ -50,6 +52,7 @@ image = { version = "=0.25.10", default-features = false, features = ["png", "jp
 # UP2 fixes: PNG is re-encoded row by row (`image`'s encoder holds the
 # filtered and compressed image in full); already locked through `image`.
 png = "=0.18.1"
+ed25519-dalek = { version = "2", default-features = false, features = ["alloc"] }
 
 [dev-dependencies]
 runbook-contract = { path = "../runbook-contract" }

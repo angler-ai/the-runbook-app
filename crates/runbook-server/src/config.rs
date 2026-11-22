@@ -61,6 +61,34 @@ pub struct ServerConfig {
     /// SLACK1 stage 2: the operator's Slack app (`RUNBOOK_SLACK_BOT_TOKEN`,
     /// `RUNBOOK_SLACK_SIGNING_SECRET`, `RUNBOOK_SLACK_DEFAULT_CHANNEL`).
     pub slack: Option<runbook_core::slack::SlackApp>,
+    /// R0: the runner (registry URLs and the proxy to it).
+    pub runner: RunnerConfig,
+}
+
+/// R0: how this server reaches its organizations' runners.
+#[derive(Clone, Default)]
+pub struct RunnerConfig {
+    /// `RUNBOOK_RUNNER_PRIVATE_NETWORKS=true`: a runner URL may be a
+    /// private or loopback address (plain http included), as for
+    /// self-hosted webhook targets. Link-local and metadata addresses stay
+    /// refused.
+    pub private_networks: bool,
+    /// `RUNBOOK_RUNNER_CLIENT_CERT`: a PEM file holding the client
+    /// certificate and its key, presented to the runner over mutual TLS.
+    pub client_cert_pem: Option<Vec<u8>>,
+    /// Tests: resolve runner hosts with this instead of the system resolver.
+    pub resolver: Option<crate::webhooks::Resolve>,
+}
+impl std::fmt::Debug for RunnerConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RunnerConfig")
+            .field("private_networks", &self.private_networks)
+            .field(
+                "client_cert",
+                &self.client_cert_pem.as_ref().map(|_| "[REDACTED]"),
+            )
+            .finish()
+    }
 }
 
 /// HOST1: the listen address: RUNBOOK_LISTEN_ADDR when set (empty means
@@ -696,6 +724,20 @@ impl ServerConfig {
         config.retention.check()?;
         (config.theme, config.theme_warnings) = theme_config(env_value)?;
         config.slack = runbook_core::slack::SlackApp::from_vars(env_value);
+        if let Ok(value) = std::env::var("RUNBOOK_RUNNER_PRIVATE_NETWORKS") {
+            config.runner.private_networks = match value.as_str() {
+                "true" | "1" => true,
+                "false" | "0" => false,
+                _ => return Err(Error("config.invalid_runner_private_networks")),
+            };
+        }
+        if let Some(path) = env_value("RUNBOOK_RUNNER_CLIENT_CERT") {
+            let pem = std::fs::read(path.trim())
+                .map_err(|_| Error("config.invalid_runner_client_cert"))?;
+            // Refuse a file that does not hold a certificate and key at start.
+            crate::runner_proxy::client_tls(&pem).map_err(Error)?;
+            config.runner.client_cert_pem = Some(pem);
+        }
         if let Ok(value) = std::env::var("RUNBOOK_ALLOW_LINK_LOCAL_WEBHOOK_TARGETS") {
             config.webhooks.allow_link_local_targets = match value.as_str() {
                 "true" | "1" => true,
@@ -719,7 +761,11 @@ impl ServerConfig {
             return None;
         }
         let host = uri.host()?.trim_start_matches('[').trim_end_matches(']');
-        let loopback = host.eq_ignore_ascii_case("localhost")
+        // The normalized origin has a lowercase host. RFC 6761 also reserves
+        // names below localhost, including their absolute DNS spelling.
+        let dns_host = host.strip_suffix('.').unwrap_or(host);
+        let loopback = dns_host == "localhost"
+            || dns_host.ends_with(".localhost")
             || host
                 .parse::<std::net::IpAddr>()
                 .is_ok_and(|ip| ip.is_loopback());
@@ -747,6 +793,7 @@ impl ServerConfig {
             email: None,
             blob_store: Default::default(),
             slack: None,
+            runner: RunnerConfig::default(),
             database,
             origin,
             listen: listen.parse().map_err(|_| Error("config.invalid_listen"))?,
@@ -993,6 +1040,8 @@ mod tests {
         };
         for origin in [
             "http://runbook.internal:8080",
+            "http://runbook.localhost.example",
+            "http://notlocalhost",
             "http://10.0.0.5:8080",
             "http://192.168.1.20",
             "http://[2001:db8::1]:8080",
@@ -1008,6 +1057,8 @@ mod tests {
             "http://127.1.2.3",
             "http://[::1]:8080",
             "http://LOCALHOST",
+            "http://runbook.localhost:8080",
+            "http://nested.RUNBOOK.localhost.",
         ] {
             assert_eq!(warns(origin, "0.0.0.0:8080"), None, "{origin}");
         }

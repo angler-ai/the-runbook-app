@@ -251,6 +251,9 @@ pub async fn claim_step<S: SessionStore>(
     {
         return Ok(saved);
     }
+    // R0-4: set only by `grants::runner_claim`, after its group and
+    // ceiling checks: the agent version this claim pins.
+    let runner_pin = work.runner_pin.take();
     // PRD §6: any pause stops new claims, a manual pause and an
     // approval-expiration pause alike (F15).
     if !work.runtime.state.pause_reasons.is_empty() {
@@ -368,6 +371,23 @@ pub async fn claim_step<S: SessionStore>(
             return Err(ActorError::rejected("claim.not_assignee"));
         }
     }
+    // R0-4: a step aimed at a runner agent is claimed by a runner of its
+    // agent's group (or taken over by a person); any other step never by
+    // a runner.
+    let runner_step = matches!(
+        step.runner.target,
+        Some(runbook_engine::AgentTargetRef::Runner { .. })
+    ) || (step.runner.target.is_none()
+        && matches!(
+            task.agent_target,
+            Some(runbook_spec::ir::AgentTarget::Runner { .. })
+        ));
+    // After a handoff the person it was handed to continues a runner step
+    // (checked against the handoff's recipients above).
+    let person_continues = runner_step && step.human_continuation && runner_pin.is_none();
+    if runner_pin.is_some() != runner_step && !(runner_step && take_over) && !person_continues {
+        return Err(ActorError::rejected("claim.wrong_runner"));
+    }
     if work.runtime.state.steps[index].status != StepStatus::Ready {
         return Err(ActorError::rejected("step.not_claimable"));
     }
@@ -388,6 +408,8 @@ pub async fn claim_step<S: SessionStore>(
     work.append(
         Event::StepClaimed {
             step_run_id: step_run_id.clone(),
+            claim_id: runner_pin.as_ref().map(|_| claim_id.clone()),
+            agent_version_id: runner_pin,
         },
         principal.actor.clone(),
     )?;
@@ -438,13 +460,18 @@ pub async fn release_claim<S: SessionStore>(
         return Ok(saved);
     }
     let current = fence(&work, principal, step_run_id, claim)?;
-    work.append(
-        Event::StepClaimReleased {
+    let index = work.step_index(step_run_id)?;
+    let event = end_decision_lease(&work.runtime.state.steps[index], &current, "released")
+        .unwrap_or_else(|| Event::StepClaimReleased {
             step_run_id: step_run_id.clone(),
             reason: None,
-        },
-        principal.actor.clone(),
-    )?;
+        });
+    let actor = if matches!(event, Event::DecisionLeaseEnded { .. }) {
+        ActorRef::System
+    } else {
+        principal.actor.clone()
+    };
+    work.append(event, actor)?;
     work.settle()?;
     let write = ClaimWrite {
         action: ClaimAction::Release,
@@ -483,7 +510,10 @@ pub async fn expire_claim<S: SessionStore>(
     // A claim stranded by an older commit that moved its step out of
     // `Claimed` without a claim write (F6) is released without an event:
     // the step has nothing to expire, and the lease must stop being offered.
-    if work.runtime.state.steps[index].status == StepStatus::Claimed {
+    if let Some(event) = end_decision_lease(&work.runtime.state.steps[index], &current, "expired") {
+        work.append(event, ActorRef::System)?;
+        work.settle()?;
+    } else if work.runtime.state.steps[index].status == StepStatus::Claimed {
         work.append(
             Event::StepClaimExpired {
                 step_run_id: step_run_id.clone(),
@@ -561,6 +591,21 @@ pub async fn report_step_logged<S: SessionStore>(
     let record = work.runtime.state.steps[index].clone();
     let mut request = request.clone();
     request.logs = report_logs(request.logs)?;
+    // R0-6: a cost is finite and never negative.
+    let reported = request.cost.take();
+    let cost = reported
+        .as_ref()
+        .map(runbook_engine::RecordedCost::from_cost);
+    if matches!(cost, Some(None)) || reported.as_ref().is_some_and(|c| !c.valid()) {
+        return Err(ActorError::Rejected {
+            code: "request.invalid",
+            errors: vec![runbook_model::FieldError {
+                path: "/cost".into(),
+                code: "request.invalid".into(),
+                message: "costs are finite and at least zero".into(),
+            }],
+        });
+    }
     let validated =
         runbook_engine::validate_report_with_logs(&node, &request, &record, files, appended_logs)
             .map_err(|error| ActorError::Rejected {
@@ -568,6 +613,20 @@ pub async fn report_step_logged<S: SessionStore>(
             errors: error.errors().to_vec(),
         })?;
     work.append(validated.into_event(), principal.actor.clone())?;
+    if let Some(Some(cost)) = cost {
+        work.append(
+            Event::StepCostReported {
+                step_run_id: request.step_run_id.clone(),
+                cost,
+                claim_id: current
+                    .session
+                    .principal
+                    .starts_with("runner:")
+                    .then(|| current.claim_id.clone()),
+            },
+            principal.actor.clone(),
+        )?;
+    }
     work.settle()?;
     let write = ClaimWrite {
         action: ClaimAction::Release,
@@ -579,6 +638,71 @@ pub async fn report_step_logged<S: SessionStore>(
         .commit_replay(vec![write], replay, &operation, &())
         .await?
     {
+        crate::CommitResult::Committed(_) => Ok(()),
+        crate::CommitResult::Conflict => Err(ActorError::rejected("claim.conflict")),
+    }
+}
+
+/// Record the final ledger total for a runner claim after it leaves the step.
+pub async fn record_task_cost<S: SessionStore>(
+    mut work: ActorWork<S>,
+    step_run_id: &StepRunId,
+    claim_id: &ClaimId,
+    runner_id: &runbook_model::RunnerId,
+    reported: &runbook_model::StepCost,
+) -> Result<(), ActorError> {
+    let principal = crate::grants::runner_key(runner_id);
+    let current = work
+        .snapshot
+        .claims
+        .get(step_run_id)
+        .filter(|claim| claim.claim_id == *claim_id);
+    let events = &work.snapshot.events;
+    let current_owner = current.map(|claim| &claim.owner);
+    let claim_event = events.iter().enumerate().rev().find(|(_, envelope)| {
+        match &envelope.event {
+            Event::StepClaimed {
+                step_run_id: step,
+                claim_id: id,
+                agent_version_id: Some(_),
+            } if step == step_run_id => {
+                id.as_ref() == Some(claim_id)
+                    // An older claim event has no ID. Its latest claim row still
+                    // identifies it until a replacement claim overwrites that row.
+                    || (id.is_none() && current_owner == Some(&envelope.actor))
+            }
+            _ => false,
+        }
+    });
+    let (index, claim_event) = claim_event
+        .filter(|(_, envelope)| matches!(&envelope.actor, ActorRef::Agent { principal_id, .. } if *principal_id == principal))
+        .ok_or(ActorError::rejected("claim.not_found"))?;
+    if current.is_some_and(|claim| !claim.released) {
+        return Err(ActorError::rejected("claim.conflict"));
+    }
+    let legacy = matches!(
+        &claim_event.event,
+        Event::StepClaimed { claim_id: None, .. }
+    );
+    if events[index + 1..].iter().any(|envelope| {
+        matches!(&envelope.event, Event::StepCostReported { step_run_id: step, claim_id: id, .. }
+            if step == step_run_id && (id.as_ref() == Some(claim_id) ||
+                (legacy && id.is_none() && envelope.actor == claim_event.actor)))
+    }) {
+        return Ok(());
+    }
+    let cost = runbook_engine::RecordedCost::from_cost(reported)
+        .filter(|_| reported.valid())
+        .ok_or(ActorError::rejected("request.invalid"))?;
+    work.append(
+        Event::StepCostReported {
+            step_run_id: step_run_id.clone(),
+            claim_id: Some(claim_id.clone()),
+            cost,
+        },
+        claim_event.actor.clone(),
+    )?;
+    match work.commit(vec![]).await? {
         crate::CommitResult::Committed(_) => Ok(()),
         crate::CommitResult::Conflict => Err(ActorError::rejected("claim.conflict")),
     }
@@ -647,6 +771,19 @@ pub async fn append_logs(
             replay,
         )
         .await?)
+}
+
+fn end_decision_lease(
+    step: &runbook_engine::StepState,
+    claim: &ClaimWrite,
+    reason: &str,
+) -> Option<Event> {
+    let lease = step.approval.as_ref()?.decision_lease.as_ref()?;
+    (lease.lease_id == claim.claim_id).then(|| Event::DecisionLeaseEnded {
+        step_run_id: claim.step_run_id.clone(),
+        lease_id: claim.claim_id.clone(),
+        reason: reason.into(),
+    })
 }
 
 #[cfg(test)]

@@ -60,6 +60,8 @@ fn view(verdict: Option<Verdict>) -> runbook_model::StepView {
         iterations: None,
         skip_reason: None,
         followup: None,
+        runner: None,
+        cost: None,
     }
 }
 #[test]
@@ -97,6 +99,7 @@ fn request(trace: &Trace, status: ReportStatus) -> runbook_model::ReportRequest 
         summary: None,
         evidence: vec![],
         logs: vec![],
+        cost: None,
     }
 }
 #[test]

@@ -1,0 +1,274 @@
+// Grant renewal (design §7.5): the vault renews each live release's grant
+// at 70% of its lifetime with its own release token. When the core refuses
+// (the claim moved on: taken over, cancelled, lapsed), the secret can no
+// longer be opened, or the credential was revoked, the release ends: the
+// gateway drops the material, the core records the revocation, and nothing
+// is renewed again. Transient failures retry until the grant expires, and the
+// gateway drops material at expiry on its own (fail closed).
+import type pg from 'pg';
+import { sandboxIdForClaim } from '@runbook/runner-shared/capability';
+import type { ClaimFence } from '@runbook/runner-shared/contracts/internal';
+import type { Delivery, GrantClaims } from '@runbook/runner-shared/contracts/core';
+import { errorFields, type Logger } from '@runbook/runner-shared/log';
+import { audit } from './audit.ts';
+import type { CoreGrants } from './core.ts';
+import { VaultError } from './errors.ts';
+import type { GatewayClient } from './gateway.ts';
+import { checkRunnerPolicy } from './policy.ts';
+import type { SecretStore } from './secrets.ts';
+import { groupAllowed } from './types/index.ts';
+
+export const RENEW_AT_FRACTION = 0.7;
+const TRANSIENT = new Set(['core.unavailable', 'release.gateway_unavailable']);
+
+export interface LiveRelease {
+  releaseId: string;
+  stepRunId: string;
+  credentialId: string;
+  credentialVersion: number;
+  field: string;
+  delivery: Delivery;
+  /** The capability's claims the release was made under. */
+  claims: Pick<
+    GrantClaims,
+    'claim_id' | 'generation' | 'runner_id' | 'group_id' | 'agent_id' | 'agent_version' | 'project_id'
+  >;
+  /** Unix seconds. */
+  issuedAt: number;
+  expiresAt: number;
+}
+
+export function renewAtMs(issuedAt: number, expiresAt: number): number {
+  return (issuedAt + RENEW_AT_FRACTION * (expiresAt - issuedAt)) * 1000;
+}
+
+export interface RenewerDeps {
+  pool: pg.Pool;
+  core: CoreGrants;
+  gateway: GatewayClient;
+  secrets: SecretStore;
+  now: () => Date;
+  log: Logger;
+}
+
+export class Renewer {
+  private readonly live = new Map<string, LiveRelease>();
+  private readonly probes = new Map<string, { next: number; delay: number }>();
+  private readonly d: RenewerDeps;
+  private running: Promise<void> | undefined;
+
+  constructor(deps: RenewerDeps) {
+    this.d = deps;
+  }
+
+  track(release: LiveRelease): void {
+    this.live.set(release.releaseId, release);
+  }
+
+  get size(): number {
+    return this.live.size;
+  }
+
+  /** After a restart: pick up releases still live in the database and renew them at once. */
+  async loadLive(): Promise<number> {
+    const { rows } = await this.d.pool.query<{
+      id: string;
+      step_run_id: string;
+      credential_id: string;
+      credential_version: number;
+      delivery: Delivery;
+      claim_id: string;
+      generation: number;
+      runner_id: string;
+      group_id: string;
+      agent_id: string;
+      agent_version: string;
+      project_id: string;
+      field: string | null;
+      created_at: Date;
+      expires_at: Date;
+    }>(`SELECT * FROM releases WHERE status = 'live' AND expires_at > $1`, [this.d.now()]);
+    for (const r of rows) {
+      const credential = await this.d.secrets.credential(r.credential_id).catch(() => undefined);
+      if (!credential) continue;
+      this.track({
+        releaseId: r.id,
+        stepRunId: r.step_run_id,
+        credentialId: r.credential_id,
+        credentialVersion: r.credential_version,
+        field: r.field ?? 'key',
+        delivery: r.delivery,
+        claims: {
+          claim_id: r.claim_id,
+          generation: r.generation,
+          runner_id: r.runner_id,
+          group_id: r.group_id,
+          agent_id: r.agent_id,
+          agent_version: r.agent_version,
+          project_id: r.project_id,
+        },
+        issuedAt: 0,
+        expiresAt: Math.floor(r.expires_at.getTime() / 1000),
+      });
+    }
+    return rows.length;
+  }
+
+  /** Renew what is due and end what was revoked. One pass at a time. */
+  runDue(): Promise<void> {
+    this.running ??= this.pass().finally(() => {
+      this.running = undefined;
+    });
+    return this.running;
+  }
+
+  async endClaim(claim: ClaimFence, reason: string): Promise<void> {
+    await this.d.gateway.endClaim(claim);
+    const id = sandboxIdForClaim(claim);
+    await Promise.all([...this.live.values()].filter((release) =>
+      sandboxIdForClaim({ sub: release.stepRunId, ...release.claims }) === id)
+      .map((release) => this.end(release, reason, 'revoked').catch((error: unknown) =>
+        this.d.log.error('could not record claim release end', { release_id: release.releaseId, ...errorFields(error) }),
+      )));
+  }
+
+  private async checkClaim(claim: ClaimFence): Promise<void> {
+    const { sub, claim_id, runner_id, generation } = claim;
+    try {
+      await this.d.core.grant(sub, { kind: 'capability', claim_id, runner_id, generation }, claim);
+    } catch (error) {
+      if (error instanceof VaultError && (error.status === 403 || error.status === 409)) {
+        await this.endClaim(claim, error.code);
+      }
+    }
+  }
+
+  private async pass(): Promise<void> {
+    if (this.live.size === 0) {
+      this.probes.clear();
+      return;
+    }
+    const ids = [...new Set([...this.live.values()].map((r) => r.credentialId))];
+    const { rows } = await this.d.pool.query<{ id: string }>(
+      `SELECT id FROM credentials WHERE id = ANY($1) AND status = 'revoked'`,
+      [ids],
+    );
+    const revoked = new Set(rows.map((r) => r.id));
+    const claims = new Map<string, ClaimFence>();
+    for (const item of this.live.values()) {
+      const claim = { sub: item.stepRunId, ...item.claims };
+      if (!revoked.has(item.credentialId)) claims.set(sandboxIdForClaim(claim), claim);
+    }
+    for (const id of this.probes.keys()) if (!claims.has(id)) this.probes.delete(id);
+    await Promise.all([...claims].map(async ([id, claim]) => {
+      const now = this.d.now().getTime();
+      const previous = this.probes.get(id);
+      if (previous && previous.next > now) return;
+      const delay = Math.min(60_000, (previous?.delay ?? 5_000) * 2);
+      this.probes.set(id, { next: now + delay, delay });
+      try {
+        await this.checkClaim(claim);
+      } catch (error) {
+        this.d.log.error('could not end a moved claim', errorFields(error));
+      }
+    }));
+    const now = this.d.now().getTime();
+    for (const release of [...this.live.values()]) {
+      // One release's failure (an audit entry that can't be written, the
+      // database) never stops the others from being renewed or ended.
+      try {
+        if (revoked.has(release.credentialId)) await this.end(release, 'credential.revoked', 'revoked');
+        else if (now >= renewAtMs(release.issuedAt, release.expiresAt)) await this.renew(release);
+      } catch (e) {
+        this.d.log.error('could not renew or end a release', { release_id: release.releaseId, ...errorFields(e) });
+      }
+    }
+  }
+
+  private async renew(r: LiveRelease): Promise<void> {
+    const c = r.claims;
+    try {
+      const { claims } = await this.d.core.grant(
+        r.stepRunId,
+        {
+          kind: 'credential',
+          claim_id: c.claim_id,
+          generation: c.generation,
+          runner_id: c.runner_id,
+          credential_id: r.credentialId,
+          credential_version: r.credentialVersion,
+          delivery: r.delivery,
+        },
+        { ...c, credential_id: r.credentialId, credential_version: r.credentialVersion, delivery: r.delivery },
+      );
+      const opened = await this.d.secrets.openForRelease({
+        credentialId: r.credentialId,
+        field: r.field,
+        pinnedVersion: r.credentialVersion,
+        authorize: (credential) => checkRunnerPolicy(this.d.pool, claims, credential, r.delivery),
+      });
+      try {
+        await checkRunnerPolicy(this.d.pool, claims, await this.d.secrets.credential(r.credentialId), r.delivery);
+        if (!groupAllowed(opened.groups, c.group_id)) throw new VaultError(403, 'release.not_allowed', 'group not allowed');
+        await this.d.gateway.push({
+          release_id: r.releaseId,
+          step_run_id: r.stepRunId,
+          claim_id: claims.claim_id,
+          generation: claims.generation,
+          runner_id: claims.runner_id,
+          credential_id: r.credentialId,
+          delivery: r.delivery,
+          binding: opened.binding,
+          material: { fields: { [opened.field]: opened.value.toString('utf8') } },
+          expires_at: new Date(claims.exp * 1000).toISOString(),
+        });
+      } finally {
+        opened.value.fill(0);
+      }
+      r.issuedAt = claims.iat;
+      r.expiresAt = claims.exp;
+      await this.d.pool.query(`UPDATE releases SET expires_at = $2, renewed_at = $3, grant_jti = $4 WHERE id = $1`, [
+        r.releaseId,
+        new Date(claims.exp * 1000),
+        this.d.now(),
+        claims.jti,
+      ]);
+      this.d.log.info('grant renewed', { release_id: r.releaseId, step_run_id: r.stepRunId, expires_at: claims.exp });
+    } catch (e) {
+      const code = e instanceof VaultError ? e.code : 'internal';
+      if (TRANSIENT.has(code) || code === 'internal') {
+        this.d.log.warn('grant renewal failed; will retry', { release_id: r.releaseId, ...errorFields(e) });
+        if (this.d.now().getTime() >= r.expiresAt * 1000) await this.end(r, 'grant.expired', 'expired');
+        return;
+      }
+      await this.end(r, code, 'revoked');
+    }
+  }
+
+  /** End a release now: drop the material, tell the core, record it. Throws if it can't be audited. */
+  async end(r: LiveRelease, reason: string, status: 'revoked' | 'expired'): Promise<void> {
+    if (!this.live.delete(r.releaseId)) return;
+    await this.d.gateway.remove(r.releaseId).catch((e: unknown) =>
+      this.d.log.error('could not delete material at the gateway', { release_id: r.releaseId, ...errorFields(e) }),
+    );
+    await this.d.core.revoked(r.stepRunId, r.credentialId, reason).catch((e: unknown) =>
+      this.d.log.error('could not record the revocation in the core', { release_id: r.releaseId, ...errorFields(e) }),
+    );
+    await this.d.pool.query(`UPDATE releases SET status = $2, ended_at = $3, reason = $4 WHERE id = $1`, [
+      r.releaseId,
+      status,
+      this.d.now(),
+      reason,
+    ]);
+    await audit(this.d.pool, {
+      actor: { kind: 'process', id: 'vault' },
+      action: 'credential.revoked',
+      resource_type: 'credential',
+      resource_id: r.credentialId,
+      group_id: r.claims.group_id,
+      runner_id: r.claims.runner_id,
+      detail: { release_id: r.releaseId, step_run_id: r.stepRunId, version: r.credentialVersion, reason },
+    });
+    this.d.log.info('release ended', { release_id: r.releaseId, step_run_id: r.stepRunId, reason });
+  }
+}

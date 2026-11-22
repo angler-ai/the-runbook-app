@@ -114,6 +114,12 @@ impl BackendError {
     /// the API in process (`/mcp`) use this so their tool results match the
     /// CLI's.
     pub fn from_problem(status: u16, body: &Value) -> Self {
+        // The runner proxy relays the runner's own envelope,
+        // `{"error":{"code","message"}}`; read it the same way.
+        let body = match &body["error"] {
+            nested @ Value::Object(_) if body.get("code").is_none() => nested,
+            _ => body,
+        };
         let code = body["code"].as_str().unwrap_or("error").to_owned();
         let mut message = body
             .get("detail")

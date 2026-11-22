@@ -15,9 +15,14 @@ import {
   type RouterHistory,
 } from '@tanstack/react-router';
 import { registerUnauthorizedHandler } from '../api/client';
-import { signedIn } from '../api/hooks';
+import { signedIn, useMe } from '../api/hooks';
+import { useState } from 'react';
+import { signOut } from '../features/auth/session';
+import { isPartialMe } from '../features/mfa/hooks';
+import { MfaGate } from '../features/mfa/MfaGate';
 import { DeviceApprovalPage } from '../features/auth/DeviceApprovalPage';
 import { AccountSettingsPage } from '../features/settings/AccountSettingsPage';
+import { AccountSecurityPage } from '../features/mfa/AccountSecurityPage';
 import { AuthenticatedShell } from '../features/context/AuthenticatedShell';
 import { validateExecutionSearch } from '../features/executions/filters';
 import { validateRunSearch } from '../features/execution/views';
@@ -125,8 +130,35 @@ const deviceRoute = createRoute({
       });
     }
   },
-  component: DeviceApprovalPage,
+  component: DeviceRoutePage,
 });
+
+/**
+ * J-3: device approval is outside the app shell, so it gates a partial
+ * session itself: verify or enroll first, then approve (the approval is a
+ * sensitive action, so the step-up prompt may ask again when stale).
+ */
+function DeviceRoutePage() {
+  const me = useMe();
+  const navigate = useNavigate();
+  const [signingOut, setSigningOut] = useState(false);
+  if (isPartialMe(me.data)) {
+    return (
+      <MfaGate
+        security={me.data.security}
+        signingOut={signingOut}
+        onDone={() => void me.refetch()}
+        onSignOut={() => {
+          setSigningOut(true);
+          void signOut().then(() =>
+            navigate({ to: '/sign-in', search: { reason: 'mfa-signed-out' } }),
+          );
+        }}
+      />
+    );
+  }
+  return <DeviceApprovalPage />;
+}
 
 const authenticatedRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -250,16 +282,68 @@ const settingsRoute = createRoute({
   component: AccountSettingsPage,
 });
 
+// J-3: Account › Security. The auth service also sends a partial session
+// here with `return_to` to resume an OAuth authorization after the check.
+const securitySettingsRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: '/settings/security',
+  validateSearch: (search: Record<string, unknown>): { return_to?: string } =>
+    typeof search.return_to === 'string' ? { return_to: search.return_to } : {},
+  component: SecurityRoutePage,
+});
+
+function SecurityRoutePage() {
+  const search = useSearch({ strict: false }) as { return_to?: string };
+  return <AccountSecurityPage returnTo={search.return_to ?? null} />;
+}
+
 const organizationSettingsRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: '/settings/organization',
   component: OrganizationAdminPage,
 });
 
+const runnerSettingsRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: '/settings/organization/runner',
+  validateSearch: (search: Record<string, unknown>): { tab?: string } =>
+    typeof search.tab === 'string' ? { tab: search.tab } : {},
+  component: lazyRouteComponent(
+    () => import('../features/runner/RunnerSettingsPage'),
+    'RunnerSettingsPage',
+  ),
+});
+
 const projectSettingsRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: '/p/$project/settings',
   component: ProjectSettingsPage,
+});
+
+const agentsSearch = (search: Record<string, unknown>): { tab?: string } =>
+  typeof search.tab === 'string' ? { tab: search.tab } : {};
+const projectAgentsRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: '/p/$project/agents',
+  validateSearch: agentsSearch,
+  component: lazyRouteComponent(() => import('../features/agents/AgentsPage'), 'AgentsPage'),
+});
+const projectAgentRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: '/p/$project/agents/$agent',
+  validateSearch: agentsSearch,
+  component: lazyRouteComponent(() => import('../features/agents/AgentsPage'), 'AgentsPage'),
+});
+const runnerTranscriptRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: '/p/$project/agents/transcripts/$step',
+  validateSearch: (search: Record<string, unknown>) => ({
+    claim_id: typeof search.claim_id === 'string' ? search.claim_id : undefined,
+  }),
+  component: lazyRouteComponent(
+    () => import('../features/agents/TranscriptPage'),
+    'TranscriptPage',
+  ),
 });
 
 const projectSkillsRoute = createRoute({
@@ -314,8 +398,13 @@ const routeTree = rootRoute.addChildren([
     projectExecutionsRoute,
     executionRoute,
     settingsRoute,
+    securitySettingsRoute,
     organizationSettingsRoute,
+    runnerSettingsRoute,
     projectSettingsRoute,
+    projectAgentsRoute,
+    projectAgentRoute,
+    runnerTranscriptRoute,
     projectSkillsRoute,
     projectWebhooksRoute,
     projectMemoryRoute,

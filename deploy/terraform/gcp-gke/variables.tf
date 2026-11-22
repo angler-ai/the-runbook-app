@@ -116,7 +116,7 @@ variable "sql_maintenance_window_update_track" {
 
 variable "image" {
   type        = string
-  description = "Container image to deploy, pinned to an X.Y.Z tag and optionally its digest (e.g. ghcr.io/angler-ai/runbook:0.1.0)."
+  description = "Container image to deploy, pinned to an X.Y.Z tag and optionally its digest (e.g. ghcr.io/angler-ai/runbook:0.1.1)."
 
   validation {
     condition     = can(regex("(:(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(@sha256:[0-9a-f]{64})?|@sha256:[0-9a-f]{64})$", var.image))
@@ -164,6 +164,11 @@ variable "smtp_url" {
   default     = ""
   sensitive   = true
   description = "Optional SMTP connection URL (e.g. smtps://user:pass@smtp.example.com:465) for email sign-in codes."
+
+  validation {
+    condition     = var.manage_secret_values || var.smtp_url == ""
+    error_message = "Supply the SMTP URL only in the external Secret when manage_secret_values is false."
+  }
 }
 
 variable "google_client_id" {
@@ -176,11 +181,11 @@ variable "google_client_secret" {
   type        = string
   default     = ""
   sensitive   = true
-  description = "Google OAuth web client secret, with google_client_id. Kept in Secret Manager and the workload's Secret."
+  description = "Google OAuth web client secret, with google_client_id. Stored in the Terraform-managed Kubernetes Secret."
 
   validation {
-    condition     = (var.google_client_secret == "") == (var.google_client_id == "")
-    error_message = "Set google_client_id and google_client_secret together, or neither."
+    condition     = var.manage_secret_values ? (var.google_client_secret == "") == (var.google_client_id == "") : var.google_client_secret == ""
+    error_message = "Set google_client_id and google_client_secret together in managed mode. In external mode, pass the client ID only."
   }
 }
 
@@ -198,8 +203,8 @@ variable "slack_signing_secret" {
   description = "The Slack app's signing secret, with slack_bot_token."
 
   validation {
-    condition     = (var.slack_signing_secret == "") == (var.slack_bot_token == "")
-    error_message = "Set slack_bot_token and slack_signing_secret together, or neither."
+    condition     = var.manage_secret_values ? (var.slack_signing_secret == "") == (var.slack_bot_token == "") : var.slack_signing_secret == "" && var.slack_bot_token == ""
+    error_message = "Set both Slack credentials in managed mode, or supply them only in the external Secret."
   }
 }
 
@@ -311,3 +316,108 @@ variable "blob_prefix" {
   description = "Object key prefix for blobs stored in GCS."
 }
 
+
+variable "runner_enabled" {
+  type        = bool
+  default     = false
+  description = "Provision runner IAM identities and its vault key. Runner workloads wait for the R2 Kubernetes sandbox backend."
+}
+
+variable "sql_api_deletion_protection" {
+  type        = bool
+  default     = true
+  description = "Protect the Cloud SQL instance against deletion through the Cloud SQL API."
+}
+
+variable "database_auth" {
+  type        = string
+  default     = "password"
+  description = "PostgreSQL authentication method: password or automatic IAM authentication through the proxy."
+
+  validation {
+    condition     = contains(["password", "iam"], var.database_auth)
+    error_message = "database_auth must be password or iam."
+  }
+}
+
+variable "sql_enable_pgaudit" {
+  type        = bool
+  default     = false
+  description = "Enable the Cloud SQL pgAudit flag. Configure the extension and audit classes separately."
+}
+
+variable "manage_secret_values" {
+  type        = bool
+  default     = true
+  description = "Generate and store credentials in Terraform state and manage the Kubernetes Secret. Set false to use an out-of-band Secret."
+}
+
+variable "existing_secret_name" {
+  type        = string
+  default     = "runbook-secrets"
+  description = "Name of the out-of-band Secret in the runbook namespace when manage_secret_values is false."
+}
+
+variable "cloud_sql_proxy_image" {
+  type = string
+  # Cloud SQL Auth Proxy 2.28.0, multi-platform manifest.
+  default     = "gcr.io/cloud-sql-connectors/cloud-sql-proxy@sha256:e0cbea7b63455c1635d354ef456696d019dd02a5db47bf1994e849823e71ae89"
+  description = "Digest-pinned Cloud SQL Auth Proxy image for serving and migration pods."
+
+  validation {
+    condition     = can(regex("@sha256:[0-9a-f]{64}$", var.cloud_sql_proxy_image))
+    error_message = "cloud_sql_proxy_image must end in a SHA-256 image digest."
+  }
+}
+
+variable "network_policies" {
+  type        = bool
+  default     = true
+  description = "Manage network policies. Deny namespace ingress except load balancer traffic to the serving port. Requires NetworkPolicy enforcement."
+}
+
+variable "restrict_egress" {
+  type        = bool
+  default     = false
+  description = "Restrict serving and migration pod egress to DNS, metadata, private Cloud SQL and public IPv4 destinations."
+}
+
+variable "cloud_sql_private_cidr" {
+  type        = string
+  default     = null
+  description = "Private Cloud SQL IPv4 range, preferably the instance IP as /32. Required when restrict_egress is true."
+
+  validation {
+    condition     = !(var.network_policies && var.restrict_egress) || can(cidrnetmask(var.cloud_sql_private_cidr))
+    error_message = "Set cloud_sql_private_cidr to the Cloud SQL IPv4 CIDR when restrict_egress is true."
+  }
+}
+
+variable "hsts_max_age" {
+  type        = number
+  default     = 31536000
+  description = "Max-age in seconds for the load balancer's HSTS response header."
+
+  validation {
+    condition     = var.hsts_max_age >= 0 && floor(var.hsts_max_age) == var.hsts_max_age
+    error_message = "hsts_max_age must be a nonnegative integer."
+  }
+}
+
+variable "hsts_include_subdomains" {
+  type        = bool
+  default     = true
+  description = "Add includeSubDomains to the load balancer's HSTS header."
+}
+
+variable "runner_kek_rotation_period" {
+  description = "Rotation period for the runner vault's KMS key (KEK). New key versions wrap new data keys; old versions stay enabled for unwrapping."
+  type        = string
+  default     = "7776000s"
+}
+
+variable "runner_vault_vertex_enabled" {
+  description = "Grant the runner vault's service account roles/aiplatform.user. Leave off until attached-identity model use is enabled in the runner."
+  type        = bool
+  default     = false
+}

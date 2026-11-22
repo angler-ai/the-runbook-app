@@ -74,20 +74,34 @@ export interface StepActionsProps {
    * (UI-3's side panel).
    */
   strictNote?: boolean;
+  /** The run's project (id or slug), for runner transcript links. */
+  project?: string;
 }
 
 const NO_NAMES: DirectoryNames = { nameOf: shortId, teamName: (reference) => reference };
 
-/** A decided approval's outcome from its step outputs (`decision`, `decided_by`). */
+/**
+ * A decided approval's outcome from its step outputs (`decision`,
+ * `decided_by`). An agent's `decided_by` is its principal (`runner:…`), so
+ * the agent's name comes from its recorded decision (R1-D2).
+ */
 function approvalOutcome(
   outputs: Record<string, unknown> | undefined,
   nameOf: DirectoryNames['nameOf'],
+  decisions: Schemas['DecisionRecord'][] = [],
 ): { option: string; by?: string } | null {
   const option = outputs?.decision;
   if (typeof option !== 'string' || option.length === 0) return null;
   const by = outputs?.decided_by;
   if (typeof by !== 'string' || by.length === 0) return { option };
   if (isUserId(by)) return { option, by: nameOf(by) };
+  const agent = decisions.find(
+    (decision) =>
+      decision.by === 'agent' &&
+      decision.option === option &&
+      (decision.principal == null || decision.principal === by),
+  );
+  if (agent?.by === 'agent') return { option, by: `agent ${agent.agent_name}` };
   return { option, by: by === 'system' ? 'System policy' : by };
 }
 
@@ -128,6 +142,7 @@ export function StepActions({
   onFormShownChange,
   runPaused = false,
   strictNote = true,
+  project,
 }: StepActionsProps) {
   const stepRunId = section.step_run_id;
   const [storedClaim, setMyClaim] = useState(() => tabClaims.get(stepRunId));
@@ -513,7 +528,21 @@ export function StepActions({
             approval={approval}
             nameOf={names.nameOf}
             teamName={names.teamName}
-            outcome={approvalOutcome(section.outputs, names.nameOf)}
+            outcome={approvalOutcome(section.outputs, names.nameOf, approval.decisions)}
+            agent={
+              step?.runner
+                ? {
+                    name: step.runner.agent_name,
+                    readyAtMs: step.runner.decision_ready_at_ms,
+                  }
+                : undefined
+            }
+            transcriptHref={
+              project
+                ? `/p/${encodeURIComponent(project)}/agents/transcripts/${encodeURIComponent(stepRunId)}`
+                : undefined
+            }
+            now={documentAt}
             disabled={busy || !eligible}
             onDecide={(option, comment) => {
               setActionError(null);

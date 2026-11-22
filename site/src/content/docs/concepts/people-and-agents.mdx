@@ -15,7 +15,7 @@ Each task says who may claim it with `actor`:
 | --- | --- |
 | `any` (the default) | A person or an agent, whoever gets there first |
 | `human` | A person |
-| `agent` | An agent, through the CLI or MCP; a person may [take it over](/concepts/leases/#take-over) |
+| `agent` | An agent through the CLI, MCP or the runner. A person may [take it over](/concepts/leases/#take-over) |
 
 ```yaml title="mixed-work.yaml"
 metadata: { id: mixed-work }
@@ -31,6 +31,12 @@ spec:
       actor: human
       instructions: Choose a fix and write it in the summary.
 ```
+
+Use `agent: { name: deploy-checker }` on an `actor: agent` task to
+target a [project runner agent](/runner/agents/). The runner claims the
+step and reports under a lease. Use `agent: { name: external }` to
+reserve a step for external agents. An [approval](/concepts/approvals/)
+can opt into an agent decision separately from task assignment.
 
 ## Assignees
 
@@ -69,6 +75,7 @@ The server decides whether a caller is a person or an agent from the
 | An execution pair (`runbook run token`) | An agent, working that one run |
 | An OAuth grant to an MCP client | An agent, sponsored by the person who consented |
 | A service token | The project's automation |
+| A runner claim | The runner principal, with the project agent and model recorded on the run |
 
 An agent declares a session, a name and a model when it claims a step, and
 those go on the record too.

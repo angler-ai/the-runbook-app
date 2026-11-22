@@ -23,6 +23,8 @@ fn claim_lifecycle_replays() {
         &mut trace,
         Event::StepClaimed {
             step_run_id: id.clone(),
+            agent_version_id: None,
+            claim_id: None,
         },
     );
     assert_eq!(trace.step("work").status, StepStatus::Claimed);
@@ -32,7 +34,14 @@ fn claim_lifecycle_replays() {
         &[],
     );
     let rid = reported.step("work").id.clone().unwrap();
-    claim(&mut reported, Event::StepClaimed { step_run_id: rid });
+    claim(
+        &mut reported,
+        Event::StepClaimed {
+            step_run_id: rid,
+            agent_version_id: None,
+            claim_id: None,
+        },
+    );
     let actor = ActorRef::Human {
         user_id: "usr_00000000000000000000000001".parse().unwrap(),
     };
@@ -69,6 +78,8 @@ fn claim_lifecycle_replays() {
         &mut trace,
         Event::StepClaimed {
             step_run_id: id.clone(),
+            agent_version_id: None,
+            claim_id: None,
         },
     );
     claim(&mut trace, Event::StepClaimExpired { step_run_id: id });

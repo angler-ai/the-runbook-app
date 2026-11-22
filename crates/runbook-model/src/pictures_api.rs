@@ -79,4 +79,17 @@ pub struct UpdateProjectRequest {
     /// admins only. Archived projects are hidden and read-only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub archived: Option<bool>,
+    /// R0-3: the runner agent unnamed agent steps target in runbooks
+    /// published from now on (`null` clears it; `external` keeps them
+    /// open to external agents). Project admins only.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    pub default_agent: Option<Option<String>>,
+}
+/// A present field, `null` included, is `Some`; an absent one stays `None`.
+fn present<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Option<String>>, D::Error> {
+    Option::<String>::deserialize(d).map(Some)
 }

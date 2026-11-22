@@ -20,6 +20,7 @@ pub const APPS: &str = "/v1/me/apps";
 
 pub fn recognizes(path: &str) -> bool {
     path == "/v1/me"
+        || path == crate::mfa::MY_SECURITY
         || path == "/v1/me/token"
         || path == "/v1/me/email-preferences"
         || path == "/v1/unsubscribe"
@@ -111,6 +112,14 @@ fn app_view(grant: &serde_json::Value) -> Option<runbook_model::ConnectedAppView
 type Failure = (u16, &'static str);
 
 pub async fn handle<B: Backends>(backends: &B, r: Request) -> Response {
+    if r.method == "GET" && r.path == crate::mfa::MY_SECURITY {
+        let (status, code) = if r.credential.is_none() {
+            (401, "auth.required")
+        } else {
+            (403, "auth.forbidden")
+        };
+        return Response::error(status, code, &r.request_id);
+    }
     match dispatch(backends, &r).await {
         Ok((status, body)) => Response::json(status, body, &r.request_id),
         Err((status, code)) => Response::error(status, code, &r.request_id),
@@ -367,7 +376,7 @@ async fn dispatch<B: Backends>(
                 None
             } else {
                 backends
-                    .oauth_apps("oauth/grants", json!({ "auth_user_ids": auth_users }))
+                    .auth_internal("oauth/grants", json!({ "auth_user_ids": auth_users }))
                     .await
                     .map_err(|_| (503, "auth.unavailable"))?
             };
@@ -390,7 +399,7 @@ async fn dispatch<B: Backends>(
                 return Err((404, "resource.not_found"));
             }
             let answer = backends
-                .oauth_apps(
+                .auth_internal(
                     "oauth/grants/revoke",
                     json!({ "auth_user_ids": auth_users, "client_id": client }),
                 )

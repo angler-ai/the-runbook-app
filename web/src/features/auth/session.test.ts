@@ -97,10 +97,16 @@ describe('validateMeForSignIn (F90)', () => {
 });
 
 describe('isSecurePasteContext (F96)', () => {
-  it('allows https and localhost only', () => {
+  it('allows https and loopback hosts', () => {
     expect(isSecurePasteContext('https://runbook.example/sign-in')).toBe(true);
     expect(isSecurePasteContext('http://localhost:5173/sign-in')).toBe(true);
+    expect(isSecurePasteContext('http://runbook.localhost:8080/sign-in')).toBe(true);
+    expect(isSecurePasteContext('http://nested.RUNBOOK.localhost./sign-in')).toBe(true);
     expect(isSecurePasteContext('http://127.0.0.1:8080/')).toBe(true);
+    expect(isSecurePasteContext('http://127.1.2.3/')).toBe(true);
+    expect(isSecurePasteContext('http://[::1]/')).toBe(true);
+    expect(isSecurePasteContext('http://runbook.localhost.example/')).toBe(false);
+    expect(isSecurePasteContext('http://notlocalhost/')).toBe(false);
     expect(isSecurePasteContext('http://runbook.lan/sign-in')).toBe(false);
     expect(isSecurePasteContext('http://192.168.1.10/')).toBe(false);
   });

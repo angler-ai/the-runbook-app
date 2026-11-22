@@ -1,0 +1,1 @@
+ALTER TABLE runner_runners ADD COLUMN decision_v1 INTEGER NOT NULL DEFAULT 0;

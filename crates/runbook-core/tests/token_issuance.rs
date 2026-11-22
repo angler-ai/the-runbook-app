@@ -29,6 +29,7 @@ fn snapshot() -> DirectorySnapshot {
     let mut s = DirectorySnapshot {
         org_id: org(),
         revision: 1,
+        security: Default::default(),
         organization: OrganizationRecord {
             id: org(),
             title: "Org".into(),
@@ -558,6 +559,7 @@ fn views_carry_metadata_never_secrets() {
         name: "ci".into(),
         created_at: Some(NOW),
         created_by: Some(user(1)),
+        fresh_mfa_at_issue: false,
     };
     let v = view(&record, &meta);
     assert_eq!(v.scopes, vec!["executions:read".to_string()]);

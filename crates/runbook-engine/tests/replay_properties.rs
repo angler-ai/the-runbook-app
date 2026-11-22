@@ -302,6 +302,8 @@ impl Run {
             Action::Claim { step, human: h } => {
                 let event = Event::StepClaimed {
                     step_run_id: self.run_id(step)?,
+                    agent_version_id: None,
+                    claim_id: None,
                 };
                 self.append(event, if *h { human(2) } else { agent() })
             }

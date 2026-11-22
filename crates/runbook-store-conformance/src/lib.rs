@@ -19,7 +19,9 @@ pub mod queue;
 pub mod quotas;
 pub mod retention;
 pub mod run_ceiling;
+pub mod runners;
 pub mod search;
+pub mod signing;
 pub mod webhooks;
 // T0 contract freeze: cases registered red (see `pending`).
 pub mod archives;

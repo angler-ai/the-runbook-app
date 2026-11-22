@@ -152,11 +152,11 @@ function renderCli(cli) {
 
 function schemaType(p) {
   if (!p) return '';
-  if (p.enum) return p.enum.map((v) => JSON.stringify(v)).join(' \\| ');
-  if (Array.isArray(p.type)) return p.type.join(' \\| ');
+  if (p.enum) return p.enum.map((v) => JSON.stringify(v)).join(' | ');
+  if (Array.isArray(p.type)) return p.type.join(' | ');
   if (p.type === 'array') return `array of ${schemaType(p.items) || 'any'}`;
   if (p.type) return p.type;
-  if (p.oneOf || p.anyOf) return (p.oneOf || p.anyOf).map(schemaType).join(' \\| ');
+  if (p.oneOf || p.anyOf) return (p.oneOf || p.anyOf).map(schemaType).join(' | ');
   return 'any';
 }
 

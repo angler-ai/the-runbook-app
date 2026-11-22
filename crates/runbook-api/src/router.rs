@@ -58,6 +58,9 @@ impl<B: Backends> Router<B> {
                 crate::session::can_register(&self.backends, &sign_in.allowed_domains, request)
                     .await
             }
+            Some(_) if request.path == crate::mfa::INTERNAL_POLICY && request.method == "POST" => {
+                crate::mfa::internal_policy(&self.backends, request).await
+            }
             _ => Response::error(404, "resource.not_found", &request.request_id),
         }
     }
@@ -97,6 +100,9 @@ impl<B: Backends> Router<B> {
         {
             return Response::error(status, code, &request.request_id);
         }
+        if let Some(response) = Box::pin(crate::mfa::gate(&self.backends, &mut request)).await {
+            return response;
+        }
         let mut response = self.dispatch(request).await;
         if response.status == 200 {
             if is_discovery {
@@ -115,6 +121,10 @@ impl<B: Backends> Router<B> {
     /// wasm's, are small).
     fn dispatch(&self, r: Request) -> Pin<Box<dyn Future<Output = Response> + '_>> {
         let b = &self.backends;
+        // R0-2: a runner token reaches only its allow-list.
+        if crate::runner_access::is_runner(&r) {
+            return Box::pin(crate::runner_access::handle(b, r));
+        }
         let execution = crate::execution_access::is_execution(&r);
         match area(&r.method, &r.path, execution) {
             // Only [`Router::can_register`] answers it; `handle` never gets here.
@@ -132,6 +142,7 @@ impl<B: Backends> Router<B> {
                 ))),
             },
             Area::Invitations => Box::pin(crate::invitations::handle(b, r)),
+            Area::Runners => Box::pin(crate::runners::handle(b, r)),
             Area::Memory => Box::pin(crate::memory::handle(b, r)),
             Area::Archives => Box::pin(async move {
                 crate::archives::ArchiveService {
@@ -150,6 +161,13 @@ impl<B: Backends> Router<B> {
             Area::Slack => Box::pin(crate::slack::handle(b, r)),
             Area::SlackInteractions => Box::pin(crate::slack_app::handle(b, r)),
             Area::Pictures => Box::pin(crate::pictures::handle(b, r)),
+            Area::OrgSecurity => Box::pin(async move {
+                if r.method == "POST" {
+                    crate::mfa::owner_reset(b, &r).await
+                } else {
+                    crate::mfa::org_security(b, &r).await
+                }
+            }),
             Area::Me => Box::pin(crate::me::handle(b, r)),
             Area::MeTasks => Box::pin(crate::me_tasks::handle(b, r)),
             Area::StepReads => Box::pin(crate::step_reads::handle(b, r)),
@@ -243,9 +261,11 @@ impl<B: Backends> Router<B> {
 /// reach the person-facing handlers of a path they share), in this order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Area {
-    /// AUTH2 `POST /internal/can-register` (the host gates who reaches it).
+    /// Auth-service internal routes gated by the host.
     CanRegister,
     Device,
+    /// The runner's core routes (registry, directory, grants, JWKS).
+    Runners,
     Invitations,
     Memory,
     Archives,
@@ -254,6 +274,7 @@ pub enum Area {
     /// D32: an execution credential's step-at-a-time allow-list.
     ExecutionAccess,
     Tokens,
+    OrgSecurity,
     Me,
     Slack,
     /// SLACK1 stage 2: Slack's signed button clicks.
@@ -272,10 +293,15 @@ pub enum Area {
 }
 
 pub fn area(method: &str, path: &str, execution_bearer: bool) -> Area {
-    if path == crate::session::CAN_REGISTER {
+    if matches!(
+        path,
+        crate::session::CAN_REGISTER | crate::mfa::INTERNAL_POLICY
+    ) {
         Area::CanRegister
     } else if crate::device::recognizes(method, path) {
         Area::Device
+    } else if crate::runners::recognizes(path) {
+        Area::Runners
     } else if crate::invitations::recognizes(path) {
         Area::Invitations
     } else if crate::memory::recognizes(path) {
@@ -298,6 +324,12 @@ pub fn area(method: &str, path: &str, execution_bearer: bool) -> Area {
         Area::Slack
     } else if crate::pictures::recognizes(path) {
         Area::Pictures
+    } else if (matches!(method, "GET" | "PUT")
+        && crate::directory::match_path(crate::mfa::ORG_SECURITY, path).is_some())
+        || (method == "POST"
+            && crate::directory::match_path(crate::mfa::OWNER_RESET, path).is_some())
+    {
+        Area::OrgSecurity
     } else if crate::me::recognizes(path) {
         Area::Me
     } else if path == crate::me_tasks::PATH {

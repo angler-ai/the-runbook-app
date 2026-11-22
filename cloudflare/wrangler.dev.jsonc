@@ -24,7 +24,7 @@
     "binding": "ASSETS",
     "html_handling": "none",
     "not_found_handling": "none",
-    "run_worker_first": ["/*", "!/assets/*", "!/manifest.webmanifest"]
+    "run_worker_first": true
   },
   "services": [{ "binding": "AUTH", "service": "runbook-auth-local" }],
   "durable_objects": {

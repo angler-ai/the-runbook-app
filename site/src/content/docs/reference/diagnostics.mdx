@@ -145,11 +145,19 @@ starts with `x-`; those are kept and never executed.
 
 > This feature is not supported in this profile.
 
-A key the language deliberately refuses, such as `agent.runner`,
-`agent.model`, `agent.max_cost_usd` or `agent.max_tokens`.
+A feature the language deliberately refuses, such as an input type it
+doesn't have yet.
 
-**Fix:** remove it. Limit what an agent can do through the access you give
-it, not through the runbook.
+**Fix:** remove it, or use one the [key reference](/reference/keys/) lists.
+
+### `spec.retired_key`
+
+> This key is retired; use agent.name to name a runner agent.
+
+A key that was replaced: `agent.runner` is now `agent.name`.
+
+**Fix:** name the runner agent with `agent.name` (`external` keeps the task
+open to external agents).
 
 ### `spec.unsupported_value`
 
@@ -630,6 +638,14 @@ when you publish.
 **Fix:** remove `allow_agents`, or put a human approval between this one and
 the destructive task.
 
+### `spec.agent_requires_allow_agents`
+
+> A runner target requires allow_agents: true on this approval.
+
+An approval names a runner agent (`agent:`) but doesn't let agents decide.
+
+**Fix:** add `allow_agents: true` (with `min: 1`), or remove `agent`.
+
 ### `spec.auto_option_required`
 
 > Automatic timeout decision must name an option with auto: true.
@@ -657,6 +673,31 @@ An approval escalates at its timeout but there is no one to escalate to:
 no `escalate_to` and no `metadata.owners`.
 
 **Fix:** add `escalate_to`, or owners to the runbook.
+
+### `spec.destructive_approval_options`
+
+An approval gates a destructive runner task but doesn't say which
+decisions grant permission, so any option, including "no", would let the
+task run. Reported when you publish.
+
+**Fix:** add `approves: [...]` with the options that grant permission, or make
+the destructive task's `if` check the approval's `outputs.decision`.
+
+### `spec.approval_options_unspecified`
+
+A warning on a version published before `approves` existed: its approval
+lets any human decision unlock a destructive runner task. The version keeps
+running as published.
+
+**Fix:** add `approves: [...]` to the approval in the draft and publish again.
+
+### `spec.destructive_approval_loop`
+
+A warning: one approval outside a loop covers every iteration of a
+destructive runner task inside it, so a single decision unlocks them all.
+
+**Fix:** move the approval inside the loop so each iteration asks for its own
+decision, or keep it outside if one decision really covers the whole batch.
 
 ### `spec.on_timeout_requires_timeout`
 
@@ -922,6 +963,60 @@ un-nest them.
 
 **Fix:** subscribe a webhook to `agent.work_available` and put what the
 launcher needs in `spec.agents.params`; see [webhooks](/webhooks/).
+
+### `spec.agent_unknown`
+
+> No runner agent with this name exists in this project.
+
+An `agent.name` (or `spec.defaults.agent`, or the project's default agent)
+names no runner agent in this project's agent directory. Publish checks
+names against the directory the runner keeps in sync, so it works while
+the runner is offline. Validating a file on its own doesn't check names.
+
+**Fix:** use the agent's name as the Agents page shows it, or `external` to
+leave the task to external agents.
+
+### `spec.agent_outside_ceiling`
+
+> This step asks for more than its runner agent allows.
+
+The task asks for more than its runner agent allows: a model profile the
+agent doesn't offer, `max_cost_usd` or `max_tokens` above the agent's
+limit, a host outside its egress list or a credential it doesn't have.
+Runner keys on a task with no runner agent are refused the same way.
+
+**Fix:** stay within the agent's limits, or ask a project admin to widen the
+agent.
+
+### `spec.agent_requires_agent_actor`
+
+> Naming a runner agent needs a step with actor: agent.
+
+`agent.name` is on a task whose actor isn't `agent`.
+
+**Fix:** set `actor: agent`, or remove the name.
+
+### `spec.destructive_reach`
+
+> This step can use destructive tools or credentials: mark it destructive or narrow its tools.
+
+A runner task can use a tool, credential or host labeled `destructive`,
+but isn't marked `destructive: true`. The message lists what it can reach.
+
+**Fix:** mark the task `destructive: true` (it then needs a person's approval
+before it), or narrow it with `connections` and `agent.network`.
+
+### `spec.destructive_needs_approval`
+
+> A destructive runner step must come after a person's approval on every path to it.
+
+A destructive task aimed at a runner agent doesn't come after a person's
+approval on every path to it. An approval inside one branch of a `switch`
+or `parallel`, behind an `if`, decided by agents or on a timeout, or before
+a runbook's `finally`, doesn't count.
+
+**Fix:** put an approval that people decide before the task, in the same
+sequence or one that encloses it.
 
 ## Internal
 

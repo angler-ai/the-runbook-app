@@ -33,6 +33,13 @@ A scope never widens a role. A token with `runbooks:publish` held by an
 | `tokens:manage` | Create, list and revoke tokens | `admin` |
 | `webhooks:manage` | Manage webhook subscriptions | `admin` |
 | `project:admin` | Members, project settings and variables | `admin` |
+| `runner:read` | Read the organization's runner and, through it, the agents, activity and costs of your projects | Any member |
+| `runner:admin` | Register the runner and choose its groups' projects; through it, change the runner's setup (the runner decides what your roles allow) | Org `owner` or `admin` for registration |
+
+`runner:read` and `runner:admin` are separate: neither implies the other.
+Browser sessions get `runner:read`, and org owners and admins
+`runner:admin` too; a token or an OAuth grant holds them only when chosen
+explicitly (they are unticked on the consent page).
 
 An archived project is read-only for everyone: only the `:read` scopes work
 there.
@@ -47,6 +54,7 @@ there.
 | Execution pair | `trb_exe_` / `trb_exr_` | An agent working one run | Access 1 hour; refresh family at most 30 days, only while the run is open |
 | OAuth access token | `trb_oat_` | An agent sponsored by the person who consented (MCP clients) | 1 hour; refresh within 90 days of consent |
 | Browser session | cookie | A person | Until sign-out or expiry |
+| Runner tokens | `trb_rbs_`, `trb_rjn_`, `trb_rdi_`, `trb_rcl_`, `trb_rrl_` | The organization's runner: a single-use bootstrap token, its join, directory, claim and release tokens. Each reaches only its own routes | Bootstrap 24 hours; the rest until the runner is re-registered |
 
 Tokens are issued only to the caller: `POST /v1/tokens` never creates a
 token for someone else, and a token can carry only scopes its creator holds,

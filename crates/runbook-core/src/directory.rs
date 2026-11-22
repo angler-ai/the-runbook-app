@@ -52,6 +52,7 @@ pub struct DirectorySnapshot {
     pub org_id: OrganizationId,
     pub revision: u64,
     pub organization: OrganizationRecord,
+    pub security: OrgSecurity,
     pub users: BTreeMap<UserId, UserRecord>,
     pub projects: BTreeMap<ProjectId, ProjectRecord>,
     pub teams: BTreeMap<TeamId, TeamRecord>,
@@ -85,10 +86,66 @@ impl DirectorySnapshot {
             .copied()
     }
 }
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MfaRequirement {
+    #[default]
+    Off,
+    Admins,
+    Everyone,
+}
+
+impl MfaRequirement {
+    pub fn applies_to(self, role: OrgRole) -> bool {
+        match self {
+            Self::Off => false,
+            Self::Admins => matches!(role, OrgRole::Admin | OrgRole::Owner),
+            Self::Everyone => true,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OrgSecurity {
+    pub require_mfa: MfaRequirement,
+    pub allow_passkeys: bool,
+    pub allow_authenticator: bool,
+    pub fresh_minutes: u8,
+}
+
+impl Default for OrgSecurity {
+    fn default() -> Self {
+        Self {
+            require_mfa: MfaRequirement::Off,
+            allow_passkeys: true,
+            allow_authenticator: true,
+            fresh_minutes: 10,
+        }
+    }
+}
+
+impl OrgSecurity {
+    pub fn validate(self) -> Result<(), DirectoryError> {
+        if (self.allow_passkeys || self.allow_authenticator)
+            && (5..=60).contains(&self.fresh_minutes)
+        {
+            Ok(())
+        } else {
+            Err(DirectoryError::Invalid("organization security policy"))
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DirectoryMutation {
     CreateOrganization {
         title: String,
+    },
+    SetOrgSecurity {
+        policy: OrgSecurity,
+        actor: UserId,
+        occurred_at_ms: i64,
     },
     CreateUser(UserRecord),
     CreateProject(ProjectRecord),

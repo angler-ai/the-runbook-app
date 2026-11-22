@@ -316,6 +316,7 @@ fn child(
         depth,
         reaches: reaches.iter().map(|s| (*s).into()).collect(),
         destructive: false,
+        agent_decidable: Some(false),
         inputs: inputs.iter().map(|(n, r)| ((*n).into(), *r)).collect(),
         input_schemas: inputs
             .iter()
@@ -661,4 +662,71 @@ fn a_number_output_may_satisfy_an_integer_declaration() {
         &call_context(&[("a", resolution)]),
     )
     .unwrap();
+}
+
+#[test]
+fn nested_call_decisions_reach_destructive_continuations() {
+    let compile_named = |name: &str, body: Value, context: &CompileContext| {
+        let spec = parse(
+            &json!({
+                "apiVersion":"therunbook.app/v1", "kind":"Runbook",
+                "metadata":{"id":name,"title":"Test"}, "spec":body
+            })
+            .to_string(),
+        )
+        .unwrap();
+        compile(&spec, context).unwrap()
+    };
+    let mut review_context = CompileContext::default();
+    review_context.teams.insert(
+        "oncall".into(),
+        "team_00000000000000000000000001".parse().unwrap(),
+    );
+    let review = compile_named(
+        "review",
+        json!({"steps":[{"id":"gate","approval":{
+            "prompt":"Ship?", "options":["ship","hold"], "approvers":{"teams":["oncall"]}, "allow_agents":true
+        }}]}),
+        &review_context,
+    );
+    let review_pin = review.call_resolution(
+        "rb_00000000000000000000000001",
+        "rbv_00000000000000000000000001",
+        1,
+    );
+    let wrapper = compile_named(
+        "wrapper",
+        json!({"steps":[{"id":"review","call":{"runbook":"review"}}]}),
+        &call_context(&[("review", review_pin)]),
+    );
+    let wrapper_pin = wrapper.call_resolution(
+        "rb_00000000000000000000000002",
+        "rbv_00000000000000000000000002",
+        1,
+    );
+    let context = call_context(&[("wrapper", wrapper_pin)]);
+    let call = json!({"id":"child","call":{"runbook":"wrapper"}});
+    let task = json!({"id":"deploy","title":"Deploy","destructive":true});
+    let checked = |body| compile_named("parent", body, &context);
+    for body in [
+        json!({"steps":[call, task]}),
+        json!({"steps":[{"id":"batch","loop":{"max_iterations":2,"until":"${{ false }}","steps":[task,call]}}]}),
+        json!({"steps":[{"id":"fork","parallel":[call,{"id":"independent","title":"Read"}]},task]}),
+        json!({"steps":[call],"finally":[task]}),
+    ] {
+        let parent = checked(body);
+        assert!(
+            runbook_spec::validate_policy(&parent)
+                .iter()
+                .any(|d| d.code == "spec.agent_approval_destructive"),
+            "{}",
+            parent.ir().source_yaml
+        );
+    }
+    let independent = checked(json!({"steps":[{"id":"fork","parallel":[call,task]}]}));
+    assert!(runbook_spec::validate_policy(&independent).is_empty());
+    assert!(runbook_spec::approval_reaches_destructive(
+        checked(json!({"steps":[call,task]})).ir(),
+        "child"
+    ));
 }

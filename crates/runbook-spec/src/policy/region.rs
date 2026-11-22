@@ -134,9 +134,16 @@ impl<'a> Region<'a> {
                         self.agent_task = Some(node);
                     }
                 }
+                // A child decision can govern success, failure, or cleanup
+                // in the caller. Retain the path where the child never decided.
+                let returned = if node.id == self.target {
+                    input | AFTER
+                } else {
+                    input
+                };
                 Flow {
-                    normal: input,
-                    failure: input,
+                    normal: returned,
+                    failure: returned,
                     end: 0,
                 }
             }

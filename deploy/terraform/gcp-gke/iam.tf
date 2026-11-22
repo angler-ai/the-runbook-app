@@ -32,3 +32,16 @@ resource "google_service_account_iam_member" "workload_identity_user" {
   role               = "roles/iam.workloadIdentityUser"
   member             = "serviceAccount:${var.project_id}.svc.id.goog[runbook/runbook-ksa]"
 }
+
+resource "google_project_iam_member" "cloudsql_instance_user" {
+  count   = var.database_auth == "iam" ? 1 : 0
+  project = var.project_id
+  role    = "roles/cloudsql.instanceUser"
+  member  = "serviceAccount:${google_service_account.runbook_gsa.email}"
+
+  condition {
+    title       = "runbook-instance-only"
+    description = "Only The Runbook's own Cloud SQL instance"
+    expression  = "resource.name == \"projects/${var.project_id}/instances/${google_sql_database_instance.postgres.name}\""
+  }
+}

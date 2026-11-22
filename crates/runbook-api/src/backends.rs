@@ -117,6 +117,9 @@ pub trait Backends: Clone {
     type Authoring: runbook_core::authoring::AuthoringFactory;
     /// ARC daily archives.
     type Archives: crate::archives::ArchiveBackend;
+    /// R0: the runner registry, agent directory and grants
+    /// (`runbook_core::runners::Unsupported` on a host without them).
+    type Runners: runbook_core::runners::RunnerStore + runbook_core::agent_directory::AgentDirectory;
 
     fn directory(&self) -> Self::Directory;
     fn credentials(&self) -> Self::Credentials;
@@ -133,6 +136,12 @@ pub trait Backends: Clone {
     fn executions(&self) -> Self::Executions;
     fn authoring(&self) -> Self::Authoring;
     fn archives(&self) -> Self::Archives;
+    fn runners(&self) -> Self::Runners;
+    /// R0-2: runner URLs may be private addresses
+    /// (`RUNBOOK_RUNNER_PRIVATE_NETWORKS=true`).
+    fn runner_private_networks(&self) -> bool {
+        false
+    }
     /// LANG9b: every non-archived runbook's latest published version, for
     /// the schedule pass ([`crate::triggers::schedule_pass`]).
     fn published_versions(
@@ -148,13 +157,42 @@ pub trait Backends: Clone {
     /// MCP2: one of the auth service's internal connected-app routes
     /// (`oauth/grants`, `oauth/grants/revoke`) with a JSON body. `Ok(None)`
     /// when the host has no auth service.
-    fn oauth_apps(
+    fn auth_internal(
         &self,
         route: &'static str,
         body: serde_json::Value,
     ) -> impl Future<Output = Result<Option<serde_json::Value>, crate::session::Unavailable>> {
         let _ = (route, body);
         std::future::ready(Ok(None))
+    }
+
+    /// R0-1: the keys this host signs runner grants and user assertions
+    /// with (`signing.unavailable` when it has none).
+    fn signing_keys(
+        &self,
+    ) -> impl Future<Output = Result<runbook_core::signing::KeyRing, runbook_core::signing::SigningError>>
+    {
+        std::future::ready(Err(runbook_core::signing::SigningError::Unavailable))
+    }
+    /// R0-1: the published keys (`GET /.well-known/jwks.json`): current and
+    /// recently retired. Empty when the host signs nothing.
+    fn jwks(
+        &self,
+    ) -> impl Future<Output = Result<runbook_core::signing::Jwks, runbook_core::signing::SigningError>>
+    {
+        std::future::ready(Ok(runbook_core::signing::Jwks::default()))
+    }
+
+    /// R0-5: one request to a runner (the host vets the address like a
+    /// webhook target, follows no redirect, bounds size and time). An
+    /// error is a stable code: `runner.timeout`, `runner.unreachable`,
+    /// `runner.url_forbidden`, `runner.bad_response`, `runner.unsupported`.
+    fn runner_fetch(
+        &self,
+        request: crate::runner_proxy::RunnerHttpRequest,
+    ) -> impl Future<Output = Result<crate::runner_proxy::RunnerHttpResponse, &'static str>> {
+        let _ = request;
+        std::future::ready(Err("runner.unsupported"))
     }
 
     /// The host's wall clock, in epoch milliseconds (request nonces; the
@@ -233,6 +271,11 @@ pub trait Backends: Clone {
         record: &CredentialRecord,
         metadata: &TokenMetadata,
     ) -> impl Future<Output = Result<(), CredentialError>>;
+    fn token_metadata(
+        &self,
+        org: &OrganizationId,
+        id: &runbook_model::TokenId,
+    ) -> impl Future<Output = Result<TokenMetadata, CredentialError>>;
     fn tokens_of_org(
         &self,
         org: &OrganizationId,

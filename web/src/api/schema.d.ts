@@ -2,6 +2,26 @@
 // `npm run api:check` fails when this file drifts from the contract.
 
 export interface paths {
+    "/.well-known/jwks.json": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The server's Ed25519 public keys (RFC 8037) that sign runner grants (typ rb-grant+jwt) and user assertions (typ rb-user+jwt): one key per purpose, plus keys retired in the last 24 hours. Verifiers accept only alg EdDSA and allow 30 seconds of clock skew. Empty when the server has no secret key to seal its signing keys with.
+         * @description The server's Ed25519 public keys (RFC 8037) that sign runner grants (typ rb-grant+jwt) and user assertions (typ rb-user+jwt): one key per purpose, plus keys retired in the last 24 hours. Verifiers accept only alg EdDSA and allow 30 seconds of clock skew. Empty when the server has no secret key to seal its signing keys with.
+         */
+        get: operations["get__well_known_jwks_json"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/.well-known/runbook": {
         parameters: {
             query?: never;
@@ -426,6 +446,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/me/security": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Read the browser session's MFA state and the signed-in account's factors. */
+        get: operations["get_v1_me_security"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/me/tasks": {
         parameters: {
             query?: never;
@@ -435,7 +472,7 @@ export interface paths {
         };
         /**
          * List my open human tasks and approvals across accessible projects
-         * @description Implemented on Postgres (B8f). Query parameters: kind, limit and cursor. Newest assignment first, then execution and step run ID. Requires an active human directory user and executions:read through a personal or user-bound OAuth credential. Service and execution credentials cannot use this inbox. Return open human steps (including checklists and handoffs) and approvals assigned to that user or their directory teams, limited to the intersection of directory project access and any credential project restrictions. Team membership alone grants no project access. Return each step run once even when several assignments match; unrelated users receive an empty page. Completion or a completed approval decision removes the item. This summary grants no claim or voting authority; mutations recheck eligibility. Rows derive only from execution outbox entries applied idempotently by execution and sequence, ignoring older sequences. Postgres updates them in the same transaction; Cloudflare permits the adapter's documented bounded derived-row delay.
+         * @description Implemented on Postgres and Cloudflare (B8f). Query parameters: kind, limit and cursor. Newest assignment first, then execution and step run ID. Requires an active human directory user. Users with no project grants receive an empty page. Reading tasks for accessible projects requires executions:read. Service and execution credentials cannot use this inbox. Return open human steps (including checklists and handoffs) and approvals assigned to that user or their directory teams, limited to the intersection of directory project access and any credential project restrictions. Team membership alone grants no project access. Return each step run once even when several assignments match; unrelated users receive an empty page. Completion or a completed approval decision removes the item. This summary grants no claim or voting authority; mutations recheck eligibility. Rows derive only from execution outbox entries applied idempotently by execution and sequence, ignoring older sequences. Postgres updates them in the same transaction; Cloudflare permits the adapter's documented bounded derived-row delay.
          */
         get: operations["get_v1_me_tasks"];
         put?: never;
@@ -618,6 +655,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/orgs/{org}/runner": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The organization's runner install: online while it heartbeats (offline after 90 seconds without one), none when no runner is registered; its version, groups with their allowed projects, and runners. Any active member with runner:read.
+         * @description The organization's runner install: online while it heartbeats (offline after 90 seconds without one), none when no runner is registered; its version, groups with their allowed projects, and runners. Any active member with runner:read.
+         */
+        get: operations["get_v1_orgs__org__runner"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/orgs/{org}/runner/bootstrap-tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create the single-use bootstrap token that registers the organization's runner install at this URL (shown once, valid 24 hours; an earlier unused token stops working). The URL follows the webhook target rules: https, no credentials, never a link-local or metadata host; private addresses only when the operator sets RUNBOOK_RUNNER_PRIVATE_NETWORKS=true. A human org owner or admin with runner:admin and an unrestricted project list.
+         * @description Create the single-use bootstrap token that registers the organization's runner install at this URL (shown once, valid 24 hours; an earlier unused token stops working). The URL follows the webhook target rules: https, no credentials, never a link-local or metadata host; private addresses only when the operator sets RUNBOOK_RUNNER_PRIVATE_NETWORKS=true. A human org owner or admin with runner:admin and an unrestricted project list.
+         */
+        post: operations["post_v1_orgs__org__runner_bootstrap_tokens"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/orgs/{org}/runner/groups/{g}/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Replace the projects allowed on a runner group. A human org owner or admin with runner:admin.
+         * @description Replace the projects allowed on a runner group. A human org owner or admin with runner:admin.
+         */
+        put: operations["put_v1_orgs__org__runner_groups__g__projects"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/orgs/{org}/runner/vault-identity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Record or replace the registered vault identity key and audit the change. An unrestricted human org owner with runner:admin.
+         * @description Record or replace the registered vault identity key and audit the change. An unrestricted human org owner with runner:admin.
+         */
+        put: operations["put_v1_orgs__org__runner_vault_identity"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/orgs/{org}/search": {
         parameters: {
             query?: never;
@@ -631,6 +748,24 @@ export interface paths {
          */
         get: operations["get_v1_orgs__org__search"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/orgs/{org}/security": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Read the organization security policy as its owner. */
+        get: operations["get_v1_orgs_org_security"];
+        /** @description Replace the organization security policy as its owner. With `dry_run=true`, save nothing and list the members the policy would lock out. */
+        put: operations["put_v1_orgs_org_security"];
         post?: never;
         delete?: never;
         options?: never;
@@ -748,6 +883,23 @@ export interface paths {
          * @description Bearer credentials only. D37 directory reads require active membership and a directory-capable read scope (runbooks:read, executions:read or project:admin). Users/teams are org-wide recipient identities; project lists intersect membership, org role, and token project restrictions. Service credentials may read recipients in their own project's org. Directory mutations require a human owner/admin plus project:admin and an unrestricted project list. Project variable reads require runbooks:read, writes project:admin with project role checks; If-Match fences writes, and D34 secret-like values return 422 vars.secret_like. No cookie/session authorization or private UI API.
          */
         patch: operations["patch_v1_orgs__org__users__user_"];
+        trace?: never;
+    };
+    "/v1/orgs/{org}/users/{user}/mfa/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Reset another member's factors and revoke their sessions and OAuth tokens. Requires a freshly verified organization owner. */
+        post: operations["post_v1_orgs_org_users_user_mfa_reset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/v1/projects/{p}": {
@@ -1446,6 +1598,266 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/runner-installs/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * The runner's control plane registers with its bootstrap token (single use, bound to the URL it was created for) and receives its directory token (runner:directory), release token (runner:release) and join token, each shown once and stored hashed. One install per organization. May also record the vault identity key supplied through a trusted registration channel.
+         * @description The runner's control plane registers with its bootstrap token (single use, bound to the URL it was created for) and receives its directory token (runner:directory), release token (runner:release) and join token, each shown once and stored hashed. One install per organization. May also record the vault identity key supplied through a trusted registration channel.
+         */
+        post: operations["post_v1_runner_installs_register"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runner-installs/{ri}/agents/{agent_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Sync one runner agent's current version into the agent directory: name, project, group, status, version and its non-secret ceiling (allowed model profiles, limits, credentials with delivery modes, tools and hosts with labels). The project must be allowed on the agent's group; the name is unique in the project (first writer wins, a rename frees it) and external is reserved. Publish and claim check steps against this entry without calling the runner.
+         * @description Sync one runner agent's current version into the agent directory: name, project, group, status, version and its non-secret ceiling (allowed model profiles, limits, credentials with delivery modes, tools and hosts with labels). The project must be allowed on the agent's group; the name is unique in the project (first writer wins, a rename frees it) and external is reserved. Publish and claim check steps against this entry without calling the runner.
+         */
+        put: operations["put_v1_runner_installs__ri__agents__agent_id_"];
+        post?: never;
+        /**
+         * Remove an agent from the directory; its name is free again.
+         * @description Remove an agent from the directory; its name is free again.
+         */
+        delete: operations["delete_v1_runner_installs__ri__agents__agent_id_"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runner-installs/{ri}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * A runner event (runner.budget_threshold, runner.probe_succeeded, runner.secret_in_response, runner.binding_mismatch or runner.release_denied) with its data (at most 16 KiB), sent as a webhook to every project subscription of that event type in the organization. Internal runner.decision_cost and runner.task_cost reports reconcile settled decision leases and task claims with the step record instead.
+         * @description A runner event (runner.budget_threshold, runner.probe_succeeded, runner.secret_in_response, runner.binding_mismatch or runner.release_denied) with its data (at most 16 KiB), sent as a webhook to every project subscription of that event type in the organization. Internal runner.decision_cost and runner.task_cost reports reconcile settled decision leases and task claims with the step record instead.
+         */
+        post: operations["post_v1_runner_installs__ri__events"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runner-installs/{ri}/groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the group and project registry for the directory token's own install.
+         * @description Read the group and project registry for the directory token's own install.
+         */
+        get: operations["get_v1_runner_installs__ri__groups"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runner-installs/{ri}/heartbeat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * The control plane's heartbeat: group names and each runner's status, running steps and capacity. The install is offline after 90 seconds without one.
+         * @description The control plane's heartbeat: group names and each runner's status, running steps and capacity. The install is offline after 90 seconds without one.
+         */
+        post: operations["post_v1_runner_installs__ri__heartbeat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runner-installs/{ri}/projects/{project_id}/skills/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Resolve the latest immutable skill folder hash and SKILL.md in a project assigned to this install.
+         * @description Resolve the latest immutable skill folder hash and SKILL.md in a project assigned to this install.
+         */
+        get: operations["get_v1_runner_installs__ri__projects__project_id__skills__name_"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runner-installs/{ri}/ready": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ready task and decision work aimed at this install's agents in one group, oldest first (limit 1 to 100, default 50): the slow sweep behind the agent.work_available webhook.
+         * @description Ready task and decision work aimed at this install's agents in one group, oldest first (limit 1 to 100, default 50): the slow sweep behind the agent.work_available webhook.
+         */
+        get: operations["get_v1_runner_installs__ri__ready"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runner-installs/{ri}/runners": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * A runner joins the install with the join token and receives its claim token (runner:claim), which claims only steps for agents of its group. Joining again under the same name in the same group keeps the runner ID and replaces its claim token.
+         * @description A runner joins the install with the join token and receives its claim token (runner:claim), which claims only steps for agents of its group. Joining again under the same name in the same group keeps the runner ID and replaces its claim token.
+         */
+        post: operations["post_v1_runner_installs__ri__runners"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runner-installs/{ri}/waiting": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Why ready steps of this install's agents wait (agent_paused, agent_outside_ceiling, runner_offline or limit:<level>), recorded once per reason on each step and shown on the run page until it is claimed. At most 100 items.
+         * @description Why ready steps of this install's agents wait (agent_paused, agent_outside_ceiling, runner_offline or limit:<level>), recorded once per reason on each step and shown on the run page until it is claimed. At most 100 items.
+         */
+        post: operations["post_v1_runner_installs__ri__waiting"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runner/decisions/{lease}/abstain": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record an agent's reason for abstaining and end its decision lease. The approval remains open for people.
+         * @description Record an agent's reason for abstaining and end its decision lease. The approval remains open for people.
+         */
+        post: operations["post_v1_runner_decisions__lease__abstain"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runner/decisions/{lease}/decide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Decide the approval under the runner's live decision lease. The decision records runner and agent provenance and evidence references. A closed approval returns approval.not_open.
+         * @description Decide the approval under the runner's live decision lease. The decision records runner and agent provenance and evidence references. A closed approval returns approval.not_open.
+         */
+        post: operations["post_v1_runner_decisions__lease__decide"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runners/{ri}/proxy/{*path}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Proxy to the organization's runner API: {path} (for example runner/v1/groups) must be one of the runner's public routes for this method. Needs the X-Runbook-CSRF: 1 header and a credential holding runner:read or runner:admin (sessions get them by org role). The core forwards the JSON body with a request-bound user assertion (Runbook-Assertion: an rb-user+jwt JWT, EdDSA, 60 seconds, single use, binding method, path and body hash, with the person's org and project roles and runner scopes) and never cookies; the runner authorizes the action. Responses are the runner's, JSON only (an event stream on the transcript route), with nosniff and Content-Security-Policy: sandbox. 503 runner.offline while the runner does not heartbeat.
+         * @description Proxy to the organization's runner API: {path} (for example runner/v1/groups) must be one of the runner's public routes for this method. Needs the X-Runbook-CSRF: 1 header and a credential holding runner:read or runner:admin (sessions get them by org role). The core forwards the JSON body with a request-bound user assertion (Runbook-Assertion: an rb-user+jwt JWT, EdDSA, 60 seconds, single use, binding method, path and body hash, with the person's org and project roles and runner scopes) and never cookies; the runner authorizes the action. Responses are the runner's, JSON only (an event stream on the transcript route), with nosniff and Content-Security-Policy: sandbox. 503 runner.offline while the runner does not heartbeat.
+         */
+        get: operations["get_v1_runners__ri__proxy___path_"];
+        /**
+         * Proxy to the organization's runner API: {path} (for example runner/v1/groups) must be one of the runner's public routes for this method. Needs the X-Runbook-CSRF: 1 header and a credential holding runner:read or runner:admin (sessions get them by org role). The core forwards the JSON body with a request-bound user assertion (Runbook-Assertion: an rb-user+jwt JWT, EdDSA, 60 seconds, single use, binding method, path and body hash, with the person's org and project roles and runner scopes) and never cookies; the runner authorizes the action. Responses are the runner's, JSON only (an event stream on the transcript route), with nosniff and Content-Security-Policy: sandbox. 503 runner.offline while the runner does not heartbeat.
+         * @description Proxy to the organization's runner API: {path} (for example runner/v1/groups) must be one of the runner's public routes for this method. Needs the X-Runbook-CSRF: 1 header and a credential holding runner:read or runner:admin (sessions get them by org role). The core forwards the JSON body with a request-bound user assertion (Runbook-Assertion: an rb-user+jwt JWT, EdDSA, 60 seconds, single use, binding method, path and body hash, with the person's org and project roles and runner scopes) and never cookies; the runner authorizes the action. Responses are the runner's, JSON only (an event stream on the transcript route), with nosniff and Content-Security-Policy: sandbox. 503 runner.offline while the runner does not heartbeat.
+         */
+        put: operations["put_v1_runners__ri__proxy___path_"];
+        /**
+         * Proxy to the organization's runner API: {path} (for example runner/v1/groups) must be one of the runner's public routes for this method. Needs the X-Runbook-CSRF: 1 header and a credential holding runner:read or runner:admin (sessions get them by org role). The core forwards the JSON body with a request-bound user assertion (Runbook-Assertion: an rb-user+jwt JWT, EdDSA, 60 seconds, single use, binding method, path and body hash, with the person's org and project roles and runner scopes) and never cookies; the runner authorizes the action. Responses are the runner's, JSON only (an event stream on the transcript route), with nosniff and Content-Security-Policy: sandbox. 503 runner.offline while the runner does not heartbeat.
+         * @description Proxy to the organization's runner API: {path} (for example runner/v1/groups) must be one of the runner's public routes for this method. Needs the X-Runbook-CSRF: 1 header and a credential holding runner:read or runner:admin (sessions get them by org role). The core forwards the JSON body with a request-bound user assertion (Runbook-Assertion: an rb-user+jwt JWT, EdDSA, 60 seconds, single use, binding method, path and body hash, with the person's org and project roles and runner scopes) and never cookies; the runner authorizes the action. Responses are the runner's, JSON only (an event stream on the transcript route), with nosniff and Content-Security-Policy: sandbox. 503 runner.offline while the runner does not heartbeat.
+         */
+        post: operations["post_v1_runners__ri__proxy___path_"];
+        /**
+         * Proxy to the organization's runner API: {path} (for example runner/v1/groups) must be one of the runner's public routes for this method. Needs the X-Runbook-CSRF: 1 header and a credential holding runner:read or runner:admin (sessions get them by org role). The core forwards the JSON body with a request-bound user assertion (Runbook-Assertion: an rb-user+jwt JWT, EdDSA, 60 seconds, single use, binding method, path and body hash, with the person's org and project roles and runner scopes) and never cookies; the runner authorizes the action. Responses are the runner's, JSON only (an event stream on the transcript route), with nosniff and Content-Security-Policy: sandbox. 503 runner.offline while the runner does not heartbeat.
+         * @description Proxy to the organization's runner API: {path} (for example runner/v1/groups) must be one of the runner's public routes for this method. Needs the X-Runbook-CSRF: 1 header and a credential holding runner:read or runner:admin (sessions get them by org role). The core forwards the JSON body with a request-bound user assertion (Runbook-Assertion: an rb-user+jwt JWT, EdDSA, 60 seconds, single use, binding method, path and body hash, with the person's org and project roles and runner scopes) and never cookies; the runner authorizes the action. Responses are the runner's, JSON only (an event stream on the transcript route), with nosniff and Content-Security-Policy: sandbox. 503 runner.offline while the runner does not heartbeat.
+         */
+        delete: operations["delete_v1_runners__ri__proxy___path_"];
+        options?: never;
+        head?: never;
+        /**
+         * Proxy to the organization's runner API: {path} (for example runner/v1/groups) must be one of the runner's public routes for this method. Needs the X-Runbook-CSRF: 1 header and a credential holding runner:read or runner:admin (sessions get them by org role). The core forwards the JSON body with a request-bound user assertion (Runbook-Assertion: an rb-user+jwt JWT, EdDSA, 60 seconds, single use, binding method, path and body hash, with the person's org and project roles and runner scopes) and never cookies; the runner authorizes the action. Responses are the runner's, JSON only (an event stream on the transcript route), with nosniff and Content-Security-Policy: sandbox. 503 runner.offline while the runner does not heartbeat.
+         * @description Proxy to the organization's runner API: {path} (for example runner/v1/groups) must be one of the runner's public routes for this method. Needs the X-Runbook-CSRF: 1 header and a credential holding runner:read or runner:admin (sessions get them by org role). The core forwards the JSON body with a request-bound user assertion (Runbook-Assertion: an rb-user+jwt JWT, EdDSA, 60 seconds, single use, binding method, path and body hash, with the person's org and project roles and runner scopes) and never cookies; the runner authorizes the action. Responses are the runner's, JSON only (an event stream on the transcript route), with nosniff and Content-Security-Policy: sandbox. 503 runner.offline while the runner does not heartbeat.
+         */
+        patch: operations["patch_v1_runners__ri__proxy___path_"];
+        trace?: never;
+    };
     "/v1/slack/interactions": {
         parameters: {
             query?: never;
@@ -1473,7 +1885,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description B8a/D32 step-at-a-time reads. Execution tokens: only their own run; step and skill reads require a current claim held by the credential family (403 otherwise). Human PATs, agent PATs and service tokens: executions:read on the run's project (missing scope is 403 auth.scope_missing); the run or step run is found by an org-scoped lookup and anything outside the caller's projects or organization is 404 resource.not_found. Step and skill reads disclose a task once it has been offered to an actor (ready, claimed, waiting after a report, or finished); a step skipped by its condition answers 409 step.not_ready, and pending steps have no step run ID. The brief never includes future instructions. */
+        /** @description B8a/D32 step-at-a-time reads. Execution tokens: only their own run; step and skill reads require a current claim held by the credential family (403 otherwise). Human PATs, agent PATs and service tokens: executions:read on the run's project (missing scope is 403 auth.scope_missing); the run or step run is found by an org-scoped lookup and anything outside the caller's projects or organization is 404 resource.not_found. Step and skill reads disclose a task once it has been offered to an actor (ready, claimed, waiting after a report, or finished); a step skipped by its condition answers 409 step.not_ready, and pending steps have no step run ID. The brief never includes future instructions. Runner claim tokens also read their leased approval as decision work. */
         get: operations["get__v1_step-runs__sr_"];
         put?: never;
         post?: never;
@@ -1517,6 +1929,110 @@ export interface paths {
          * @description Native actor transactions. Current PAT/service role, scope and project authorization precedes replay. Every POST requires Idempotency-Key; same principal/path/key/body returns the saved response even after step completion, changed payload is 409. State changes and replay commit together. PATCH is idempotent and outside POST replay. Agent/service credentials never become human signatures. X-Request-ID accompanies success and problem responses. CF13: a change whose run would keep a value past what one storage row holds (2,000,000 bytes on the Cloudflare edition; the native edition has no such limit) is refused with 422 execution.row_too_large and nothing is written; retrying cannot succeed, unlike 503 storage.unavailable. CF13 review round 1: a run's event log is held to a budget on both editions (8 MiB unless RUNBOOK_LIMIT_RUN_BYTES sets another); a request whose own event carries more than 4 KiB and would take the run past it is refused with 422 execution.too_large and nothing is written. Smaller writes (a claim, a release, a cancel, a short report) always pass, so a run at its budget can still be finished or cancelled.
          */
         post: operations["post_v1_step-runs__sr__claim"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/step-runs/{sr}/context/memory": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search active, unexpired runbook and project memory.
+         * @description Search active, unexpired runbook and project memory.
+         */
+        get: operations["get_v1_step_runs__sr__context_memory"];
+        put?: never;
+        /**
+         * Propose runbook memory for human review, up to five proposals per step.
+         * @description Propose runbook memory for human review, up to five proposals per step.
+         */
+        post: operations["post_v1_step_runs__sr__context_memory"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/step-runs/{sr}/context/past-run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Overview of one earlier run of the same runbook in this project.
+         * @description Overview of one earlier run of the same runbook in this project.
+         */
+        get: operations["get_v1_step_runs__sr__context_past_run"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/step-runs/{sr}/context/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Overview of the run containing the claimed step.
+         * @description Overview of the run containing the claimed step.
+         */
+        get: operations["get_v1_step_runs__sr__context_run"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/step-runs/{sr}/context/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Up to ten earlier runs of the same runbook in this project, newest first.
+         * @description Up to ten earlier runs of the same runbook in this project, newest first.
+         */
+        get: operations["get_v1_step_runs__sr__context_runs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/step-runs/{sr}/context/step": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Outputs, bounded logs and evidence metadata for one completed step of the same run.
+         * @description Outputs, bounded logs and evidence metadata for one completed step of the same run.
+         */
+        get: operations["get_v1_step_runs__sr__context_step"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1577,6 +2093,46 @@ export interface paths {
          * @description Implemented on Postgres (UP1, UP2). The caller must hold the step run's current claim (an execution access credential of the claiming family, or the claiming person). Checks the stored object's size, then its type from its first bytes (magic bytes, never the name or the declared type); on any mismatch the object is deleted, the slot is rejected and the evidence is not attached (422 upload.size_mismatch, upload.type_mismatch, or upload.type_unsupported for HEIC). Images then go through the image pipeline (D51): width and height (and a GIF's first frame) are read from the file header before any decoding and refused over limits.uploads.image_max_dimension or image_max_pixels, or when the pipeline's estimated memory would exceed its budget (16-bit RGB/RGBA PNGs above about 9 MP) (422 upload.image_too_large); the image is decoded under memory limits (422 upload.image_invalid when it cannot be) and re-encoded without any metadata (EXIF and GPS location, XMP, color profiles, text), after applying its EXIF orientation. The re-encoded file replaces the upload: PNG stays PNG, JPEG stays JPEG, WebP becomes lossless WebP and GIF becomes a PNG of its first frame, so `type`, `size`, `width` and `height` describe the stored file. Each image gets a thumbnail with a 320 px long edge. The stored file plus its thumbnail must fit limits.uploads.image_bytes (422 upload.processed_too_large) and the organization's storage, which counts stored bytes (422 upload.limit_reached); either refusal deletes the upload. One image is processed at a time per server: a finalize that would wait answers 503 server.busy with Retry-After and keeps its slot for a retry. `url` and `thumbnail_url` are signed read URLs on the user-content origin, valid one to two hours. A finalized slot is returned again on retry, and concurrent finalizes of one slot answer with the same file. Reports reference finalized evidence by evd_ ID in `evidence`; `screenshot` evidence needs an image, `file` any upload.
          */
         post: operations["post_v1_step-runs__sr__evidence__evd__finalize"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/step-runs/{sr}/grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * A grant (JWT, typ rb-grant+jwt, EdDSA, aud runner:<runner id>, exp the lease deadline) for the runner's live claim of the step: kind capability for the step itself, or kind credential for one credential the step's connections narrowing and its agent's published ceiling allow with that delivery mode, which records CredentialReleased. Refused once the claim moved on or a person took the step over (409 grant.claim_moved), after the lease lapsed (409 grant.lease_expired), or outside what the step and agent allow (403 grant.not_allowed). Renew by asking again before expiry.
+         * @description A grant (JWT, typ rb-grant+jwt, EdDSA, aud runner:<runner id>, exp the lease deadline) for the runner's live claim of the step: kind capability for the step itself, or kind credential for one credential the step's connections narrowing and its agent's published ceiling allow with that delivery mode, which records CredentialReleased. Refused once the claim moved on or a person took the step over (409 grant.claim_moved), after the lease lapsed (409 grant.lease_expired), or outside what the step and agent allow (403 grant.not_allowed). Renew by asking again before expiry.
+         */
+        post: operations["post_v1_step_runs__sr__grants"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/step-runs/{sr}/grants/revoked": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record that a credential released to the step was revoked (CredentialRevoked), with the reason.
+         * @description Record that a credential released to the step was revoked (CredentialRevoked), with the reason.
+         */
+        post: operations["post_v1_step_runs__sr__grants_revoked"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1841,6 +2397,62 @@ export interface components {
         AdminReleaseRequest: {
             reason: string;
         };
+        /**
+         * @description The most an agent version allows a step (runner design §6.3): allowed
+         *     model profiles, limits, and what it can reach with its labels. Not
+         *     secret.
+         */
+        AgentCeiling: {
+            /** @default [] */
+            credentials: components["schemas"]["AgentCeilingCredential"][];
+            /** @default [] */
+            hosts: components["schemas"]["AgentCeilingHost"][];
+            /** Format: double */
+            max_cost_usd: number;
+            /** Format: uint64 */
+            max_tokens: number;
+            /** @description Configured provider model IDs keyed by profile name. */
+            profile_models?: {
+                [key: string]: string;
+            };
+            profiles: string[];
+            /** Format: uint64 */
+            timeout_s: number;
+            /** @default [] */
+            tools: components["schemas"]["AgentCeilingTool"][];
+        };
+        AgentCeilingCredential: {
+            delivery: components["schemas"]["Delivery"][];
+            id: string;
+            label: components["schemas"]["RunnerLabel"];
+            name: string;
+        };
+        AgentCeilingHost: {
+            host: string;
+            label: components["schemas"]["RunnerLabel"];
+        };
+        AgentCeilingTool: {
+            label: components["schemas"]["RunnerLabel"];
+            name: string;
+            server_id: string;
+        };
+        /**
+         * @description `PUT /v1/runner-installs/{ri}/agents/{agent_id}`: one runner agent's
+         *     current version, synced by the runner. `(project, name)` is unique.
+         */
+        AgentDirectoryEntry: {
+            agent_id: string;
+            ceiling: components["schemas"]["AgentCeiling"];
+            group_id: components["schemas"]["RunnerGroupId"];
+            name: string;
+            project_id: components["schemas"]["ProjectId"];
+            status: components["schemas"]["AgentStatus"];
+            version_id: string;
+        };
+        /** @enum {string} */
+        AgentEvidenceSource: "runner_reported";
+        /** @enum {string} */
+        AgentStatus: "active" | "paused" | "archived";
         Amendment: {
             by: components["schemas"]["ActorRef"];
             from: components["schemas"]["StepRecord"];
@@ -1868,12 +2480,23 @@ export interface components {
              */
             uploads?: components["schemas"]["UploadLimits"] | null;
         };
+        ApprovalAgentNote: {
+            agent_name: string;
+            /** Format: int64 */
+            at_ms: number;
+            lease_id: components["schemas"]["ClaimId"];
+            model?: string | null;
+            principal: string;
+            reason: string;
+        };
         ApprovalOption: {
             auto: boolean;
             id: string;
             title: string;
         };
         ApprovalView: {
+            agent_notes?: components["schemas"]["ApprovalAgentNote"][];
+            decision_lease?: components["schemas"]["DecisionLeaseView"] | null;
             decisions: components["schemas"]["DecisionRecord"][];
             eligible_recipients: components["schemas"]["RecipientRef"][];
             escalated: boolean;
@@ -2002,6 +2625,12 @@ export interface components {
              */
             take_over?: boolean;
         };
+        ClaimedDecisionRead: {
+            decision: components["schemas"]["ReadyDecision"];
+            /** @constant */
+            kind: "decision";
+            step_run_id: components["schemas"]["StepRunId"];
+        };
         ClaimedStepRead: {
             /** @description Rendered checklist titles; ticks name items by these. */
             checklist: string[];
@@ -2019,6 +2648,7 @@ export interface components {
             parameters: {
                 [key: string]: unknown;
             };
+            runner_limits?: components["schemas"]["RunnerStepLimits"] | null;
             skill?: components["schemas"]["PinnedSkillRead"] | null;
             /** @description LANG8: multiple skills per step. Keep `skill` set to the first skill for compatibility. */
             skills?: components["schemas"]["PinnedSkillRead"][];
@@ -2191,6 +2821,10 @@ export interface components {
             /** @description HTTPS endpoint. Self-hosted operators may allow http and private targets. */
             url: string;
         };
+        DecisionLeaseView: {
+            agent_name: string;
+            lease_id: components["schemas"]["ClaimId"];
+        };
         DecisionRecord: {
             /** @constant */
             by: "human";
@@ -2209,8 +2843,11 @@ export interface components {
             /** @constant */
             by: "agent";
             comment?: string | null;
+            evidence?: string[];
+            evidence_source?: components["schemas"]["AgentEvidenceSource"] | null;
             model?: string | null;
             option: string;
+            principal?: string | null;
             session_id: string;
         };
         DecisionRequest: {
@@ -2219,6 +2856,11 @@ export interface components {
             option: string;
             session_id?: string | null;
         };
+        /**
+         * @description How a released credential reaches a step (runner design §7.6).
+         * @enum {string}
+         */
+        Delivery: "model" | "mcp" | "proxy" | "token";
         /** @description One delivery attempt. Never contains request headers, signatures or secrets. */
         DeliveryAttemptView: {
             /** Format: int64 */
@@ -2444,6 +3086,11 @@ export interface components {
             auth: components["schemas"]["AuthDiscovery"];
             auth_base_url: string;
             edition: string;
+            /**
+             * @description R0-1: where the server publishes its Ed25519 signing keys (runner
+             *     grants and user assertions); defaulted so older documents decode.
+             */
+            jwks_uri?: string | null;
             minimum_cli_version: string;
         };
         DraftView: {
@@ -2604,6 +3251,11 @@ export interface components {
             amendments: components["schemas"]["Amendment"][];
             /** Format: int64 */
             completed_at_ms?: number | null;
+            /**
+             * @description R0-6: what the run's steps reported they cost, summed. Absent when
+             *     no step reported a cost.
+             */
+            cost?: components["schemas"]["StepCost"] | null;
             /** Format: int64 */
             created_at_ms?: number | null;
             created_by?: string | null;
@@ -2667,6 +3319,40 @@ export interface components {
             message: string;
             path: string;
         };
+        /**
+         * @description The kind of grant: a step's capability, or one credential's release.
+         * @enum {string}
+         */
+        GrantKind: "capability" | "credential";
+        /**
+         * @description `POST /v1/step-runs/{sr}/grants` (release token): a grant bound to the
+         *     runner's live claim of the step.
+         */
+        GrantRequest: {
+            claim_id: components["schemas"]["ClaimId"];
+            credential_id?: string | null;
+            /** Format: uint64 */
+            credential_version?: number | null;
+            delivery?: components["schemas"]["Delivery"] | null;
+            /** Format: uint64 */
+            generation: number;
+            kind: components["schemas"]["GrantKind"];
+            runner_id: components["schemas"]["RunnerId"];
+        };
+        /** @description `POST /v1/step-runs/{sr}/grants/revoked`. */
+        GrantRevokedRequest: {
+            credential_id: string;
+            reason: string;
+        };
+        /** @description A signed grant (`typ: rb-grant+jwt`). */
+        GrantView: {
+            /**
+             * Format: int64
+             * @description Epoch milliseconds: the lease deadline (the JWT's `exp`, in seconds).
+             */
+            expires_at: number;
+            grant: string;
+        };
         HeartbeatRequest: {
             claim: components["schemas"]["ClaimRef"];
         };
@@ -2717,6 +3403,28 @@ export interface components {
             projects: components["schemas"]["InvitationProjectGrant"][];
             role: components["schemas"]["OrganizationRole"];
             state: components["schemas"]["InvitationState"];
+        };
+        /** @description One published Ed25519 key (RFC 8037). */
+        Jwk: {
+            /** @description Always `EdDSA`. */
+            alg: string;
+            /** @description Always `Ed25519`. */
+            crv: string;
+            kid: string;
+            /** @description Always `OKP`. */
+            kty: string;
+            /** @description Always `sig`. */
+            use: string;
+            /** @description The base64url public key. */
+            x: string;
+        };
+        /**
+         * @description `GET /.well-known/jwks.json`: the keys that sign runner grants
+         *     (`rb-grant+jwt`) and user assertions (`rb-user+jwt`), current and
+         *     retired in the last 24 hours.
+         */
+        Jwks: {
+            keys: components["schemas"]["Jwk"][];
         };
         LogsRequest: {
             claim: components["schemas"]["ClaimRef"];
@@ -2945,6 +3653,11 @@ export interface components {
             edition: string;
             limits: components["schemas"]["ApiLimits"];
             /**
+             * Format: uint32
+             * @description Runner API compatibility advertised by this core.
+             */
+            runner_contract_version?: number | null;
+            /**
              * @description UPD1: the storage schema it runs on, by store: on the native server
              *     `postgres` (the applied migration number), on Workers the heads of
              *     `d1`, `execution_do`, `org_do` and `webhook_do` its code applies.
@@ -3077,9 +3790,42 @@ export interface components {
             /** Format: uint32 */
             runbook_version: number;
             runbook_version_id: components["schemas"]["VersionId"];
+            /** @description Nonblocking diagnostics emitted when publishing this version. */
+            warnings?: components["schemas"]["Diagnostic"][];
+        };
+        ReadyDecision: {
+            /** Format: uint64 */
+            max_tokens?: number | null;
+            model_profile?: string | null;
+            options: components["schemas"]["ApprovalOption"][];
+            prompt: string;
+        };
+        /** @description `GET /v1/runner-installs/{ri}/ready?group={g}&limit={n}`. */
+        ReadyStepPage: {
+            items: components["schemas"]["ReadyStepView"][];
+            next_cursor?: string | null;
+        };
+        ReadyStepView: {
+            agent_id: string;
+            decision?: components["schemas"]["ReadyDecision"] | null;
+            execution_id: components["schemas"]["ExecutionId"];
+            /** @default step */
+            kind: components["schemas"]["RunnerWorkKind"];
+            /** Format: double */
+            max_cost_usd?: number | null;
+            project_id: components["schemas"]["ProjectId"];
+            /**
+             * Format: int64
+             * @description Epoch milliseconds.
+             */
+            ready_at: number;
+            step_run_id: components["schemas"]["StepRunId"];
         };
         ReadyWork: {
             actor_kind: components["schemas"]["ActorKind"];
+            /** @description R0-4: the runner agent the step targets, and its group. */
+            agent_id?: string | null;
+            group_id?: string | null;
             path: string;
             step_run_id: components["schemas"]["StepRunId"];
             title: string;
@@ -3099,6 +3845,8 @@ export interface components {
         ReleaseRequest: components["schemas"]["HeartbeatRequest"] | components["schemas"]["AdminReleaseRequest"];
         ReportRequest: {
             claim: components["schemas"]["ClaimRef"];
+            /** @description R0-6: what the step cost (runner agents report it). */
+            cost?: components["schemas"]["StepCost"] | null;
             /** @default [] */
             evidence: string[];
             /** @default [] */
@@ -3214,6 +3962,204 @@ export interface components {
             id: components["schemas"]["ExecutionId"];
             status: components["schemas"]["ExecutionStatus"];
         };
+        RunnerAbstainRequest: {
+            /** @description Legacy input. Decision costs come from the runner ledger. */
+            cost?: components["schemas"]["StepCost"] | null;
+            model?: string | null;
+            reason: string;
+        };
+        /** @description `POST /v1/orgs/{org}/runner/bootstrap-tokens`. */
+        RunnerBootstrapRequest: {
+            /**
+             * @description The runner API's URL, set by the operator. The token registers only
+             *     a runner at this URL.
+             */
+            url: string;
+        };
+        /** @description The bootstrap token, shown once. */
+        RunnerBootstrapView: {
+            /**
+             * Format: int64
+             * @description Epoch milliseconds.
+             */
+            expires_at: number;
+            token: string;
+        };
+        RunnerDecideRequest: {
+            comment: string;
+            /** @description Legacy input. Decision costs come from the runner ledger. */
+            cost?: components["schemas"]["StepCost"] | null;
+            evidence: string[];
+            /** @description Legacy input. The core uses the model pinned when it claimed the approval. */
+            model?: string | null;
+            option: string;
+        };
+        /** @description `POST /v1/runner-installs/{ri}/events`. */
+        RunnerEventRequest: {
+            /** @default null */
+            data: unknown;
+            kind: string;
+        };
+        RunnerGroupId: string;
+        /** @description `PUT /v1/orgs/{org}/runner/groups/{g}/projects`. */
+        RunnerGroupProjectsRequest: {
+            project_ids: components["schemas"]["ProjectId"][];
+        };
+        RunnerGroupRef: {
+            id: components["schemas"]["RunnerGroupId"];
+            name: string;
+        };
+        /** @description `GET /v1/runner-installs/{ri}/groups` with the install's directory token. */
+        RunnerGroupRegistryView: {
+            groups: components["schemas"]["RunnerGroupView"][];
+            install_id: components["schemas"]["RunnerInstallId"];
+        };
+        RunnerGroupView: {
+            id: components["schemas"]["RunnerGroupId"];
+            name: string;
+            /** @description The projects allowed on this group. */
+            projects: components["schemas"]["ProjectId"][];
+        };
+        RunnerHeartbeatEntry: {
+            /** Format: uint32 */
+            capacity: number;
+            /** Format: uint32 */
+            decision_contract?: number | null;
+            id: components["schemas"]["RunnerId"];
+            /** Format: uint32 */
+            running: number;
+            /** @description The runner's own state, e.g. `ready`, `draining`, `frozen`. */
+            status: string;
+        };
+        /** @description `POST /v1/runner-installs/{ri}/heartbeat` with the directory token. */
+        RunnerHeartbeatRequest: {
+            /** @default [] */
+            groups: components["schemas"]["RunnerGroupRef"][];
+            /** @default [] */
+            runners: components["schemas"]["RunnerHeartbeatEntry"][];
+        };
+        RunnerId: string;
+        RunnerInstallId: string;
+        RunnerInstallStatus: ("online" | "offline") | "none";
+        /** @description `POST /v1/runner-installs/{ri}/runners` with the join token. */
+        RunnerJoinRequest: {
+            group_id: components["schemas"]["RunnerGroupId"];
+            group_name: string;
+            name: string;
+            version: string;
+        };
+        /** @description The runner's claim token, shown once. */
+        RunnerJoinedView: {
+            /** @description `runner:claim`, for this runner's group only. */
+            claim_token: string;
+            runner_id: components["schemas"]["RunnerId"];
+        };
+        /**
+         * @description What a tool, credential or host lets a step do (runner design §6.5).
+         *     Unlabeled tools and credentials are `destructive`; unlabeled hosts `read`.
+         * @enum {string}
+         */
+        RunnerLabel: "read" | "write" | "destructive";
+        /** @description A runner can submit a proposal for human review from its live claim. */
+        RunnerMemoryProposal: {
+            body_markdown: components["schemas"]["MemoryBody"];
+            /** @default [] */
+            tags: string[];
+            title: string;
+        };
+        /** @description `POST /v1/runner-installs/register` with the bootstrap token. */
+        RunnerRegisterRequest: {
+            /**
+             * Format: uint32
+             * @description The runner contract version (see `RUNNER_CONTRACT_VERSIONS`).
+             */
+            contract_version: number;
+            url: string;
+            /** @description Base64url raw Ed25519 key, obtained from the vault through a trusted channel. */
+            vault_identity_key?: string | null;
+            /** @description The runner's release (same numbering as the server). */
+            version: string;
+        };
+        /** @description The install's tokens, shown once. */
+        RunnerRegisteredView: {
+            /** @description `runner:directory` (runner-api). */
+            directory_token: string;
+            install_id: components["schemas"]["RunnerInstallId"];
+            /** @description Joins runners to the install. */
+            join_token: string;
+            /** @description `runner:release` (vault). */
+            release_token: string;
+        };
+        /** @description The immutable folder hash and main instructions of a project skill. */
+        RunnerSkillPin: {
+            body: string;
+            hash: string;
+            name: string;
+        };
+        /** @description `GET /v1/orgs/{org}/runner`. */
+        RunnerStatusView: {
+            /** Format: uint32 */
+            contract_version?: number | null;
+            groups: components["schemas"]["RunnerGroupView"][];
+            install_id?: components["schemas"]["RunnerInstallId"] | null;
+            /**
+             * Format: int64
+             * @description Epoch milliseconds.
+             */
+            last_heartbeat_at?: number | null;
+            runners: components["schemas"]["RunnerView"][];
+            status: components["schemas"]["RunnerInstallStatus"];
+            vault_identity_key?: string | null;
+            version?: string | null;
+        };
+        RunnerStepLimits: {
+            check: boolean;
+            /** Format: uint64 */
+            max_tokens?: number | null;
+            model?: string | null;
+            /** Format: uint64 */
+            timeout_ms?: number | null;
+        };
+        /** @description `PUT /v1/orgs/{org}/runner/vault-identity` (human organization owner). */
+        RunnerVaultIdentityRequest: {
+            public_key: string;
+        };
+        RunnerView: {
+            /** Format: uint32 */
+            capacity: number;
+            group_id: components["schemas"]["RunnerGroupId"];
+            id: components["schemas"]["RunnerId"];
+            /**
+             * Format: int64
+             * @description Epoch milliseconds.
+             */
+            last_heartbeat_at?: number | null;
+            name: string;
+            /** Format: uint32 */
+            running: number;
+            status: string;
+            version: string;
+        };
+        RunnerWaitingItem: {
+            /**
+             * @description Optional words for people, shown on the run page after "Waiting:"
+             *     (for example "project ops is at its 5 concurrent steps"). At most
+             *     200 characters; never a secret.
+             */
+            detail?: string | null;
+            /**
+             * @description `agent_paused`, `agent_outside_ceiling`, `runner_offline` or
+             *     `limit:<level>`.
+             */
+            reason: string;
+            step_run_id: components["schemas"]["StepRunId"];
+        };
+        /** @description `POST /v1/runner-installs/{ri}/waiting`. */
+        RunnerWaitingRequest: {
+            items: components["schemas"]["RunnerWaitingItem"][];
+        };
+        /** @enum {string} */
+        RunnerWorkKind: "step" | "decision";
         /** @description Save only; the HTTP If-Match header selects the expected revision. */
         SaveDraftRequest: {
             source: string;
@@ -3356,6 +4302,51 @@ export interface components {
             error?: string | null;
             started: boolean;
         };
+        /**
+         * @description R0-6: a step's cost: model and compute spend in US dollars and the
+         *     model tokens. Finite and never negative.
+         */
+        StepCost: {
+            /**
+             * Format: uint64
+             * @default 0
+             */
+            cached_tokens: number;
+            /**
+             * Format: double
+             * @default 0
+             */
+            compute_usd: number;
+            /**
+             * Format: uint64
+             * @default 0
+             */
+            input_tokens: number;
+            /**
+             * Format: double
+             * @default 0
+             */
+            model_usd: number;
+            /**
+             * Format: uint64
+             * @default 0
+             */
+            output_tokens: number;
+        };
+        /** @description R0: one credential release in a step's record. */
+        StepCredentialRelease: {
+            /**
+             * Format: int64
+             * @description Epoch milliseconds.
+             */
+            at: number;
+            credential_id: string;
+            /** Format: uint64 */
+            credential_version: number;
+            delivery: string;
+            revoked?: string | null;
+            runner_id: string;
+        };
         /** @description CF12c: a task's `evidence` as a step read carries it. */
         StepEvidencePolicy: {
             /**
@@ -3453,6 +4444,40 @@ export interface components {
             verdict?: components["schemas"]["Verdict"] | null;
         };
         StepRunId: string;
+        /** @description R0: a runner agent's step on the run page. */
+        StepRunnerView: {
+            agent_id: string;
+            agent_name: string;
+            /**
+             * @description R1-D2: the agent's abstentions on the approval (agent-written,
+             *     untrusted text).
+             */
+            agent_notes?: components["schemas"]["ApprovalAgentNote"][];
+            /** @description The agent version the current (or last) claim pinned. */
+            agent_version_id?: string | null;
+            /**
+             * @description R1-D2: the runner agent reviewing the approval now (a decision
+             *     lease is held). People can still decide while it reviews.
+             */
+            decision_lease?: components["schemas"]["DecisionLeaseView"] | null;
+            /**
+             * Format: int64
+             * @description R1-D2: on an approval the agent may decide, when its decision work
+             *     becomes ready (`agent.after` past the approval opening; epoch ms).
+             *     Omitted for task steps and before the approval is requested.
+             */
+            decision_ready_at_ms?: number | null;
+            /** @description The model profile the step asked for, if any. */
+            model?: string | null;
+            /** @description Credentials were released to a claim that ended without a report. */
+            released_never_reported?: boolean;
+            /** @description Credentials released to the step's claims (never values). */
+            releases?: components["schemas"]["StepCredentialRelease"][];
+            /** @description The runner's words for people about the wait, if it gave any. */
+            waiting_detail?: string | null;
+            /** @description Why the step waits for its runner, until it is claimed. */
+            waiting_reason?: string | null;
+        };
         StepSection: {
             actor?: components["schemas"]["ActorRef"] | null;
             amended: boolean;
@@ -3566,6 +4591,8 @@ export interface components {
             claim?: components["schemas"]["ClaimRef"] | null;
             /** Format: int64 */
             completed_at_ms?: number | null;
+            /** @description R0-6: what the step's reports said it cost (all attempts). */
+            cost?: components["schemas"]["StepCost"] | null;
             eligible_recipients: components["schemas"]["RecipientRef"][];
             exhausted: boolean;
             /**
@@ -3584,6 +4611,11 @@ export interface components {
                 [key: string]: unknown;
             };
             path: string;
+            /**
+             * @description R0: the runner agent an agent step targets, and what the runner
+             *     did with it. Omitted for steps open to external agents.
+             */
+            runner?: components["schemas"]["StepRunnerView"] | null;
             satisfied: boolean;
             /** Format: uint32 */
             schema_revision: number;
@@ -3669,6 +4701,8 @@ export interface components {
             runbook_version?: number | null;
             runbook_version_id?: components["schemas"]["VersionId"] | null;
             slug: string;
+            /** @description Nonblocking diagnostics emitted when publishing this source. */
+            warnings?: components["schemas"]["Diagnostic"][];
         };
         SyncView: {
             branch?: string | null;
@@ -3732,6 +4766,11 @@ export interface components {
             created_by?: components["schemas"]["UserId"] | null;
             /** Format: int64 */
             expires_at_ms?: number | null;
+            /**
+             * @description Whether issuance was authorized with a fresh allowed second factor.
+             * @default false
+             */
+            fresh_mfa_at_issue: boolean;
             id: components["schemas"]["TokenId"];
             kind: components["schemas"]["ManagedTokenKind"];
             /** Format: int64 */
@@ -3850,6 +4889,12 @@ export interface components {
              *     admins only. Archived projects are hidden and read-only.
              */
             archived?: boolean | null;
+            /**
+             * @description R0-3: the runner agent unnamed agent steps target in runbooks
+             *     published from now on (`null` clears it; `external` keeps them
+             *     open to external agents). Project admins only.
+             */
+            default_agent?: string | null;
             /** @description Display name (1 to 100 characters). */
             title?: string | null;
         };
@@ -4063,6 +5108,35 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    get__well_known_jwks_json: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Typed response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Jwks"];
+                };
+            };
+            /** @description Stable problem details. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     "get_.well-known_runbook": {
         parameters: {
             query?: never;
@@ -5762,7 +6836,26 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MeView"];
+                    "application/json": components["schemas"]["MeView"] | {
+                        org: {
+                            id: string;
+                        };
+                        security: {
+                            allow_authenticator: boolean;
+                            allow_passkeys: boolean;
+                            fresh_minutes: number;
+                            mfa_enrolled: boolean;
+                            /** @enum {unknown} */
+                            mfa_method: "passkey" | "totp" | "backup_code" | null;
+                            mfa_partial: boolean;
+                            mfa_required: boolean;
+                            mfa_verified_at: number | null;
+                        };
+                        user: {
+                            email: string;
+                            id: string;
+                        };
+                    };
                 };
             };
             /** @description Missing, revoked, expired or non-directory credential. */
@@ -6152,6 +7245,67 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    get_v1_me_security: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Read the browser session's MFA state and the signed-in account's factors. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        allow_authenticator: boolean;
+                        allow_passkeys: boolean;
+                        /** @description Whether the signed-in account has a confirmed authenticator app. Null when the sign-in service could not say. */
+                        authenticator_enrolled: boolean | null;
+                        fresh_minutes: number;
+                        mfa_enrolled: boolean;
+                        /** @enum {unknown} */
+                        mfa_method: "passkey" | "totp" | "backup_code" | null;
+                        mfa_partial: boolean;
+                        mfa_required: boolean;
+                        mfa_verified_at: number | null;
+                        /** @description How many passkeys the signed-in account has. Null when the sign-in service could not say. */
+                        passkey_count: number | null;
+                    };
+                };
+            };
+            /** @description A valid credential is required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The operation is forbidden or MFA is required. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The directory or sign-in service is unavailable. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
             };
         };
     };
@@ -7287,6 +8441,292 @@ export interface operations {
             };
         };
     };
+    get_v1_orgs__org__runner: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                org: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Typed response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunnerStatusView"];
+                };
+            };
+            /** @description Stable problem details. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    post_v1_orgs__org__runner_bootstrap_tokens: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                org: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunnerBootstrapRequest"];
+            };
+        };
+        responses: {
+            /** @description Typed response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunnerBootstrapView"];
+                };
+            };
+            /** @description Stable problem details. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    put_v1_orgs__org__runner_groups__g__projects: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                org: string;
+                g: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunnerGroupProjectsRequest"];
+            };
+        };
+        responses: {
+            /** @description No content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Stable problem details. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    put_v1_orgs__org__runner_vault_identity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                org: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunnerVaultIdentityRequest"];
+            };
+        };
+        responses: {
+            /** @description No content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Stable problem details. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     get_v1_orgs__org__search: {
         parameters: {
             query?: {
@@ -7325,6 +8765,186 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    get_v1_orgs_org_security: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                org: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Read the organization security policy as its owner. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        allow_authenticator: boolean;
+                        allow_passkeys: boolean;
+                        fresh_minutes: number;
+                        /** @enum {unknown} */
+                        require_mfa: "off" | "admins" | "everyone";
+                    };
+                };
+            };
+            /** @description A valid credential is required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The operation is forbidden or MFA is required. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Organization not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The directory or sign-in service is unavailable. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    put_v1_orgs_org_security: {
+        parameters: {
+            query?: {
+                /** @description Preview who the policy would lock out. Requires the same freshly verified owner session as saving. Nothing is saved. */
+                dry_run?: boolean;
+            };
+            header?: never;
+            path: {
+                org: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    allow_authenticator: boolean;
+                    allow_passkeys: boolean;
+                    fresh_minutes: number;
+                    /** @enum {unknown} */
+                    require_mfa: "off" | "admins" | "everyone";
+                };
+            };
+        };
+        responses: {
+            /** @description Replace the organization security policy as its owner. With `dry_run=true`, save nothing and list the members the policy would lock out. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        allow_authenticator: boolean;
+                        allow_passkeys: boolean;
+                        fresh_minutes: number;
+                        /** @enum {unknown} */
+                        require_mfa: "off" | "admins" | "everyone";
+                    } | {
+                        /** @description Members who could not finish signing in and could not enroll an allowed factor themselves. */
+                        affected: {
+                            email: string | null;
+                            name: string;
+                            /**
+                             * @description Why the member would be unable to sign in.
+                             * @enum {unknown}
+                             */
+                            reason: "factor_not_allowed" | "cannot_enroll";
+                            user_id: string;
+                        }[];
+                        /** @constant */
+                        dry_run: true;
+                        policy: {
+                            allow_authenticator: boolean;
+                            allow_passkeys: boolean;
+                            fresh_minutes: number;
+                            /** @enum {unknown} */
+                            require_mfa: "off" | "admins" | "everyone";
+                        };
+                    };
+                };
+            };
+            /** @description Invalid security policy. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description A valid credential is required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The operation is forbidden or MFA is required. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Organization not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Organization changed concurrently. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The directory or sign-in service is unavailable. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
             };
         };
     };
@@ -8492,6 +10112,68 @@ export interface operations {
             };
             /** @description Stable problem details and X-Request-ID. */
             default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    post_v1_orgs_org_users_user_mfa_reset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                org: string;
+                user: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Factors reset */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        reset: true;
+                    };
+                };
+            };
+            /** @description A valid credential is required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The operation is forbidden or MFA is required. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Organization or member not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The directory or sign-in service is unavailable. */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -13913,6 +15595,1344 @@ export interface operations {
             };
         };
     };
+    post_v1_runner_installs_register: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunnerRegisterRequest"];
+            };
+        };
+        responses: {
+            /** @description Typed response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunnerRegisteredView"];
+                };
+            };
+            /** @description Stable problem details. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    put_v1_runner_installs__ri__agents__agent_id_: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ri: string;
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentDirectoryEntry"];
+            };
+        };
+        responses: {
+            /** @description No content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Stable problem details. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    delete_v1_runner_installs__ri__agents__agent_id_: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ri: string;
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Stable problem details. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    post_v1_runner_installs__ri__events: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ri: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunnerEventRequest"];
+            };
+        };
+        responses: {
+            /** @description No content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Stable problem details. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_v1_runner_installs__ri__groups: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ri: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Typed response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunnerGroupRegistryView"];
+                };
+            };
+            /** @description Stable problem details. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    post_v1_runner_installs__ri__heartbeat: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ri: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunnerHeartbeatRequest"];
+            };
+        };
+        responses: {
+            /** @description No content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Stable problem details. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_v1_runner_installs__ri__projects__project_id__skills__name_: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ri: string;
+                project_id: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Typed response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunnerSkillPin"];
+                };
+            };
+            /** @description Stable problem details. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_v1_runner_installs__ri__ready: {
+        parameters: {
+            query: {
+                /** @description Return only ready steps in this project. */
+                project?: string;
+                /** @description Opaque next_cursor from the previous page, with the same group and project filter. */
+                cursor?: string;
+                group: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                ri: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Typed response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadyStepPage"];
+                };
+            };
+            /** @description Stable problem details. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    post_v1_runner_installs__ri__runners: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ri: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunnerJoinRequest"];
+            };
+        };
+        responses: {
+            /** @description Typed response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunnerJoinedView"];
+                };
+            };
+            /** @description Stable problem details. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    post_v1_runner_installs__ri__waiting: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ri: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunnerWaitingRequest"];
+            };
+        };
+        responses: {
+            /** @description No content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Stable problem details. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    post_v1_runner_decisions__lease__abstain: {
+        parameters: {
+            query: {
+                /** @description The approval step run holding the lease. */
+                step_run_id: string;
+            };
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                lease: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunnerAbstainRequest"];
+            };
+        };
+        responses: {
+            /** @description Typed response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalAgentNote"];
+                };
+            };
+            /** @description Stable problem details. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    post_v1_runner_decisions__lease__decide: {
+        parameters: {
+            query: {
+                /** @description The approval step run holding the lease. */
+                step_run_id: string;
+            };
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                lease: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunnerDecideRequest"];
+            };
+        };
+        responses: {
+            /** @description Typed response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecisionRecord"];
+                };
+            };
+            /** @description Stable problem details. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_v1_runners__ri__proxy___path_: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Runbook-CSRF": "1";
+            };
+            path: {
+                ri: string;
+                path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The runner's response, passed through */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Stable problem details. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    put_v1_runners__ri__proxy___path_: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Runbook-CSRF": "1";
+            };
+            path: {
+                ri: string;
+                path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The runner's response, passed through */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Stable problem details. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    post_v1_runners__ri__proxy___path_: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Runbook-CSRF": "1";
+            };
+            path: {
+                ri: string;
+                path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The runner's response, passed through */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Stable problem details. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    delete_v1_runners__ri__proxy___path_: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Runbook-CSRF": "1";
+            };
+            path: {
+                ri: string;
+                path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The runner's response, passed through */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Stable problem details. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    patch_v1_runners__ri__proxy___path_: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Runbook-CSRF": "1";
+            };
+            path: {
+                ri: string;
+                path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The runner's response, passed through */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Stable problem details. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     post_v1_slack_interactions: {
         parameters: {
             query?: never;
@@ -13958,7 +16978,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ClaimedStepRead"];
+                    "application/json": components["schemas"]["ClaimedStepRead"] | components["schemas"]["ClaimedDecisionRead"];
                 };
             };
             /** @description Stable credential/lifecycle error. */
@@ -14244,6 +17264,610 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    get_v1_step_runs__sr__context_memory: {
+        parameters: {
+            query: {
+                claim_id: string;
+                generation: number;
+                q?: string;
+            };
+            header?: never;
+            path: {
+                sr: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Claim-scoped context, bounded to 48 KiB. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Stable problem details. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    post_v1_step_runs__sr__context_memory: {
+        parameters: {
+            query: {
+                claim_id: string;
+                generation: number;
+            };
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                sr: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunnerMemoryProposal"];
+            };
+        };
+        responses: {
+            /** @description Claim-scoped context, bounded to 48 KiB. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Stable problem details. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_v1_step_runs__sr__context_past_run: {
+        parameters: {
+            query: {
+                claim_id: string;
+                generation: number;
+                run_id: string;
+            };
+            header?: never;
+            path: {
+                sr: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Claim-scoped context, bounded to 48 KiB. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Stable problem details. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_v1_step_runs__sr__context_run: {
+        parameters: {
+            query: {
+                claim_id: string;
+                generation: number;
+            };
+            header?: never;
+            path: {
+                sr: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Claim-scoped context, bounded to 48 KiB. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Stable problem details. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_v1_step_runs__sr__context_runs: {
+        parameters: {
+            query: {
+                claim_id: string;
+                generation: number;
+                q?: string;
+            };
+            header?: never;
+            path: {
+                sr: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Claim-scoped context, bounded to 48 KiB. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Stable problem details. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_v1_step_runs__sr__context_step: {
+        parameters: {
+            query: {
+                claim_id: string;
+                generation: number;
+                step_run_id: string;
+            };
+            header?: never;
+            path: {
+                sr: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Claim-scoped context, bounded to 48 KiB. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Stable problem details. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
             };
         };
     };
@@ -14535,6 +18159,155 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    post_v1_step_runs__sr__grants: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sr: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GrantRequest"];
+            };
+        };
+        responses: {
+            /** @description Typed response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GrantView"];
+                };
+            };
+            /** @description Stable problem details. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    post_v1_step_runs__sr__grants_revoked: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sr: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GrantRevokedRequest"];
+            };
+        };
+        responses: {
+            /** @description No content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Stable problem details. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stable problem details. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
             };
         };
     };

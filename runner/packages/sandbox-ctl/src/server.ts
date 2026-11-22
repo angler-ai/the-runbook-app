@@ -1,0 +1,217 @@
+import { sandboxIdForClaim, type CapabilityVerifier } from '@runbook/runner-shared/capability';
+import type { Config } from '@runbook/runner-shared/config';
+import type { ExecRequest, SandboxListenerResponse, SandboxSize } from '@runbook/runner-shared/contracts/internal';
+import { HttpError, type Route, type RouteContext } from '@runbook/runner-shared/http';
+import type { GrantClaims } from '@runbook/runner-shared/contracts/core';
+import type { DockerSandbox, DockerSandboxBackend, SandboxNetwork } from './docker.ts';
+import { computeClient, type ComputeHold } from './meter.ts';
+import { enforceProbe } from './probe.ts';
+import { SIZES } from './template.ts';
+
+const unavailable = () => new HttpError(503, 'sandbox.unavailable', 'sandbox operation unavailable');
+const gone = () => new HttpError(410, 'sandbox.gone', 'sandbox container is gone');
+const missing = () => new HttpError(404, 'sandbox.not_found', 'sandbox unavailable');
+
+export interface RunningSandbox {
+  sandbox: DockerSandbox;
+  capability: string;
+  claims: GrantClaims;
+  meter: ComputeHold;
+  started: number;
+  stopped?: number;
+  stoppedAt?: number;
+  timer: NodeJS.Timeout;
+}
+
+export function sandboxService(backend: DockerSandboxBackend, config: Config,
+  verifier: Pick<CapabilityVerifier, 'verifyCapability'>, onDestroyed: (id: string) => void = () => {}) {
+  const compute = computeClient(config);
+  const live = new Map<string, RunningSandbox>();
+  const creating = new Map<string, AbortController>();
+  const deleting = new Map<string, Promise<void>>();
+
+  async function gateway(method: 'POST' | 'DELETE', path: string, body: object) {
+    try {
+      return await fetch(`${config.urls.gateway}/internal/sandboxes${path}`, {
+        method, headers: { 'content-type': 'application/json', authorization: `Bearer ${config.outboundTokens.gateway}` },
+        body: JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(4000),
+      });
+    } catch {
+      throw unavailable();
+    }
+  }
+
+  async function deleteListener(id: string, capability: string) {
+    const reply = await gateway('DELETE', `/${id}`, { capability });
+    if (!reply.ok && reply.status !== 404 && reply.status !== 401) throw unavailable();
+  }
+
+  function destroy(entry: RunningSandbox): Promise<void> {
+    const { id, network } = entry.sandbox;
+    const existing = deleting.get(id);
+    if (existing) return existing;
+    const task = (async () => {
+      const removed = await backend.destroy(id, network).then(() => true, (error: unknown) => {
+        if (entry.stopped === undefined) throw error;
+        return false;
+      });
+      clearTimeout(entry.timer);
+      entry.stopped ??= Math.floor(performance.now());
+      entry.stoppedAt ??= Date.now();
+      await Promise.all([
+        entry.meter.settle(entry.stopped - entry.started),
+        compute.sandbox(id, 'stopped', entry.stoppedAt),
+        deleteListener(id, entry.capability),
+      ]);
+      if (!removed) throw unavailable();
+      live.delete(id);
+      onDestroyed(id);
+    })().finally(() => deleting.delete(id));
+    deleting.set(id, task);
+    return task;
+  }
+
+  async function verify(id: string | undefined, capability: unknown) {
+    if (typeof capability !== 'string') throw new HttpError(401, 'capability.invalid', 'the step capability is invalid');
+    const claims = await verifier.verifyCapability(capability);
+    if (id !== undefined && id !== sandboxIdForClaim(claims)) throw missing();
+    return { capability, claims };
+  }
+
+  async function forRoute(ctx: RouteContext, forWork = false) {
+    const { id } = ctx.params;
+    await verify(id, ctx.request?.headers['x-runbook-capability']);
+    if (creating.has(id ?? '')) throw new HttpError(409, 'sandbox.creating', 'sandbox creation in progress');
+    const entry = live.get(id ?? '');
+    if (!entry || deleting.has(id ?? '')) throw forWork ? gone() : missing();
+    return entry;
+  }
+
+  async function withSandbox<T>(ctx: RouteContext, operation: (sandbox: DockerSandbox) => Promise<T>) {
+    const entry = await forRoute(ctx, true);
+    try {
+      return await operation(entry.sandbox);
+    } catch (error) {
+      if (error instanceof HttpError && error.code === 'sandbox.gone') {
+        entry.stopped ??= Math.floor(performance.now());
+        entry.stoppedAt ??= Date.now();
+        await destroy(entry).catch(() => undefined);
+      }
+      throw error;
+    }
+  }
+
+  const callers = ['worker'] as const;
+  const routes: Route[] = [{
+    method: 'POST', path: '/internal/sandboxes', callers,
+    async handle({ body }) {
+      const input = body as { capability?: unknown; size?: SandboxSize; image?: unknown } | undefined;
+      const { claims, capability } = await verify(undefined, input?.capability);
+      if (!input?.size || !Object.hasOwn(SIZES, input.size) || input.image !== backend.image) {
+        throw new HttpError(422, 'sandbox.invalid_template', 'invalid sandbox template');
+      }
+      const id = sandboxIdForClaim(claims);
+      if (live.has(id) || creating.has(id)) throw new HttpError(409, 'sandbox.exists', 'sandbox already exists');
+      const creation = new AbortController();
+      creating.set(id, creation);
+      let network: SandboxNetwork | undefined;
+      let listenerRequested = false;
+      let hold: ComputeHold | undefined;
+      let started: number | undefined;
+      let entry: RunningSandbox | undefined;
+      try {
+        network = await backend.allocateNetwork(id);
+        creation.signal.throwIfAborted();
+        if (!network.gatewayAddress) throw unavailable();
+        listenerRequested = true;
+        const reply = await gateway('POST', '', {
+          sandbox_id: id, capability, listen_host: network.gatewayAddress,
+        });
+        if (!reply.ok) throw unavailable();
+        const listener = await reply.json() as SandboxListenerResponse;
+        const proxy = new URL(listener.proxy_url);
+        if (proxy.protocol !== 'http:' || proxy.hostname !== network.gatewayAddress || proxy.username || proxy.password ||
+            !proxy.port || !listener.listener_secret || !listener.ca_pem) throw unavailable();
+        const admission = await compute.reserve(capability, input.size);
+        if ('level' in admission) {
+          await backend.destroy(id, network);
+          await deleteListener(id, capability);
+          return { status: 402, body: { level: admission.level } };
+        }
+        hold = admission;
+        creation.signal.throwIfAborted();
+        const sandbox = await backend.start(id, network, input.size, listener, hold.timeoutMs);
+        started = Math.floor(performance.now());
+        const startedAt = Date.now();
+        const timer = setTimeout(() => {
+          const current = live.get(id);
+          if (current) void destroy(current).catch(() => undefined);
+        }, hold.timeoutMs).unref();
+        const running = { sandbox, capability, claims, meter: hold, started, timer };
+        entry = running;
+        live.set(id, running);
+        await compute.sandbox(id, 'started', startedAt);
+        creation.signal.throwIfAborted();
+        await enforceProbe((request) => backend.exec(sandbox, request),
+          () => destroy(running), () => compute.alert(capability), network.bridgeGateway);
+        creation.signal.throwIfAborted();
+        if (!live.has(id)) throw missing();
+        await compute.sandbox(id, 'ready');
+        creation.signal.throwIfAborted();
+        if (!live.has(id)) throw gone();
+        return { status: 201, body: { sandbox_id: id } };
+      } catch (error) {
+        if (entry && live.has(id)) await destroy(entry).catch(() => undefined);
+        if (!entry) {
+          if (network) await backend.destroy(id, network).catch(() => undefined);
+          if (hold) await hold.settle(started === undefined ? 0 : Math.floor(performance.now()) - started).catch(() => undefined);
+          if (listenerRequested) await deleteListener(id, capability).catch(() => undefined);
+        }
+        throw error instanceof HttpError ? error : unavailable();
+      } finally {
+        creating.delete(id);
+      }
+    },
+  }, {
+    method: 'POST', path: '/internal/sandboxes/{id}/renew', callers,
+    async handle(ctx) {
+      const { sandbox } = await forRoute(ctx);
+      const fresh = await verify(sandbox.id, ctx.request?.headers['x-runbook-capability']);
+      const reply = await gateway('POST', `/${sandbox.id}/renew`, { capability: fresh.capability });
+      if (!reply.ok) throw unavailable();
+      const entry = live.get(sandbox.id);
+      if (!entry || deleting.has(sandbox.id)) throw missing();
+      live.set(sandbox.id, { ...entry, ...fresh });
+      return { status: 204 };
+    },
+  }, {
+    method: 'POST', path: '/internal/sandboxes/{id}/exec', callers,
+    async handle(ctx) {
+      if (!ctx.body || typeof ctx.body !== 'object') throw new HttpError(422, 'sandbox.invalid_exec', 'invalid sandbox execution request');
+      return { body: await withSandbox(ctx, (sandbox) => backend.exec(sandbox, ctx.body as ExecRequest)) };
+    },
+  }, {
+    method: 'GET', path: '/internal/sandboxes/{id}/files/*', callers,
+    async handle(ctx) {
+      return { body: await withSandbox(ctx, (sandbox) => backend.read(sandbox, ctx.params['*'] ?? '')) };
+    },
+  }, {
+    method: 'PUT', path: '/internal/sandboxes/{id}/files/*', callers,
+    async handle(ctx) {
+      const content = (ctx.body as { content?: unknown } | null)?.content;
+      if (typeof content !== 'string') throw new HttpError(422, 'sandbox.invalid_file', 'invalid workspace content');
+      await withSandbox(ctx, (sandbox) => backend.write(sandbox, ctx.params['*'] ?? '', content));
+      return { status: 204 };
+    },
+  }, {
+    method: 'DELETE', path: '/internal/sandboxes/{id}', callers,
+    async handle(ctx) {
+      const id = ctx.params.id ?? '';
+      await verify(id, ctx.request?.headers['x-runbook-capability']);
+      creating.get(id)?.abort();
+      await destroy(await forRoute(ctx));
+      return { status: 204 };
+    },
+  }];
+  return { routes, live, destroy };
+}

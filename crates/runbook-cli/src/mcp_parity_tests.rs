@@ -28,6 +28,7 @@ fn command_for(md: &str, tool: &str) -> Option<String> {
 /// Walk the clap tree along the command words; check every `--flag`.
 fn check(command: &str) -> Result<(), String> {
     let mut cmd = Cli::command();
+    cmd.build();
     let words: Vec<&str> = command.split_whitespace().skip(1).collect();
     let mut walked = 0;
     for word in &words {

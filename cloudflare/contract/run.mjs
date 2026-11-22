@@ -53,7 +53,7 @@ export const CLOUD_ONLY = [
 async function manifest() {
   const source = await readFile(join(repo, 'crates', 'runbook-api', 'src', 'routes.rs'), 'utf8');
   const routes = new Set();
-  for (const m of source.matchAll(/(?:api|host)\(\s*"(\w+)",\s*"([^"]+)",\s*(?:Area|Host)::\w+,\s*Kind::Public\s*,?\s*\)/g)) {
+  for (const m of source.matchAll(/(?:api|host)\(\s*"(\w+)",\s*"([^"]+)",\s*(?:Area|Host)::\w+,\s*Kind::Public\s*,\s*Mfa::\w+\("[^"]+"\)\s*,?\s*\)/g)) {
     routes.add(`${m[1]} ${m[2]}`);
   }
   assert.ok(routes.size > 80, `only ${routes.size} public routes parsed from routes.rs`);
@@ -61,9 +61,9 @@ async function manifest() {
 }
 
 function fill(template, params) {
-  return template.replace(/\{(\w+)\}/g, (_, name) => {
+  return template.replace(/\{(\*?)(\w+)\}/g, (_, wildcard, name) => {
     if (params[name] === undefined) throw new Error(`no ${name} for ${template}`);
-    return encodeURIComponent(params[name]);
+    return wildcard ? params[name].split('/').map(encodeURIComponent).join('/') : encodeURIComponent(params[name]);
   });
 }
 
@@ -107,12 +107,19 @@ function client(target, receiver) {
   }
   function record(label, method, template, r, opts = {}) {
     const kind = r.type.split(';')[0].trim();
-    const body =
+    let body =
       r.body !== null
         ? normalize(r.body, origins)
         : kind.startsWith('text/') || kind.includes('json')
           ? normalize(r.text, origins)
           : `<${kind || 'empty'}: ${r.text.length > 0 ? 'bytes' : 'none'}>`;
+    if (template === '/.well-known/jwks.json' && Array.isArray(body?.keys)) {
+      body = { ...body, keys: body.keys.map(({ kid, x, ...key }) => ({
+        ...key,
+        kid: /^((grant|user)-)[A-Za-z0-9_-]{16}$/.test(kid) ? kid.split('-')[0] : kid,
+        x: /^[A-Za-z0-9_-]{43}$/.test(x) ? '<public key>' : x,
+      })) };
+    }
     if (opts.unordered && Array.isArray(body?.items)) {
       body.items.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
     }

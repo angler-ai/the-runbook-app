@@ -364,8 +364,10 @@ const PLAIN_FUNCTIONS = new Set(
 );
 const KEYWORDS_BEFORE_PAREN = /^(?:values|in|exists|as|and|or|not|on|select|from|where|using|over|filter|any|all|returning|into|table|key|references|default|check|unique|primary|foreign|conflict|do|set)$/i;
 
+const SQLITE_TRIGGER_FUNCTIONS = new Set(['randomblob', 'json_array_length']);
+
 /** The first call in `text` to a function not known to be plain, or null. */
-function unsafeCall(text) {
+function unsafeCall(text, sqliteTrigger = false) {
   for (const m of text.matchAll(new RegExp(String.raw`(${PART}(?:\.${PART})*)\s*\(`, 'gu'))) {
     const raw = m[1];
     const quotedName = raw.includes('"');
@@ -374,6 +376,8 @@ function unsafeCall(text) {
     // A quoted name is a call even when it spells a keyword; a quoted plain
     // function name ("lower") folds to the plain function.
     if (!name.includes('.') && PLAIN_FUNCTIONS.has(name)) continue;
+    // Unquoted RAISE is SQLite trigger grammar. The other two are built-ins.
+    if (sqliteTrigger && ((!quotedName && name === 'raise') || SQLITE_TRIGGER_FUNCTIONS.has(name))) continue;
     return raw;
   }
   return null;
@@ -381,8 +385,8 @@ function unsafeCall(text) {
 
 /** The call check for one statement or trigger-body fragment, its INSERT /
  * REPLACE target and column list set aside (they are not calls). */
-function unsafeCallIn(text) {
-  return unsafeCall(text.replace(new RegExp(String.raw`^\s*(?:INSERT\s+(?:OR\s+\w+\s+)?|REPLACE\s+)INTO\s+${NAME}\s*(?:\([^)]*\))?`, 'iu'), ''));
+function unsafeCallIn(text, sqliteTrigger = false) {
+  return unsafeCall(text.replace(new RegExp(String.raw`^\s*(?:INSERT\s+(?:OR\s+\w+\s+)?|REPLACE\s+)INTO\s+${NAME}\s*(?:\([^)]*\))?`, 'iu'), ''), sqliteTrigger);
 }
 
 /** The text after the first AS outside parentheses (a CREATE TABLE ... AS or
@@ -475,8 +479,8 @@ export function findings(sql, dialect = 'postgres', { history = '' } = {}) {
           contract('a trigger body that changes the schema');
         } else if ((w = new RegExp(String.raw`^(?:DELETE\s+FROM|UPDATE(?:\s+OR\s+\w+)?|INSERT\s+OR\s+REPLACE\s+INTO|REPLACE\s+INTO)\s+(${NAME})`, 'iu').exec(fragment)) && !isNew('TABLE', w[1])) {
           unprovable(`a trigger writes ${qualified(w[1])}, which the previous release reads`);
-        } else if (unsafeCallIn(fragment)) {
-          contract(`a call to ${unsafeCallIn(fragment)} can run any SQL`);
+        } else if (unsafeCallIn(fragment, true)) {
+          contract(`a call to ${unsafeCallIn(fragment, true)} can run any SQL`);
         }
       }
       const fn = new RegExp(String.raw`\bEXECUTE\s+(?:FUNCTION|PROCEDURE)\s+(${NAME})\s*\(`, 'iu').exec(t);

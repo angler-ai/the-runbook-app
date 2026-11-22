@@ -34,8 +34,8 @@ output "migration_job_name" {
 }
 
 output "database_user" {
-  description = "The built-in application user created for The Runbook in Cloud SQL."
-  value       = google_sql_user.runbook_app.name
+  description = "The PostgreSQL username used by The Runbook."
+  value       = local.database_user
 }
 
 output "cluster_name" {

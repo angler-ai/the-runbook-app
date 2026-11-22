@@ -135,6 +135,24 @@ groups, `switch`, `wait`, `approval`, `set` and `end`:
       assignment: strict
 ```
 
+- An approval with `allow_agents: true` (needs `min: 1`) lets an agent
+  decide it; `agent: { name: <runner agent>, after: 15m }` has a runner
+  agent decide when no person has after that long. People can always decide
+  first. The agent's run is read-only, it picks one of the options or
+  abstains, and its decision never leads to a destructive step
+  (`spec.agent_approval_destructive`). `agent` without `allow_agents` is a
+  publish error (`spec.agent_requires_allow_agents`).
+
+```yaml
+    - id: release_gate
+      approval:
+        prompt: Ship it?
+        options: [ship, hold]
+        approvers: { teams: [release-managers] }
+        allow_agents: true
+        agent: { name: release-reviewer, after: 15m }
+```
+
 ## Skills on a step
 
 A task may declare skills that the agent loads when doing the step:

@@ -265,6 +265,56 @@ fn a_run_goes_from_publish_to_its_summary_and_inbox_in_d1() {
     .unwrap();
     let pat = out.personal_token.as_str();
     let project = out.project_id.to_string();
+    // A new member has no grants or execution scopes.
+    use runbook_core::credentials::{
+        ActorKind, CredentialPrincipal, CredentialRecord, CredentialStore, Scope, TokenKind,
+        encode_secret, secret_hash,
+    };
+    let member = f.call(
+        pat,
+        "POST",
+        &format!("/v1/orgs/{}/users", out.org_id),
+        json!({"name": "New member"}),
+        Some("new-member"),
+        None,
+    );
+    assert_eq!(member.status, 201, "{}", member.body);
+    let secret = encode_secret(TokenKind::Personal, [74; 32]);
+    run(
+        runbook_store_d1::D1Credentials::new(f.host.d1.clone()).insert(CredentialRecord {
+            id: "tok_00000000000000000000000076".parse().unwrap(),
+            kind: TokenKind::Personal,
+            hash: secret_hash(&secret),
+            principal: CredentialPrincipal::User {
+                user_id: member.body["id"].as_str().unwrap().parse().unwrap(),
+                actor: ActorKind::Human,
+            },
+            org_id: out.org_id.clone(),
+            scopes: [Scope::RunbooksRead].into(),
+            projects: None,
+            expires_at: Some(START_MS + 3_600_000),
+            revoked_at: None,
+            last_used_at: None,
+        }),
+    )
+    .unwrap();
+    let inbox = f.call(&secret, "GET", "/v1/me/tasks", Value::Null, None, None);
+    assert_eq!(inbox.status, 200, "{}", inbox.body);
+    assert_eq!(inbox.body, json!({"items": [], "next_cursor": null}));
+
+    let grant = f.call(
+        pat,
+        "POST",
+        &format!("/v1/projects/{project}/members"),
+        json!({"user_id": member.body["id"], "role": "viewer"}),
+        Some("grant-member"),
+        None,
+    );
+    assert_eq!(grant.status, 200, "{}", grant.body);
+    let inbox = f.call(&secret, "GET", "/v1/me/tasks", Value::Null, None, None);
+    assert_eq!(inbox.status, 403, "{}", inbox.body);
+    assert_eq!(inbox.body["code"], "auth.scope_missing");
+
     // A second bootstrap is refused.
     assert!(
         run(runbook_worker::bootstrap::run(

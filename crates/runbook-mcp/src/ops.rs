@@ -443,3 +443,122 @@ pub mod blocking {
         block_on(super::validate(&mut Blocking(b), source, project, key))
     }
 }
+
+/// Runner identifiers are opaque URL segments. Also safe in the credential
+/// handoff shell command, whose arguments use the same alphabet.
+pub fn runner_segment(value: &str) -> Result<&str, BackendError> {
+    if !value.is_empty()
+        && value.len() <= 128
+        && !value.starts_with('-')
+        && value != "."
+        && value != ".."
+        && value
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || b"_.:-".contains(&c))
+    {
+        Ok(value)
+    } else {
+        Err(BackendError::Usage("invalid runner identifier".into()))
+    }
+}
+
+/// Refuse secret-bearing fields before a catalog request leaves the client.
+pub fn check_runner_metadata(resource: &str, body: &Value) -> Result<(), BackendError> {
+    let fields: &[&str] = match resource {
+        "providers" => &[
+            "name",
+            "type",
+            "auth",
+            "credential_id",
+            "endpoint",
+            "region",
+            "models",
+            "sharing",
+        ],
+        "profiles" => &["name", "provider_id", "model", "options", "sharing"],
+        "mcp-servers" => &[
+            "name",
+            "url",
+            "transport",
+            "credential_id",
+            "tool_labels",
+            "never_allowed",
+            "sharing",
+        ],
+        "groups" => &[
+            "name",
+            "concurrency",
+            "cost_per_day_usd",
+            "cost_per_month_usd",
+            "sandbox",
+            "compute_rate",
+        ],
+        _ => {
+            return Err(BackendError::Usage(
+                "unknown runner catalog resource".into(),
+            ));
+        }
+    };
+    let invalid = || {
+        BackendError::Usage("expected public runner configuration fields only. Use `runbook runner credential set` for secrets and `runbook runner group projects` for group assignments".into())
+    };
+    let data = body.as_object().ok_or_else(invalid)?;
+    if data.keys().any(|field| !fields.contains(&field.as_str())) {
+        return Err(invalid());
+    }
+    if resource == "providers"
+        && let Some(models) = data.get("models")
+    {
+        let model_fields = [
+            "id",
+            "input_usd_per_million",
+            "output_usd_per_million",
+            "cached_usd_per_million",
+            "cache_write_usd_per_million",
+        ];
+        if !models.as_array().is_some_and(|models| {
+            models.iter().all(|model| {
+                model.as_object().is_some_and(|model| {
+                    model
+                        .keys()
+                        .all(|field| model_fields.contains(&field.as_str()))
+                })
+            })
+        }) {
+            return Err(invalid());
+        }
+    }
+    if let Some(sharing) = data.get("sharing") {
+        check_runner_sharing(&sharing["projects"])?;
+    }
+    Ok(())
+}
+
+pub fn check_runner_sharing(projects: &Value) -> Result<(), BackendError> {
+    if matches!(projects.as_str(), Some("none" | "all")) {
+        return Ok(());
+    }
+    if let Some(projects) = projects.as_array()
+        && projects
+            .iter()
+            .all(|id| id.as_str().is_some_and(|id| runner_segment(id).is_ok()))
+    {
+        return Ok(());
+    }
+    Err(BackendError::Usage(
+        "expected sharing.projects to be none, all or an array of project IDs".into(),
+    ))
+}
+
+pub fn check_runner_tool_labels(labels: &Value) -> Result<(), BackendError> {
+    if labels.as_object().is_some_and(|labels| {
+        labels
+            .values()
+            .all(|label| matches!(label.as_str(), Some("read" | "write" | "destructive")))
+    }) {
+        return Ok(());
+    }
+    Err(BackendError::Usage(
+        "expected a tool_labels object with read, write or destructive labels".into(),
+    ))
+}

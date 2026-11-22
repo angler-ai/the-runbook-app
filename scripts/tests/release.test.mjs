@@ -191,14 +191,14 @@ test('notes list the schema, new migrations per store, contract migrations and c
   }
 });
 
-test('the Cloudflare bundle carries the built Workers, web UI, migrations, templates and update.mjs', () => {
+test('the Cloudflare bundle carries the built Workers, web UI, migrations, templates and operator scripts', () => {
   const root = temp();
   const out = temp();
   const extracted = temp();
   try {
     put(root, 'Cargo.toml', '[workspace.package]\nversion = "0.3.0"\n');
     for (const f of ['build/index.js', 'build/index_bg.wasm', 'build/worker/shim.mjs', 'build/cf1-size.json', 'build/cf1-cold-start.json',
-      'wrangler.jsonc.example', 'wrangler.auth.jsonc.example', 'package.json', 'package-lock.json', 'README.md', 'scripts/update.mjs',
+      'wrangler.jsonc.example', 'wrangler.auth.jsonc.example', 'package.json', 'package-lock.json', 'README.md', 'scripts/update.mjs', 'scripts/mfa-reset.mjs',
       'migrations/d1/0001_history.sql', 'migrations/d1/1014_x.sql', 'migrations/do/0005_x.sql', 'migrations/orgdo/0001_x.sql', 'migrations/webhookdo/0002_x.sql',
       'migrations/do-classes.json']) {
       put(root, `cloudflare/${f}`, f);
@@ -225,7 +225,8 @@ test('the Cloudflare bundle carries the built Workers, web UI, migrations, templ
     assert.deepEqual(list('cloudflare/migrations'), ['d1', 'do', 'do-classes.json', 'orgdo', 'webhookdo']);
     assert.deepEqual(list('auth/dist'), ['worker.mjs']);
     assert.deepEqual(list('auth/drizzle/sqlite'), ['0000_auth.sql']);
-    assert.ok(list('cloudflare').includes('wrangler.jsonc.example') && list('cloudflare/scripts').includes('update.mjs'));
+    assert.ok(list('cloudflare').includes('wrangler.jsonc.example'));
+    assert.deepEqual(list('cloudflare/scripts'), ['mfa-reset.mjs', 'update.mjs']);
     const release = JSON.parse(readFileSync(join(top, 'RELEASE.json'), 'utf8'));
     assert.deepEqual(release, {
       version: '0.3.0',

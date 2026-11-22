@@ -32,7 +32,7 @@ use runbook_core::{
 };
 use runbook_model::*;
 use serde_json::Value;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 pub const ORIGIN: &str = "https://runbooks.example";
@@ -46,6 +46,7 @@ pub struct Fake {
     pub store: MemoryExecutionStore,
     pub directory: MemoryDirectory,
     pub credentials: MemoryCredentials,
+    issued_tokens: Rc<RefCell<Vec<(CredentialRecord, TokenMetadata)>>>,
     pub webhooks: MemoryWebhooks,
     pub notify: runbook_core::notify::memory::MemoryNotify,
     pub random: Rc<Cell<u8>>,
@@ -94,6 +95,7 @@ impl Fake {
             store: MemoryExecutionStore::new(scope, projection, 1_000),
             directory: MemoryDirectory::default(),
             credentials: MemoryCredentials::default(),
+            issued_tokens: Rc::default(),
             webhooks: MemoryWebhooks::new(1_000),
             notify: runbook_core::notify::memory::MemoryNotify::new(1_000_000),
             random: Rc::default(),
@@ -396,6 +398,7 @@ impl Backends for Fake {
     type Executions = FakeExecutions;
     type Authoring = FakeAuthoring;
     type Archives = FakeArchives;
+    type Runners = runbook_core::runners::Unsupported;
     type Notify = runbook_core::notify::memory::MemoryNotify;
 
     fn directory(&self) -> MemoryDirectory {
@@ -419,6 +422,9 @@ impl Backends for Fake {
     fn authoring(&self) -> FakeAuthoring {
         FakeAuthoring(self.store.clone())
     }
+    fn runners(&self) -> Self::Runners {
+        runbook_core::runners::Unsupported
+    }
     fn archives(&self) -> FakeArchives {
         FakeArchives(self.store.clone())
     }
@@ -430,7 +436,7 @@ impl Backends for Fake {
     fn auth_methods(&self) -> Vec<String> {
         vec!["email".into()]
     }
-    async fn oauth_apps(
+    async fn auth_internal(
         &self,
         route: &'static str,
         body: Value,
@@ -512,8 +518,13 @@ impl Backends for Fake {
     ) -> Result<Option<IssueOutcome>, CredentialError> {
         Ok(None)
     }
-    async fn token_issue(&self, _: &TokenIssue) -> Result<IssueOutcome, CredentialError> {
-        Err(CredentialError::Backend("fake.tokens"))
+    async fn token_issue(&self, issue: &TokenIssue) -> Result<IssueOutcome, CredentialError> {
+        use runbook_core::credentials::CredentialStore;
+        self.credentials.insert(issue.record.clone()).await?;
+        self.issued_tokens
+            .borrow_mut()
+            .push((issue.record.clone(), issue.metadata.clone()));
+        Ok(IssueOutcome::Issued)
     }
     async fn token_insert_issued(
         &self,
@@ -522,11 +533,24 @@ impl Backends for Fake {
     ) -> Result<(), CredentialError> {
         Err(CredentialError::Backend("fake.tokens"))
     }
+    async fn token_metadata(
+        &self,
+        _: &OrganizationId,
+        id: &runbook_model::TokenId,
+    ) -> Result<TokenMetadata, CredentialError> {
+        Ok(self
+            .issued_tokens
+            .borrow()
+            .iter()
+            .find(|(record, _)| &record.id == id)
+            .map(|(_, metadata)| metadata.clone())
+            .unwrap_or_default())
+    }
     async fn tokens_of_org(
         &self,
         _: &OrganizationId,
     ) -> Result<Vec<(CredentialRecord, TokenMetadata)>, CredentialError> {
-        Ok(vec![])
+        Ok(self.issued_tokens.borrow().clone())
     }
     async fn device_code_by_device_hash(
         &self,
