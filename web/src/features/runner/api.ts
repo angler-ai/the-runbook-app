@@ -113,7 +113,13 @@ export function runnerError(error: unknown) {
   if (error instanceof ApiError) {
     if (error.status === 403) return 'You do not have access to this runner operation.';
     if (error.status === 503) return 'Runner is unavailable. Try again when it is online.';
-    if (error.status === 409) return 'This resource changed. Refresh and try again.';
+    if (error.status === 409) {
+      const runnerProblem = error.body.error as { code?: string } | undefined;
+      if (runnerProblem?.code === 'credential.revoked') {
+        return 'The credential is revoked. Re-create it to use it again.';
+      }
+      return 'This resource changed. Refresh and try again.';
+    }
   }
   return 'The runner could not complete this operation. Check the inputs and try again.';
 }

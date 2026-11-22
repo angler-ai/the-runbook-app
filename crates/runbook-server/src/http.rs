@@ -531,12 +531,34 @@ async fn dispatch(State(client): State<Client>, request: Request<Body>) -> Respo
     {
         return stream_response(client, request, nonce, &request_id).await;
     }
+    // A person who opens an API address in the browser (say, from an email)
+    // gets the sign-in or not-found page, not the problem JSON.
+    let path = request.uri().path().to_owned();
+    let navigation = runbook_api::web::is_navigation(
+        request.method().as_str(),
+        request
+            .headers()
+            .get("sec-fetch-dest")
+            .and_then(|v| v.to_str().ok()),
+        request
+            .headers()
+            .get(header::ACCEPT)
+            .and_then(|v| v.to_str().ok()),
+    );
     let response = tokio::time::timeout(
         client.request_timeout,
         process(client, request, nonce, &request_id),
     )
     .await
     .unwrap_or_else(|_| ApiResponse::error(503, "server.timeout", &request_id));
+    if navigation
+        && response.problem
+        && let Some(location) = runbook_api::web::navigation_redirect(&path, response.status)
+    {
+        let mut redirect = ApiResponse::json(302, serde_json::Value::Null, &request_id);
+        redirect.location = Some(Box::new(location.to_owned()));
+        return encode(redirect);
+    }
     encode(response)
 }
 /// CF0: the request's headers in the portable shape.

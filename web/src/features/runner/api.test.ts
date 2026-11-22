@@ -31,3 +31,18 @@ test('a missing vault identity tells the operator who can enroll it', async () =
     'Ask an organization owner to register the vault identity',
   );
 });
+
+test('a revoked credential conflict tells the operator to re-create it', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () =>
+      Response.json(
+        { error: { code: 'credential.revoked', message: 'The credential is revoked.' } },
+        { status: 409 },
+      ),
+    ),
+  );
+  await expect(
+    runnerRequest('ri_1', '/credentials/cred_1/test', 'POST').catch(runnerError),
+  ).resolves.toBe('The credential is revoked. Re-create it to use it again.');
+});

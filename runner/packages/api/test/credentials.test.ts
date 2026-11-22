@@ -1,5 +1,5 @@
 import type { UserAssertionClaims } from '@runbook/runner-shared/contracts/core';
-import { ORG, TOKENS, startHarness } from '../../vault/test/helpers.ts';
+import { ORG, TOKENS, insertCredential, startHarness } from '../../vault/test/helpers.ts';
 import { publicResources } from '../src/resources/public.ts';
 import { writeCredentialMetadata } from '@runbook/runner-vault/credential-metadata';
 import { createTestDatabase, hasTestDatabase } from '@runbook/runner-shared/test-utils/pg';
@@ -81,17 +81,42 @@ it.skipIf(!hasTestDatabase)('relays the exact assertion and raw body to the vaul
     expect(await status()).toBe('active');
     const detail = await handle({ ...request, method: 'GET', claims: { ...request.claims, scopes: ['runner:read'] } }, segments);
     expect(detail.body).toMatchObject({ secret_meta: { key: { version: 1 } } });
-    const blocked = vi.fn(async () => Response.json({ error: { code: 'credential.revoked', message: 'vault message' } }, { status: 409 }));
-    vi.stubGlobal('fetch', blocked);
-    await expect(handle({ ...request, assertion: { rawBody: Buffer.from('{}'), token: 'signed-assertion' } },
-      [...segments, 'test'])).rejects.toMatchObject({
-      status: 409, code: 'credential.revoked', message: 'the credential is revoked',
-    });
-    expect(blocked).toHaveBeenCalledOnce();
-
   } finally {
     vi.unstubAllGlobals();
     await db.drop();
+  }
+});
+
+it.skipIf(!hasTestDatabase)('reports revocation when testing a credential and keeps other vault refusals generic', async () => {
+  const h = await startHarness({
+    core: { baseUrl: 'https://core.example', releaseToken: TOKENS.release },
+    gateway: { baseUrl: 'https://gateway.example', token: TOKENS.gateway },
+  });
+  try {
+    const { id } = await insertCredential(h);
+    const handle = publicResources(h.db.pool('api'), {
+      role: 'api', listen: { host: '', port: 0 }, urls: { vault: h.url },
+      inboundTokens: {}, outboundTokens: { vault: TOKENS.api },
+    }, async () => {});
+    const target = `/runner/v1/credentials/${id}/test`;
+    const testCredential = () => handle({
+      method: 'POST', target, body: undefined,
+      claims: {
+        iss: 'https://core.example', aud: 'runner:install_test', iat: 0, exp: 60, jti: 'fixture',
+        user_id: 'us_admin', org_id: ORG, principal: 'human', org_role: 'admin', project_roles: {},
+        scopes: ['runner:admin'], htm: 'POST', htu: target, bh: '',
+      },
+      assertion: { token: h.signAssertion(target, ''), rawBody: Buffer.alloc(0) },
+    });
+    await expect(testCredential()).rejects.toMatchObject({
+      status: 409, code: 'credential.vault_unavailable', message: 'credential operation refused',
+    });
+    await h.db.pool('vault').query("UPDATE credentials SET status = 'revoked', revoked_at = now() WHERE id = $1", [id]);
+    await expect(testCredential()).rejects.toMatchObject({
+      status: 409, code: 'credential.revoked', message: 'The credential is revoked. Re-create it to use it again.',
+    });
+  } finally {
+    await h.close();
   }
 });
 

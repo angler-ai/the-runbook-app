@@ -46,7 +46,7 @@ export function credentialResources(pool: pg.Pool, dependencies: Config, sync = 
       if (response.status === 409) {
         const failure = await response.json().catch(() => null) as { error?: { code?: string } } | null;
         if (failure?.error?.code === 'credential.revoked') {
-          throw new HttpError(409, 'credential.revoked', 'the credential is revoked');
+          throw new HttpError(409, 'credential.revoked', 'The credential is revoked. Re-create it to use it again.');
         }
       }
       const status = [400, 401, 403, 404, 409, 410].includes(response.status) ? response.status : 502;

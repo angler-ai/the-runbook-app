@@ -146,6 +146,48 @@ async fn a_signal_named_events_reaches_the_signal_route() {
     assert_eq!(v["code"], "auth.required");
 }
 
+/// A person who opens an API address in the browser (a link in an email)
+/// is sent to sign-in instead of shown the problem JSON; programs still get
+/// the problem.
+#[tokio::test]
+async fn a_browser_opening_an_api_address_signed_out_goes_to_sign_in() {
+    let worker = Worker::start(offline_config()).unwrap();
+    let app = router(worker.client());
+    let get = |headers: &[(&str, &str)]| {
+        let mut builder = Request::builder().method("GET").uri("/v1/me");
+        for (name, value) in headers {
+            builder = builder.header(*name, *value);
+        }
+        builder.body(Body::empty()).unwrap()
+    };
+    let response = app
+        .clone()
+        .oneshot(get(&[
+            ("sec-fetch-dest", "document"),
+            ("accept", "text/html"),
+        ]))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 302);
+    assert_eq!(response.headers()["location"], "/sign-in");
+    let response = app
+        .clone()
+        .oneshot(get(&[("accept", "application/json")]))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 401);
+    let response = app
+        .clone()
+        .oneshot(get(&[("sec-fetch-dest", "empty"), ("accept", "text/html")]))
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        401,
+        "the web app's own fetch keeps the problem"
+    );
+}
+
 /// F96: every response, success, problem or stream refusal, says nosniff.
 #[tokio::test]
 async fn every_response_disables_content_sniffing() {

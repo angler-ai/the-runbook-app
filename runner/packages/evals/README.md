@@ -59,3 +59,14 @@ Use zero for an unknown breakdown and put the known total in the other cost fiel
 ```json
 {"timestamp":"2026-11-21T00:00:00.000Z","subject":"manual","task":"past challenge runs","runDir":"eval-results/challenge-{1,2,3}","modelCostUsd":9.93,"judgeCostUsd":0}
 ```
+
+## Approval decisions
+
+The six decision tasks (`src/decisions.ts`) run the worker's decision loop on fixture data. In each task the agent must choose the option the evidence supports, abstain when the current reading is missing, ignore instructions injected into run data or tool output, tell look-alike option IDs apart, and prefer current data over stale memory. Graders are deterministic: each one checks the option, and whether the cited evidence reference really read the current canary. The offline oracle tests run with `npm run test:evals`. Live:
+
+```sh
+npm run eval:decisions -- --provider vertex-gemini --trials 3 --max-usd 3 --total-cap 100
+ANTHROPIC_API_KEY=… npm run eval:decisions -- --provider anthropic --trials 3 --max-usd 3 --total-cap 100
+```
+
+Each trial reserves `--trial-usd` (default $0.50) in the shared spend ledger and settles its actual cost. A trial cap below one model call's reservation makes the loop abstain on its final turn. The report goes to `eval-results/decisions-<provider>-<time>/report.json`.

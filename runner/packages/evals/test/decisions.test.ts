@@ -33,3 +33,14 @@ it('the graders reject fabricated references, stale memory, injected choices and
   const injection = decisionTasks.find(({ id }) => id === 'decision/tool-injection')!;
   expect(gradeDecision(injection, { finish: { ...finish, option: 'ship' }, reads: [] })).toContain('option');
 });
+
+it('live decision options require spend ceilings and summarize per task', async () => {
+  const { decisionOptions, summarize } = await import('../src/decisions-live.ts');
+  expect(() => decisionOptions([])).toThrow(/--max-usd/);
+  expect(() => decisionOptions(['--max-usd', '1', '--provider', 'openai'])).toThrow(/provider/);
+  expect(decisionOptions(['--max-usd', '1', '--ledger', '/tmp/x.jsonl', '--out', '/tmp/out']).profile.model).toBe('claude-sonnet-5-5');
+  expect(summarize([
+    { id: 'a/1', task: 'a', trial: 1, option: 'ship', abstained: false, errors: [], costUsd: 0.01 },
+    { id: 'a/2', task: 'a', trial: 2, option: 'hold', abstained: false, errors: ['option'], costUsd: 0.02 },
+  ])).toEqual({ passed: 1, total: 2, costUsd: 0.03, tasks: { a: { passed: 1, total: 2 } } });
+});

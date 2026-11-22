@@ -928,7 +928,45 @@ async fn step_execution(
         .map(|result| result.map(|(execution, _)| execution))
 }
 
-async fn api(mut req: Request, env: Env, path: String, query: Option<String>) -> Result<Response> {
+/// The API, except that a person who opens a refused `/v1` address in the
+/// browser (say, from an email) gets the sign-in or not-found page rather
+/// than the problem JSON, as natively.
+async fn api(req: Request, env: Env, path: String, query: Option<String>) -> Result<Response> {
+    let header = |name: &str| req.headers().get(name).ok().flatten();
+    let navigation = runbook_api::web::is_navigation(
+        if req.method() == Method::Get {
+            "GET"
+        } else {
+            "OTHER"
+        },
+        header("sec-fetch-dest").as_deref(),
+        header("accept").as_deref(),
+    );
+    let response = api_inner(req, env, path.clone(), query).await?;
+    let problem = response
+        .headers()
+        .get("content-type")
+        .ok()
+        .flatten()
+        .is_some_and(|v| v.starts_with("application/problem+json"));
+    if navigation
+        && problem
+        && let Some(location) = runbook_api::web::navigation_redirect(&path, response.status_code())
+    {
+        let mut redirect = Response::empty()?.with_status(302);
+        redirect.headers_mut().set("location", location)?;
+        redirect.headers_mut().set("cache-control", "no-store")?;
+        return Ok(redirect);
+    }
+    Ok(response)
+}
+
+async fn api_inner(
+    mut req: Request,
+    env: Env,
+    path: String,
+    query: Option<String>,
+) -> Result<Response> {
     ensure_schema(&env).await?;
     let mut host = WorkersHost::new(&env, WorkersObjects::remote(&env)?)?;
     host.auth_methods = auth_methods(&env).await;

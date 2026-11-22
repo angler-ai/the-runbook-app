@@ -262,20 +262,58 @@ fn push_with_draft_problems_saves_but_does_not_publish() {
 }
 
 #[test]
-fn push_into_an_empty_project_cannot_confirm_scope_and_changes_nothing() {
-    let home = tmp();
-    let file = spec_file(home.path(), SOURCE);
-    let (host, server) = serve(vec![reply(200, page(vec![])), reply(200, page(vec![]))]);
-    let o = cli(
-        &host,
-        home.path(),
-        &["push", &file, "--project", "ops"],
-        &[("RUNBOOK_TOKEN", PAT)],
-    );
-    let seen = server.join().unwrap();
-    assert_eq!(o.status.code(), Some(2), "{}", err(&o));
-    assert!(err(&o).contains("--draft"));
-    assert!(!lines(&seen).iter().any(|l| is_write(l)));
+fn first_runbook_push_checks_project_permission_before_creating() {
+    for can_publish in [true, false] {
+        let home = tmp();
+        let file = spec_file(home.path(), SOURCE);
+        let mut script = vec![reply(200, page(vec![])), reply(200, page(vec![]))];
+        if can_publish {
+            script.extend([
+                problem(428, "request.idempotency_key_required"),
+                reply(
+                    201,
+                    json!({"runbook_id": RB, "source": SOURCE, "revision": 1}),
+                ),
+                draft(1, SOURCE),
+                reply(201, published()),
+            ]);
+        } else {
+            script.push(problem(403, "auth.scope_missing"));
+        }
+        let (host, server) = serve(script);
+        let output = cli(
+            &host,
+            home.path(),
+            &["push", &file, "--project", "ops", "--json"],
+            &[("RUNBOOK_TOKEN", PAT)],
+        );
+        assert_eq!(
+            output.status.code(),
+            Some(i32::from(!can_publish)),
+            "{}",
+            err(&output)
+        );
+        let seen = server.join().unwrap();
+        let writes: Vec<_> = seen.iter().filter(|r| is_write(request_line(r))).collect();
+        assert_eq!(
+            request_line(writes[0]),
+            "POST /v1/projects/ops/sync HTTP/1.1"
+        );
+        assert_eq!(header(writes[0], "Idempotency-Key"), None);
+        let printed: Value = serde_json::from_str(&out(&output)).unwrap();
+        if can_publish {
+            assert_eq!(writes.len(), 3);
+            assert_eq!(
+                request_line(writes[1]),
+                "POST /v1/projects/ops/runbooks HTTP/1.1"
+            );
+            assert_eq!(printed["created"], true);
+            assert_eq!(printed["published"]["runbook_version_id"], RBV);
+        } else {
+            assert_eq!(writes.len(), 1);
+            assert_eq!(printed["error"]["code"], "auth.scope_missing");
+        }
+    }
 }
 
 #[test]
@@ -507,34 +545,4 @@ fn push_under_the_cap_says_nothing() {
     server.join().unwrap();
     assert_eq!(o.status.code(), Some(0), "{}", err(&o));
     assert!(!err(&o).contains("warning"), "{}", err(&o));
-}
-
-#[test]
-fn first_runbook_push_prints_the_exact_draft_and_publish_commands() {
-    let home = tmp();
-    let file = spec_file(home.path(), SOURCE);
-    let (host, server) = serve(vec![reply(200, page(vec![])), reply(200, page(vec![]))]);
-    let output = cli(
-        &host,
-        home.path(),
-        &["push", &file, "--project", "ops"],
-        &[("RUNBOOK_TOKEN", PAT)],
-    );
-    assert!(!output.status.success());
-    let error = err(&output);
-    assert!(
-        error.contains(&format!("runbook push '{file}' --project 'ops' --draft")),
-        "{error}"
-    );
-    assert!(
-        error.contains("runbook publish 'post-deploy' --project 'ops'"),
-        "{error}"
-    );
-    assert!(
-        server
-            .join()
-            .unwrap()
-            .iter()
-            .all(|r| !is_write(request_line(r)))
-    );
 }

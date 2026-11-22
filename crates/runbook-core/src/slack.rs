@@ -49,19 +49,7 @@ pub fn slack_text(
         run_title
     };
     let step = step_title.unwrap_or("A step");
-    let link = if intent.link.starts_with("http") {
-        intent.link.clone()
-    } else {
-        format!(
-            "{}{}",
-            origin.trim_end_matches('/'),
-            if intent.link.starts_with('/') {
-                intent.link.clone()
-            } else {
-                format!("/x/{}", intent.execution_id)
-            }
-        )
-    };
+    let link = crate::notify::fanout::link_absolute(origin, intent);
     let lead = match intent.kind.as_str() {
         "approval.requested" => format!("Approval needed: {step} in {run}"),
         "step.blocked" => format!("Step handed off: {step} in {run} is blocked"),
@@ -347,6 +335,36 @@ mod tests {
         );
         assert!(text.starts_with("<https://runs.example.test/x/exe_"));
         assert!(text.contains("Verify &lt;api&gt; &amp; go"));
+    }
+
+    /// A run's stored URL is its API address; people are sent to its page.
+    #[test]
+    fn links_to_the_run_page_never_the_api() {
+        let exe = "exe_00000000000000000000000001";
+        let page = format!("<https://runs.example.test/x/{exe}|");
+        for link in [
+            format!("https://runs.example.test/v1/executions/{exe}"),
+            format!("/v1/executions/{exe}"),
+            String::new(),
+        ] {
+            let mut i = intent("approval.requested");
+            i.link = link.clone();
+            let text = slack_text(&i, "Release", Some("Ship"), "https://runs.example.test/");
+            assert!(text.starts_with(&page), "{link}: {text}");
+        }
+        let mut i = intent("approval.requested");
+        i.link = "https://elsewhere.example/doc".into();
+        let text = slack_text(&i, "Release", Some("Ship"), "https://runs.example.test");
+        assert!(
+            text.starts_with("<https://elsewhere.example/doc|"),
+            "{text}"
+        );
+        i.link = format!("/x/{exe}?step=signoff");
+        let text = slack_text(&i, "Release", Some("Ship"), "https://runs.example.test");
+        assert!(
+            text.starts_with(&format!("<https://runs.example.test/x/{exe}?step=signoff|")),
+            "{text}"
+        );
     }
 
     #[test]

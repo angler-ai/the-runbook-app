@@ -3,7 +3,7 @@
 //! both interfaces send the same requests.
 //!
 //! A publishing `push` never changes anything it cannot finish: before the
-//! first write it confirms `runbooks:publish` with `ops::probe_publish`, and
+//! first write it confirms `runbooks:publish` in the project, and
 //! without the scope it exits 1 with `403 auth.scope_missing`, suggesting
 //! `--draft`.
 use crate::agent::Env;
@@ -11,7 +11,7 @@ use crate::credstore::StateDir;
 use crate::host::CliBackend;
 use crate::session::random_hex;
 use clap::{Args, Subcommand};
-use runbook_mcp::backend::{Backend, BackendError};
+use runbook_mcp::backend::{Backend, BackendError, HttpCall};
 use runbook_mcp::ops::blocking as ops;
 use serde_json::{Value, json};
 use std::path::PathBuf;
@@ -366,18 +366,13 @@ fn push(b: &mut dyn Backend, a: &PushArgs, store: Option<&StateDir>) -> Result<i
     if !a.draft {
         // Confirm runbooks:publish before the first write.
         let target = match &existing {
-            Some(rb) => rb.clone(),
-            None => any_runbook(b, &a.project)?.ok_or_else(|| {
-                let file = shell_arg(&a.file.to_string_lossy());
-                let project = shell_arg(&a.project);
-                let slug = shell_arg(&slug);
-                BackendError::Usage(format!(
-                    "cannot confirm runbooks:publish before project {project} has a runbook. \
-                     Run `runbook push {file} --project {project} --draft`, then `runbook publish {slug} --project {project}`"
-                ))
-            })?,
+            Some(rb) => Some(rb.clone()),
+            None => any_runbook(b, &a.project)?,
         };
-        ops::probe_publish(b, &target)?;
+        match target {
+            Some(rb) => ops::probe_publish(b, &rb)?,
+            None => probe_project_publish(b, &a.project)?,
+        }
     }
     let key = base_key(&a.idempotency_key)?;
     let (rb, created, view) = match &existing {
@@ -465,8 +460,23 @@ fn step_cap_warning(b: &mut dyn Backend, source: &str) -> Option<String> {
     })
 }
 
-fn shell_arg(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\\''"))
+fn probe_project_publish(b: &mut dyn Backend, project: &str) -> Result<(), BackendError> {
+    // Sync checks project publish permission before requiring an idempotency key.
+    // Omit the key and the required files so the probe cannot apply a sync.
+    let call = HttpCall {
+        method: "POST",
+        body: Some(json!({})),
+        ..HttpCall::get(format!("/v1/projects/{project}/sync"))
+    };
+    match b.call(call) {
+        Err(BackendError::Problem {
+            status: 428, code, ..
+        }) if code == "request.idempotency_key_required" => Ok(()),
+        Err(e) => Err(e),
+        Ok(_) => Err(BackendError::Transport(
+            "the publish permission check was unexpectedly accepted".into(),
+        )),
+    }
 }
 
 /// Any runbook of the project, to confirm publish permission in it.

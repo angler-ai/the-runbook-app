@@ -30,6 +30,7 @@
     "wasm:build": "node scripts/build-wasm.mjs",
     "eval": "node --conditions=development packages/evals/src/cli.ts",
     "eval:calibrate": "node --conditions=development packages/evals/src/calibrate.ts",
+    "eval:decisions": "node --conditions=development packages/evals/src/decisions-live.ts",
     "test:evals": "vitest run packages/evals/test",
     "eval:replay": "node --conditions=development packages/evals/src/replay-run.ts"
   },
