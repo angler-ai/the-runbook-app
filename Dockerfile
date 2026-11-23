@@ -69,8 +69,9 @@ RUN --mount=type=cache,id=runbook-npm-cache,target=/root/.npm,sharing=locked \
 # The UI imports the API contract and its examples from the repository root.
 COPY api /src/api
 COPY schemas /src/schemas
-COPY runner/packages/shared/src/credential-manifest.ts runner/packages/shared/src/oauth-binding.ts /src/runner/packages/shared/src/
-COPY runner/packages/shared/src/contracts/core.ts /src/runner/packages/shared/src/contracts/
+# The runner's shared sources: the whole directory, so a new import from the
+# UI cannot break the image build (scripts/tests/core-docker-web.test.mjs).
+COPY runner/packages/shared/src /src/runner/packages/shared/src
 COPY auth/src/return-to.ts /src/auth/src/
 COPY web ./
 COPY --from=wasm /out/runbook.wasm src/wasm/runbook.wasm
