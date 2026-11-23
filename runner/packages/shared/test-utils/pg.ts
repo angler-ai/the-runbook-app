@@ -96,6 +96,10 @@ export async function createTestDatabase(
     },
     admin() {
       const p = new pg.Pool({ connectionString: dbAdminUrl, max: 2 });
+      // DROP DATABASE ... WITH (FORCE) terminates idle connections (57P01).
+      // Without a listener the pool re-emits that as an unhandled error.
+      // Query errors still reject their own promises.
+      p.on('error', () => undefined);
       pools.push(p);
       return p;
     },
