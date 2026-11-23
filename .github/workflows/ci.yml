@@ -45,6 +45,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+          fetch-depth: 0 # The Terraform plan test compares against a pinned commit.
       # The service publishes 5432 on a random host port, so jobs never
       # collide with a Postgres already on the runner or with each other.
       - name: Point DATABASE_URL at the service's host port

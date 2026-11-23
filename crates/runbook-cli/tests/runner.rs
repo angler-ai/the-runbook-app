@@ -12,6 +12,39 @@ const SECRET: &str = "test secret café";
 const PUBLIC: &str = "hSDwCYkwp1R0i33ctD73Wg2_Og0mOBr066SpjqqbTmo";
 
 #[test]
+fn credential_types_needs_only_runner_scopes() {
+    let home = tempfile::tempdir().unwrap();
+    let manifests = json!({"items":[{"type":"api-key"}]});
+    let (host, server) = serve(vec![
+        Reply::json(
+            200,
+            json!({"org":{"id":ORG},"credential":{"scopes":["runner:read","runner:admin"]}}),
+        ),
+        Reply::json(200, json!({"install_id":INSTALL})),
+        Reply::json(200, manifests.clone()),
+    ]);
+    let result = cli(
+        &host,
+        home.path(),
+        &["runner", "credential", "types", "--json"],
+        &token(),
+        None,
+    );
+    assert!(result.status.success(), "{}", err(&result));
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&out(&result)).unwrap(),
+        manifests
+    );
+    let requests = server.join().unwrap();
+    assert_eq!(line(&requests[0]), "GET /v1/me");
+    assert_eq!(line(&requests[1]), format!("GET /v1/orgs/{ORG}/runner"));
+    assert_eq!(
+        line(&requests[2]),
+        format!("GET /v1/runners/{INSTALL}/proxy/runner/v1/credentials?presets=true")
+    );
+}
+
+#[test]
 fn credential_set_seals_locally_and_pins_fingerprint() {
     let vectors: Vec<serde_json::Value> =
         serde_json::from_str(include_str!("../../../api/runner-binding-vectors.json")).unwrap();

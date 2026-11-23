@@ -1158,19 +1158,19 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Project Slack notifications (SLACK1 stage 1)
-         * @description Implemented. One Slack incoming-webhook URL per project: reads say only whether one is configured (the URL is a credential and is never returned), writes need project admin. Step assigned, approval needed, handoff/stall and run-failed events post a short message linking into the app. Best-effort beside email and webhooks.
+         * Project Slack notifications
+         * @description Configure an incoming webhook or Slack app channel for a project. The webhook credential is write-only. Run-start notifications are off by default and are best effort alongside email and webhooks.
          */
         get: operations["get_v1_projects__p__slack"];
         /**
-         * Project Slack notifications (SLACK1 stage 1)
-         * @description Implemented. One Slack incoming-webhook URL per project: reads say only whether one is configured (the URL is a credential and is never returned), writes need project admin. Step assigned, approval needed, handoff/stall and run-failed events post a short message linking into the app. Best-effort beside email and webhooks.
+         * Project Slack notifications
+         * @description Set an incoming webhook or Slack app channel. Omit both to update notify_run_started on an existing target. This preference defaults to false on first configuration and is retained when omitted.
          */
         put: operations["put_v1_projects__p__slack"];
         post?: never;
         /**
-         * Project Slack notifications (SLACK1 stage 1)
-         * @description Implemented. One Slack incoming-webhook URL per project: reads say only whether one is configured (the URL is a credential and is never returned), writes need project admin. Step assigned, approval needed, handoff/stall and run-failed events post a short message linking into the app. Best-effort beside email and webhooks.
+         * Project Slack notifications
+         * @description Configure an incoming webhook or Slack app channel for a project. The webhook credential is write-only. Run-start notifications are off by default and are best effort alongside email and webhooks.
          */
         delete: operations["delete_v1_projects__p__slack"];
         options?: never;
@@ -1822,6 +1822,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/runner/oauth/callback/{credential_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Consume the OAuth provider callback for a runner credential. Exchange requires the initiating browser session and nonce. Redirects to Runner settings without carrying the callback parameters into the redirect.
+         * @description Consume the OAuth provider callback for a runner credential. Exchange requires the initiating browser session and nonce. Redirects to Runner settings without carrying the callback parameters into the redirect.
+         */
+        get: operations["get_v1_runner_oauth_callback__credential_id_"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/runners/{ri}/proxy/{*path}": {
         parameters: {
             query?: never;
@@ -2389,6 +2409,7 @@ export interface components {
             model?: string | null;
             name: string;
             principal_id: string;
+            service_attribution?: components["schemas"]["ServiceTokenAttribution"] | null;
             session_id: string;
         } | {
             /** @constant */
@@ -2496,11 +2517,15 @@ export interface components {
         };
         ApprovalView: {
             agent_notes?: components["schemas"]["ApprovalAgentNote"][];
+            /** @description Why a pending approval has no independent reviewers. */
+            blocked_reason?: string | null;
             decision_lease?: components["schemas"]["DecisionLeaseView"] | null;
             decisions: components["schemas"]["DecisionRecord"][];
             eligible_recipients: components["schemas"]["RecipientRef"][];
             escalated: boolean;
             escalation_recipients: components["schemas"]["RecipientRef"][];
+            /** @description People who completed work this approval must independently review. */
+            excluded_completers?: components["schemas"]["UserId"][];
             options: components["schemas"]["ApprovalOption"][];
             prompt: string;
             /** Format: uint32 */
@@ -3273,6 +3298,8 @@ export interface components {
              *     event alone never counts as notifying anyone.
              */
             notifications_not_delivered?: components["schemas"]["UndeliveredNotification"][];
+            /** @description Milestones that passed their run-relative deadline and are still unfinished. */
+            overdue_steps?: components["schemas"]["OverdueStepView"][];
             /** @description LANG4: the `call` step that started this run, when it is a child. */
             parent?: components["schemas"]["ExecutionParentView"] | null;
             pending_terminal_status?: components["schemas"]["ExecutionStatus"] | null;
@@ -3313,6 +3340,16 @@ export interface components {
              */
             terminal_reason?: string | null;
             title: string;
+            /**
+             * @description The run's API address.
+             * @default
+             */
+            url: string;
+            /**
+             * @description The run page to share with people.
+             * @default
+             */
+            web_url: string;
         };
         FieldError: {
             code: string;
@@ -3694,6 +3731,13 @@ export interface components {
             id: components["schemas"]["OrganizationId"];
             title: string;
         };
+        OverdueStepView: {
+            /** Format: int64 */
+            due_at_ms: number;
+            path: string;
+            step_run_id?: components["schemas"]["StepRunId"] | null;
+            title: string;
+        };
         OverrideRequest: {
             reason: string;
             to: components["schemas"]["StepRecord"];
@@ -3741,11 +3785,13 @@ export interface components {
         /**
          * @description Either a Slack incoming-webhook URL (stage 1: plain messages), or a
          *     channel ID for the server's Slack app (stage 2: approve and reject
-         *     buttons). Exactly one.
+         *     buttons). Omit both to change only the preference on a configured target.
          */
         ProjectSlackRequest: {
             /** @description A Slack channel ID (`C…` or `G…`, from the channel's details). */
             channel?: string | null;
+            /** @description Change the run-start setting. Omit to retain the previous value. */
+            notify_run_started?: boolean | null;
             /** @description A Slack incoming-webhook URL (https://hooks.slack.com/…). */
             url?: string | null;
         };
@@ -3763,6 +3809,11 @@ export interface components {
              */
             channel?: string | null;
             configured: boolean;
+            /**
+             * @description Post to the configured Slack destination when a run starts.
+             * @default false
+             */
+            notify_run_started: boolean;
         };
         ProjectVariable: {
             declaration: unknown;
@@ -3876,6 +3927,16 @@ export interface components {
             ready_work: components["schemas"]["ReadyWork"][];
             /** Format: uint32 */
             schema_revision: number;
+            /**
+             * @description The run's API address.
+             * @default
+             */
+            url: string;
+            /**
+             * @description The run page to share with people.
+             * @default
+             */
+            web_url: string;
         };
         RunSearchEntry: {
             /** Format: int64 */
@@ -3891,6 +3952,16 @@ export interface components {
             status: components["schemas"]["ExecutionStatus"];
             tags: string[];
             title: string;
+            /**
+             * @description The run's API address.
+             * @default
+             */
+            url: string;
+            /**
+             * @description The run page to share with people.
+             * @default
+             */
+            web_url: string;
         };
         RunSearchPage: {
             items: components["schemas"]["RunSearchEntry"][];
@@ -4107,6 +4178,11 @@ export interface components {
              * @description Epoch milliseconds.
              */
             last_heartbeat_at?: number | null;
+            /**
+             * Format: uint64
+             * @description Ready runner steps awaiting a claim across the installation's groups.
+             */
+            queued_steps?: number | null;
             runners: components["schemas"]["RunnerView"][];
             status: components["schemas"]["RunnerInstallStatus"];
             vault_identity_key?: string | null;
@@ -4181,6 +4257,11 @@ export interface components {
             step_id?: string | null;
             tags: string[];
             title: string;
+        };
+        /** @description Service credential provenance recorded when work is performed. */
+        ServiceTokenAttribution: {
+            creator?: components["schemas"]["UserId"] | null;
+            owner?: components["schemas"]["UserId"] | null;
         };
         SignalRequest: {
             /** @default {} */
@@ -4829,6 +4910,16 @@ export interface components {
             status: components["schemas"]["ExecutionStatus"];
             tags: string[];
             title: string;
+            /**
+             * @description The run's API address.
+             * @default
+             */
+            url: string;
+            /**
+             * @description The run page to share with people.
+             * @default
+             */
+            web_url: string;
         };
         UniversalRunbookHit: {
             project_id: components["schemas"]["ProjectId"];
@@ -12177,6 +12268,15 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectSlackView"];
                 };
             };
+            /** @description Slack configuration conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             /** @description Invalid request, including incompatible rerun inputs. */
             422: {
                 headers: {
@@ -16500,6 +16600,34 @@ export interface operations {
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
+            };
+        };
+    };
+    get_v1_runner_oauth_callback__credential_id_: {
+        parameters: {
+            query?: {
+                code?: string;
+                state?: string;
+                iss?: string;
+                error?: string;
+            };
+            header?: never;
+            path: {
+                credential_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Redirect to Runner settings */
+            303: {
+                headers: {
+                    "Cache-Control"?: "no-store";
+                    Location?: string;
+                    "Referrer-Policy"?: "no-referrer";
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

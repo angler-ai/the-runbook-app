@@ -68,6 +68,16 @@
               "principal_id": {
                 "type": "string"
               },
+              "service_attribution": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ServiceTokenAttribution"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "session_id": {
                 "type": "string"
               }
@@ -413,6 +423,13 @@
             },
             "type": "array"
           },
+          "blocked_reason": {
+            "description": "Why a pending approval has no independent reviewers.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "decision_lease": {
             "anyOf": [
               {
@@ -441,6 +458,13 @@
           "escalation_recipients": {
             "items": {
               "$ref": "#/components/schemas/RecipientRef"
+            },
+            "type": "array"
+          },
+          "excluded_completers": {
+            "description": "People who completed work this approval must independently review.",
+            "items": {
+              "$ref": "#/components/schemas/UserId"
             },
             "type": "array"
           },
@@ -2680,6 +2704,13 @@
             },
             "type": "array"
           },
+          "overdue_steps": {
+            "description": "Milestones that passed their run-relative deadline and are still unfinished.",
+            "items": {
+              "$ref": "#/components/schemas/OverdueStepView"
+            },
+            "type": "array"
+          },
           "parent": {
             "anyOf": [
               {
@@ -2828,6 +2859,16 @@
             ]
           },
           "title": {
+            "type": "string"
+          },
+          "url": {
+            "default": "",
+            "description": "The run's API address.",
+            "type": "string"
+          },
+          "web_url": {
+            "default": "",
+            "description": "The run page to share with people.",
             "type": "string"
           }
         },
@@ -4001,6 +4042,36 @@
         ],
         "type": "object"
       },
+      "OverdueStepView": {
+        "properties": {
+          "due_at_ms": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "path": {
+            "type": "string"
+          },
+          "step_run_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StepRunId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "title",
+          "due_at_ms"
+        ],
+        "type": "object"
+      },
       "OverrideRequest": {
         "properties": {
           "reason": {
@@ -4185,12 +4256,19 @@
       },
       "ProjectSlackRequest": {
         "additionalProperties": false,
-        "description": "Either a Slack incoming-webhook URL (stage 1: plain messages), or a\nchannel ID for the server's Slack app (stage 2: approve and reject\nbuttons). Exactly one.",
+        "description": "Either a Slack incoming-webhook URL (stage 1: plain messages), or a\nchannel ID for the server's Slack app (stage 2: approve and reject\nbuttons). Omit both to change only the preference on a configured target.",
         "properties": {
           "channel": {
             "description": "A Slack channel ID (`C…` or `G…`, from the channel's details).",
             "type": [
               "string",
+              "null"
+            ]
+          },
+          "notify_run_started": {
+            "description": "Change the run-start setting. Omit to retain the previous value.",
+            "type": [
+              "boolean",
               "null"
             ]
           },
@@ -4219,6 +4297,11 @@
             ]
           },
           "configured": {
+            "type": "boolean"
+          },
+          "notify_run_started": {
+            "default": false,
+            "description": "Post to the configured Slack destination when a run starts.",
             "type": "boolean"
           }
         },
@@ -4638,6 +4721,16 @@
             "maximum": 4294967295,
             "minimum": 1,
             "type": "integer"
+          },
+          "url": {
+            "default": "",
+            "description": "The run's API address.",
+            "type": "string"
+          },
+          "web_url": {
+            "default": "",
+            "description": "The run page to share with people.",
+            "type": "string"
           }
         },
         "required": [
@@ -4687,6 +4780,16 @@
             "type": "array"
           },
           "title": {
+            "type": "string"
+          },
+          "url": {
+            "default": "",
+            "description": "The run's API address.",
+            "type": "string"
+          },
+          "web_url": {
+            "default": "",
+            "description": "The run page to share with people.",
             "type": "string"
           }
         },
@@ -5302,6 +5405,15 @@
               "null"
             ]
           },
+          "queued_steps": {
+            "description": "Ready runner steps awaiting a claim across the installation's groups.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "runners": {
             "items": {
               "$ref": "#/components/schemas/RunnerView"
@@ -5521,6 +5633,32 @@
           "body_markdown",
           "tags"
         ],
+        "type": "object"
+      },
+      "ServiceTokenAttribution": {
+        "description": "Service credential provenance recorded when work is performed.",
+        "properties": {
+          "creator": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
         "type": "object"
       },
       "SignalRequest": {
@@ -7261,6 +7399,16 @@
             "type": "array"
           },
           "title": {
+            "type": "string"
+          },
+          "url": {
+            "default": "",
+            "description": "The run's API address.",
+            "type": "string"
+          },
+          "web_url": {
+            "default": "",
+            "description": "The run page to share with people.",
             "type": "string"
           }
         },
@@ -18984,7 +19132,7 @@
     },
     "/v1/projects/{p}/slack": {
       "delete": {
-        "description": "Implemented. One Slack incoming-webhook URL per project: reads say only whether one is configured (the URL is a credential and is never returned), writes need project admin. Step assigned, approval needed, handoff/stall and run-failed events post a short message linking into the app. Best-effort beside email and webhooks.",
+        "description": "Configure an incoming webhook or Slack app channel for a project. The webhook credential is write-only. Run-start notifications are off by default and are best effort alongside email and webhooks.",
         "operationId": "delete_v1_projects__p__slack",
         "parameters": [
           {
@@ -19019,14 +19167,14 @@
             "cookieAuth": []
           }
         ],
-        "summary": "Project Slack notifications (SLACK1 stage 1)",
+        "summary": "Project Slack notifications",
         "x-implementation": "implemented",
         "x-required-scopes": [
           "project:admin"
         ]
       },
       "get": {
-        "description": "Implemented. One Slack incoming-webhook URL per project: reads say only whether one is configured (the URL is a credential and is never returned), writes need project admin. Step assigned, approval needed, handoff/stall and run-failed events post a short message linking into the app. Best-effort beside email and webhooks.",
+        "description": "Configure an incoming webhook or Slack app channel for a project. The webhook credential is write-only. Run-start notifications are off by default and are best effort alongside email and webhooks.",
         "operationId": "get_v1_projects__p__slack",
         "parameters": [
           {
@@ -19071,14 +19219,14 @@
             "cookieAuth": []
           }
         ],
-        "summary": "Project Slack notifications (SLACK1 stage 1)",
+        "summary": "Project Slack notifications",
         "x-implementation": "implemented",
         "x-required-scopes": [
-          "project:admin"
+          "runbooks:read"
         ]
       },
       "put": {
-        "description": "Implemented. One Slack incoming-webhook URL per project: reads say only whether one is configured (the URL is a credential and is never returned), writes need project admin. Step assigned, approval needed, handoff/stall and run-failed events post a short message linking into the app. Best-effort beside email and webhooks.",
+        "description": "Set an incoming webhook or Slack app channel. Omit both to update notify_run_started on an existing target. This preference defaults to false on first configuration and is retained when omitted.",
         "operationId": "put_v1_projects__p__slack",
         "parameters": [
           {
@@ -19111,6 +19259,20 @@
             },
             "description": "Planned typed response"
           },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Slack configuration conflict.",
+            "x-error-codes": [
+              "slack.app_not_configured",
+              "slack.target_required"
+            ]
+          },
           "422": {
             "content": {
               "application/problem+json": {
@@ -19133,7 +19295,7 @@
             "cookieAuth": []
           }
         ],
-        "summary": "Project Slack notifications (SLACK1 stage 1)",
+        "summary": "Project Slack notifications",
         "x-implementation": "implemented",
         "x-required-scopes": [
           "project:admin"
@@ -25954,6 +26116,79 @@
         "x-required-scopes": []
       }
     },
+    "/v1/runner/oauth/callback/{credential_id}": {
+      "get": {
+        "description": "Consume the OAuth provider callback for a runner credential. Exchange requires the initiating browser session and nonce. Redirects to Runner settings without carrying the callback parameters into the redirect.",
+        "operationId": "get_v1_runner_oauth_callback__credential_id_",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "credential_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "code",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "iss",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "error",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "303": {
+            "description": "Redirect to Runner settings",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store",
+                  "type": "string"
+                }
+              },
+              "Location": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Referrer-Policy": {
+                "schema": {
+                  "const": "no-referrer",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "summary": "Consume the OAuth provider callback for a runner credential. Exchange requires the initiating browser session and nonce. Redirects to Runner settings without carrying the callback parameters into the redirect.",
+        "x-implementation": "implemented",
+        "x-required-principal": "public",
+        "x-required-scopes": []
+      }
+    },
     "/v1/runners/{ri}/proxy/{*path}": {
       "delete": {
         "description": "Proxy to the organization's runner API: {path} (for example runner/v1/groups) must be one of the runner's public routes for this method. Needs the X-Runbook-CSRF: 1 header and a credential holding runner:read or runner:admin (sessions get them by org role). The core forwards the JSON body with a request-bound user assertion (Runbook-Assertion: an rb-user+jwt JWT, EdDSA, 60 seconds, single use, binding method, path and body hash, with the person's org and project roles and runner scopes) and never cookies; the runner authorizes the action. Responses are the runner's, JSON only (an event stream on the transcript route), with nosniff and Content-Security-Policy: sandbox. 503 runner.offline while the runner does not heartbeat.",
@@ -26056,6 +26291,7 @@
             "description": "Stable problem details.",
             "x-error-codes": [
               "runner.bad_response",
+              "runner.oauth_clock_skew",
               "runner.unreachable",
               "runner.url_forbidden"
             ]
@@ -26206,6 +26442,7 @@
             "description": "Stable problem details.",
             "x-error-codes": [
               "runner.bad_response",
+              "runner.oauth_clock_skew",
               "runner.unreachable",
               "runner.url_forbidden"
             ]
@@ -26356,6 +26593,7 @@
             "description": "Stable problem details.",
             "x-error-codes": [
               "runner.bad_response",
+              "runner.oauth_clock_skew",
               "runner.unreachable",
               "runner.url_forbidden"
             ]
@@ -26506,6 +26744,7 @@
             "description": "Stable problem details.",
             "x-error-codes": [
               "runner.bad_response",
+              "runner.oauth_clock_skew",
               "runner.unreachable",
               "runner.url_forbidden"
             ]
@@ -26656,6 +26895,7 @@
             "description": "Stable problem details.",
             "x-error-codes": [
               "runner.bad_response",
+              "runner.oauth_clock_skew",
               "runner.unreachable",
               "runner.url_forbidden"
             ]
@@ -28397,7 +28637,8 @@
             "x-error-codes": [
               "auth.forbidden",
               "auth.scope_missing",
-              "approval.not_eligible"
+              "approval.not_eligible",
+              "approval.excluded_completer"
             ]
           },
           "404": {
@@ -31114,7 +31355,7 @@
       "created_at",
       "org",
       "project",
-      "execution {id, title, runbook, runbook_version_id, runbook_version, url}",
+      "execution {id, title, runbook, runbook_version_id, runbook_version, url, web_url}",
       "sequence",
       "data"
     ],
@@ -31128,6 +31369,7 @@
       "step.blocked",
       "step.completed",
       "step.reminder",
+      "step.overdue",
       "step.escalated",
       "execution.queued",
       "execution.started",
@@ -31140,6 +31382,9 @@
       "runner.probe_succeeded",
       "runner.secret_in_response",
       "runner.binding_mismatch",
+      "credential.reconnect_required",
+      "credential.oauth_expiring",
+      "credential.oauth_refresh_failing",
       "runner.release_denied",
       "webhook.test"
     ],

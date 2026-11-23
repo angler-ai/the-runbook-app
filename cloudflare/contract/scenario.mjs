@@ -1,3 +1,5 @@
+import assert from 'node:assert/strict';
+
 // CF9: the scripted requests the contract suite sends to each build. One
 // pass covers every public route of CF0's manifest (run.mjs checks), in
 // the order a project lives: discovery, directory, variables, tokens,
@@ -166,7 +168,10 @@ const TRIGGERS = [
   '        inputs: {service: "${{ payload.service }}"}',
   '        dedupe: "${{ payload.id }}"',
   '  steps:',
-  '    - {id: work, title: Work}',
+  '    - {id: work, title: Work, actor: human, due_after: 1ms}',
+  '    - id: review',
+  '      due_after: 1ms',
+  '      approval: {prompt: Independent review?, options: [yes], approvers: {teams: [oncall]}, exclude_completers_of: [work]}',
   '',
 ].join('\n');
 
@@ -183,8 +188,41 @@ async function triggerScenario(t, project) {
   const path = '/v1/projects/{p}/runbooks/{rb}/triggers/{trigger}';
   const params = { p: project, rb: 'contract-triggers', trigger: 'on_deploy' };
   const deploy = { status: 'success', service: 'api', id: 1, extra: { ignored: true } };
-  await t.call('trigger start', 'POST', path, params, { body: deploy });
-  await t.call('trigger duplicate', 'POST', path, params, { body: deploy });
+  const start = await t.call('trigger start', 'POST', path, params, { body: deploy });
+  const replay = await t.call('trigger duplicate', 'POST', path, params, { body: deploy });
+  const run = start.body.execution;
+  assert.equal(new URL(run.url).pathname, `/v1/executions/${run.id}`);
+  assert.equal(run.web_url, new URL(`/x/${run.id}`, run.url).href);
+  assert.equal(replay.body.execution.web_url, run.web_url);
+  const overdue = await t.until(
+    'trigger run overdue', 'GET', '/v1/executions/{exe}', { exe: run.id },
+    (r) =>
+      r.body?.overdue_steps?.length === 2
+      && r.body?.notifications_not_delivered?.filter((n) => n.event_type === 'step.overdue').length === 2,
+  );
+  const [workDue, reviewDue] = overdue.body.overdue_steps;
+  assert.equal(workDue.path, 'work');
+  assert.equal(reviewDue.path, 'review');
+  assert.equal(workDue.due_at_ms, overdue.body.started_at_ms + 1);
+  assert.equal(reviewDue.due_at_ms, workDue.due_at_ms);
+  assert.equal(reviewDue.step_run_id, undefined);
+  const sr = workDue.step_run_id;
+  const claim = await t.call('claim trigger work', 'POST', '/v1/step-runs/{sr}/claim', { sr }, {
+    body: { session_id: 'contract-web' },
+  });
+  await t.call('report trigger work', 'POST', '/v1/step-runs/{sr}/report', { sr }, {
+    body: { step_run_id: sr, claim: claim.body.claim ?? claim.body, status: 'succeeded' },
+  });
+  const review = await t.until(
+    'trigger run awaiting independent review', 'GET', '/v1/executions/{exe}/report', { exe: run.id },
+    (r) => r.body?.sections?.some((s) => s.approval?.blocked_reason === 'approval.no_independent_approver'),
+  );
+  const approval = review.body.sections.find((s) => s.approval).approval;
+  const refused = await t.call('refuse conflicted voter', 'POST', '/v1/step-runs/{sr}/decisions', { sr: approval.step_run_id }, {
+    body: { option: 'yes' },
+  });
+  assert.equal(refused.status, 403);
+  assert.equal(refused.body.code, 'approval.excluded_completer');
   await t.call('trigger skipped', 'POST', path, params, { body: { status: 'failure', id: 2 } });
   await t.call('trigger invalid payload', 'POST', path, params, { body: { service: 5 } });
   await t.call('trigger unknown', 'POST', path, { ...params, trigger: 'nope' }, { body: {} });
@@ -327,7 +365,7 @@ export async function scenario(t) {
   const runnerParams = {
     org, ri: 'ri_00000000000000000000000001', g: 'rg_00000000000000000000000001',
     sr: 'sr_00000000000000000000000001', agent_id: 'agt_1', path: 'runner/v1/groups',
-    project_id: project, name: 'checks',
+    project_id: project, name: 'checks', credential_id: 'oauth_fixture',
   };
   for (const [method, path] of [
     ['GET', '/v1/orgs/{org}/runner'],
@@ -351,6 +389,14 @@ export async function scenario(t) {
     ...['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map((method) => [method, '/v1/runners/{ri}/proxy/{*path}']),
   ]) {
     await t.call(`runner anonymous ${method} ${path}`, method, path, runnerParams, { token: null });
+  }
+  const oauth = await t.call('runner OAuth callback strips code and state', 'GET', '/v1/runner/oauth/callback/{credential_id}', runnerParams, {
+    token: null, query: { code: 'synthetic-core-oauth-code', state: 'synthetic_CORE_OAUTH_STATE_0000000000000001' },
+    recordHeaders: ['cache-control', 'referrer-policy', 'location'],
+  });
+  if (oauth.status !== 303 || oauth.headers.get('cache-control') !== 'no-store' ||
+      oauth.headers.get('referrer-policy') !== 'no-referrer' || oauth.headers.get('location')?.includes('synthetic')) {
+    throw new Error('unsafe runner OAuth callback response');
   }
   await t.call('me', 'GET', '/v1/me');
   await t.call('me anonymous', 'GET', '/v1/me', {}, { token: null });
@@ -469,13 +515,21 @@ export async function scenario(t) {
     token: null,
     body: { token: 'usr_00000000000000000000000000.00000000000000000000000000000000' },
   });
-  await t.call('slack', 'GET', '/v1/projects/{p}/slack', { p: project });
+  const defaultSlack = await t.call('slack', 'GET', '/v1/projects/{p}/slack', { p: project });
+  assert.equal(defaultSlack.body.notify_run_started, false);
   await t.call('slack invalid', 'PUT', '/v1/projects/{p}/slack', { p: project }, {
     body: { url: 'https://example.com/hook' },
   });
   await t.call('slack set', 'PUT', '/v1/projects/{p}/slack', { p: project }, {
     body: { url: 'https://hooks.slack.com/services/T0000000/B0000000/contract' },
   });
+  const startSlack = await t.call('slack enable start messages', 'PUT', '/v1/projects/{p}/slack', { p: project }, {
+    body: { notify_run_started: true },
+  });
+  assert.equal(startSlack.body.notify_run_started, true);
+  const readSlack = await t.call('slack read start messages', 'GET', '/v1/projects/{p}/slack', { p: project });
+  assert.equal(readSlack.body.notify_run_started, true);
+  assert.equal(readSlack.body.url, undefined);
   await t.call('slack clear', 'DELETE', '/v1/projects/{p}/slack', { p: project });
   // Stage 2 without a Slack app: no channel, no interactions endpoint.
   await t.call('slack channel without app', 'PUT', '/v1/projects/{p}/slack', { p: project }, {

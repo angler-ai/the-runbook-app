@@ -50,6 +50,8 @@ export function toTableRow(
   return {
     schema_revision: 1,
     id: entry.id,
+    url: entry.url,
+    web_url: entry.web_url,
     runbook_id: entry.runbook_id,
     runbook_slug: runbook?.slug ?? null,
     runbook_title: runbook?.title ?? null,

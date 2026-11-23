@@ -6,9 +6,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { FakeCore } from '@runbook/runner-shared/test-utils/fake-core';
 import { FakeGateway } from '@runbook/runner-shared/test-utils/fake-gateway';
 import { hasTestDatabase } from '@runbook/runner-shared/test-utils/pg';
+import { canonicalJson } from '@runbook/runner-shared/binding';
 import { sealSecret } from '@runbook/runner-shared/seal-client';
 import { Renewer } from '../src/renewer.ts';
+import { SecretManager, secretManagerResources } from '../src/secret-manager.ts';
 import {
+  DATADOG_CONFIG,
   GROUP,
   type Harness,
   insertCredential,
@@ -24,19 +27,36 @@ const SR = 'sr_compare_error_rate';
 const PROJECT = 'pr_ops';
 const AGENT = 'ag_checker';
 const VERSION = 'av_1';
+const reference = { type: 'gcp-secret-manager', resource: 'projects/test-project/secrets/release-fixture', version: 'latest' };
+const policy = JSON.stringify([{ resource: reference.resource, types: ['api-key'], destinations: DATADOG_CONFIG.hosts }]);
 
 describe.skipIf(!hasTestDatabase)('vault releases', () => {
   let h: Harness;
   let core: FakeCore;
   let gateway: FakeGateway;
+  let secretManagerStatus: number;
+  let secretManagerRequests: number;
+  let policies: ReturnType<typeof secretManagerResources>;
   let credential: { id: string; hash: Buffer };
 
   beforeEach(async () => {
     const clock = { now: Date.now() };
     core = await new FakeCore({ now: () => clock.now, releaseToken: TOKENS.release }).start();
     gateway = await new FakeGateway(TOKENS.gateway).start();
+    secretManagerStatus = 200;
+    secretManagerRequests = 0;
+    policies = secretManagerResources(policy);
+    const secretManager = new SecretManager(policies,
+      { getAccessToken: async () => 'fake-token' }, async () => {
+        secretManagerRequests++;
+        return Response.json({
+          name: `${reference.resource}/versions/1`,
+          payload: { data: Buffer.from(SECRET_V2).toString('base64') },
+        }, { status: secretManagerStatus });
+      });
     h = await startHarness({
       clock,
+      secretManager,
       core: { baseUrl: core.url, releaseToken: TOKENS.release },
       gateway: { baseUrl: gateway.url, token: TOKENS.gateway },
     });
@@ -364,6 +384,63 @@ describe.skipIf(!hasTestDatabase)('vault releases', () => {
     expect(rows[0].expires_at.getTime()).toBe(lease.deadline * 1000);
   });
 
+  async function sealReference() {
+    const changed = await h.call('POST', `/internal/credential-metadata/${credential.id}`, {
+      config: { ...DATADOG_CONFIG, secret_source: reference },
+    });
+    expect(changed.status).toBe(200);
+    credential.hash = Buffer.from(changed.json.binding_hash, 'base64url');
+    await seal(canonicalJson(reference), 1);
+  }
+
+  it('checks the deployment destination policy again before releasing a previously sealed reference', async () => {
+    await sealReference();
+    policies.splice(0, 1, ...secretManagerResources(JSON.stringify([{
+      resource: reference.resource, types: ['api-key'], destinations: ['other.example'],
+    }])));
+    const result = await release((await capability()).json.capability);
+    expect(result.json.error.code).toBe('secret_manager.destination_not_allowed');
+    expect(secretManagerRequests).toBe(0);
+    expect(gateway.pushes).toHaveLength(0);
+  });
+
+  it.each(['recovers', 'expires', 'revokes'] as const)('handles Secret Manager errors during renewal (%s)', async (outcome) => {
+    await sealReference();
+    const first = await release((await capability()).json.capability);
+    expect(first.status).toBe(200);
+    const id = first.json.release_id;
+    const originalExpiry = Date.parse(first.json.expires_at);
+    const renewer = h.vault.releases!.renewer;
+    h.clock.now += 430_000;
+    core.leases.get(SR)!.deadline = Math.floor(h.clock.now / 1000) + 600;
+    secretManagerStatus = outcome === 'revokes' ? 403 : 503;
+    await renewer.runDue();
+    expect(secretManagerRequests).toBe(2);
+    expect(gateway.pushes).toHaveLength(1);
+
+    if (outcome === 'revokes') {
+      expect(gateway.material.has(id)).toBe(false);
+      expect(core.revoked.at(-1)?.reason).toBe('secret_manager.unavailable');
+      return;
+    }
+    expect(Date.parse(gateway.material.get(id)!.expires_at)).toBe(originalExpiry);
+    expect(core.revoked).toEqual([]);
+
+    h.clock.now += 10_000;
+    if (outcome === 'recovers') secretManagerStatus = 200;
+    await renewer.runDue();
+    expect(secretManagerRequests).toBe(3);
+    if (outcome === 'recovers') {
+      expect(gateway.pushes).toHaveLength(2);
+      expect(Date.parse(gateway.material.get(id)!.expires_at)).toBeGreaterThan(originalExpiry);
+    } else {
+      h.clock.now = originalExpiry;
+      await renewer.runDue();
+      expect(gateway.material.has(id)).toBe(false);
+      expect(core.revoked.at(-1)?.reason).toBe('grant.expired');
+    }
+  });
+
   it('refuses a capability request naming a different runner than the worker token', async () => {
     const lease = core.lease(SR, { runner_id: 'rn_prod', group_id: 'rg_prod_write', credentials: [credential.id] });
     const res = await h.call('POST', '/internal/capability', {
@@ -430,6 +507,38 @@ describe.skipIf(!hasTestDatabase)('vault releases', () => {
     expect(gateway.deletes).toEqual([res.json.release_id]);
     expect(core.revoked).toEqual([{ step_run_id: SR, credential_id: credential.id, reason: 'credential.revoked' }]);
     expect(h.vault.releases!.renewer.size).toBe(0);
+  });
+
+  it('republishes a still-live release on a new gateway before normal renewal', async () => {
+    const res = await release((await capability()).json.capability);
+    const renewer = h.vault.releases!.renewer;
+    expect(res.status).toBe(200);
+    gateway.restart();
+    expect(gateway.material.has(res.json.release_id)).toBe(false);
+    h.clock.now += 5_000;
+    await renewer.runDue();
+    expect(gateway.material.get(res.json.release_id)?.material.fields.key).toBe(SECRET);
+    expect(gateway.pushes).toHaveLength(2);
+    await renewer.runDue();
+    expect(gateway.pushes).toHaveLength(2);
+  });
+
+  it('backs off a failed republish and recovers before the original expiry', async () => {
+    const res = await release((await capability()).json.capability);
+    const renewer = h.vault.releases!.renewer;
+    gateway.restart();
+    gateway.failPushes = true;
+    h.clock.now += 5_000;
+    await renewer.runDue();
+    const failed = core.grantRequests('credential').length;
+    expect(failed).toBe(2);
+    gateway.failPushes = false;
+    await renewer.runDue();
+    expect(core.grantRequests('credential')).toHaveLength(failed);
+    expect(gateway.material.size).toBe(0);
+    h.clock.now += 5_000;
+    await renewer.runDue();
+    expect(gateway.material.has(res.json.release_id)).toBe(true);
   });
 
   it('a restarted vault picks up live releases and renews them', async () => {

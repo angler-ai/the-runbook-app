@@ -1,5 +1,6 @@
 import { writeCredentialMetadata } from '@runbook/runner-vault/credential-metadata';
 import { expect, it, vi } from 'vitest';
+import type { Tool } from '@runbook/runner-shared/contracts/catalog';
 import type { UserAssertionClaims } from '@runbook/runner-shared/contracts/core';
 import { createTestDatabase, hasTestDatabase } from '@runbook/runner-shared/test-utils/pg';
 import { publicResources } from '../src/resources/public.ts';
@@ -20,7 +21,11 @@ it.skipIf(!hasTestDatabase)('authors the catalog, discovers through the gateway 
     method, target: '/runner/v1' + path, claims, body,
     ...(body !== undefined && { assertion: { token: 'fixture-assertion', rawBody: Buffer.from(JSON.stringify(body)) } }),
   });
-  const tools = [{ name: 'read', inputSchema: { type: 'object' }, description: 'Read' }];
+  let tools: Tool[] = [
+    { name: 'read', inputSchema: { type: 'object', properties: {} }, description: 'Read' },
+    { name: 'retired', inputSchema: { type: 'object' }, description: 'Retired' },
+    { name: 'stable', inputSchema: { type: 'object', properties: {} }, description: 'Stable' },
+  ];
   const outbound = vi.fn(async (url: string, init: RequestInit) => {
     if (url.endsWith('/internal/credential-metadata')) {
       return Response.json(await writeCredentialMetadata(db.pool('vault'), claims, JSON.parse(Buffer.from(init.body as Uint8Array).toString())));
@@ -62,7 +67,8 @@ it.skipIf(!hasTestDatabase)('authors the catalog, discovers through the gateway 
     expect(proposedProfile).toBeDefined();
     await call('DELETE', '/profiles/' + proposedProfile!.id);
 
-    const mcp = await call('POST', '/mcp-servers', { name: 'fixture', url: 'https://mcp.example/', transport: 'streamable-http' });
+    const mcp = await call('POST', '/mcp-servers', { name: 'fixture', url: 'https://mcp.example/', transport: 'streamable-http',
+      sharing: { projects: ['p'] }, tool_labels: { read: 'read' }, never_allowed: ['retired'] });
     const id = (mcp.body as { id: string }).id;
     const discovered = await call('POST', `/mcp-servers/${id}/discover`);
     expect(discovered.body).toMatchObject({ snapshot_id: expect.any(String), tools });
@@ -72,7 +78,73 @@ it.skipIf(!hasTestDatabase)('authors the catalog, discovers through the gateway 
     const snapshot_id = (discovered.body as { snapshot_id: string }).snapshot_id;
     expect((await call('GET', `/mcp-servers/${id}`)).body).toMatchObject({ pinned_snapshot_id: null });
     expect((await call('POST', `/mcp-servers/${id}/pin`, { snapshot_id })).body).toMatchObject({ pinned_snapshot_id: snapshot_id });
+    const serverPath = `/mcp-servers/${id}`;
+    const pickerPath = '/projects/p/mcp-tools';
+    const read = (path: string, project_roles: UserAssertionClaims['project_roles']) => handle({
+      method: 'GET', target: '/runner/v1' + path, body: undefined,
+      claims: { ...claims, org_role: 'member', project_roles, scopes: ['runner:read'] },
+    });
+
+    expect((await read(serverPath + '/tools', { p: 'viewer' })).body).toMatchObject({
+      snapshot: { snapshot_id, tools },
+    });
+    expect((await read(pickerPath, { p: 'viewer' })).body).toEqual({
+      items: [{ id, name: 'fixture', pinned_snapshot_id: snapshot_id,
+        tools: [{ name: 'read', label: 'read' }, { name: 'stable', label: 'destructive' }] }],
+    });
+    await expect(read(pickerPath, {})).rejects.toMatchObject({ status: 403 });
+    await expect(read(serverPath + '/tools', { other: 'viewer' })).rejects.toMatchObject({ status: 404 });
+    await expect(read(serverPath + '/drift', { other: 'viewer' })).rejects.toMatchObject({ status: 404 });
+    expect((await read('/projects/other/mcp-tools', { other: 'viewer' })).body).toEqual({ items: [] });
+    expect((await call('GET', serverPath)).body).toMatchObject({ pinned_tool_count: 3, drift: false });
+
+    const reordered = [...tools].reverse();
+    tools = reordered;
+    await call('POST', serverPath + '/discover');
+    expect((await call('GET', serverPath)).body).toMatchObject({ drift: false });
+    expect((await call('GET', serverPath + '/drift')).body).toMatchObject({
+      changes: { added: [], changed: [], removed: [] },
+    });
+
+    const [stable, retired, previous] = reordered;
+    tools = [
+      { ...previous!, inputSchema: { type: 'object', required: ['query'] } },
+      { name: 'new', inputSchema: { type: 'object' }, description: 'New' },
+      { ...stable!, inputSchema: { properties: {}, type: 'object' } },
+    ];
+    const latest = await call('POST', serverPath + '/discover');
+    expect((await read(serverPath + '/drift', { p: 'viewer' })).body).toEqual({
+      latest: latest.body,
+      changes: {
+        added: ['new'], changed: [{ name: 'read', before: previous, schema_changed: true }],
+        removed: [retired],
+      },
+    });
+    expect((await call('GET', '/mcp-servers')).body).toMatchObject({
+      items: [{ id, pinned_tool_count: 3, drift: true }],
+    });
+    expect((await read(pickerPath, { p: 'viewer' })).body).toMatchObject({
+      items: [{ tools: [{ name: 'read' }, { name: 'stable' }] }],
+    });
+
+    const reviewed = (latest.body as { snapshot_id: string }).snapshot_id;
+    await expect(call('POST', serverPath + '/pin', {
+      snapshot_id: 'bad-pin', tool_labels: { read: 'write' }, never_allowed: ['read'],
+    })).rejects.toMatchObject({ status: 409 });
+    expect((await call('GET', serverPath)).body).toMatchObject({
+      pinned_snapshot_id: snapshot_id, tool_labels: { read: 'read' }, never_allowed: ['retired'],
+    });
+    expect((await call('POST', serverPath + '/pin', {
+      snapshot_id: reviewed, tool_labels: { read: 'read', new: 'write' }, never_allowed: ['new'],
+    })).body).toMatchObject({
+      pinned_snapshot_id: reviewed, tool_labels: { read: 'read', new: 'write' }, never_allowed: ['new'],
+    });
+
     await call('PATCH', `/mcp-servers/${id}`, { url: 'https://changed.example/' });
+    expect((await call('GET', serverPath + '/tools')).body).toEqual({ snapshot: null });
+    expect((await call('GET', serverPath + '/drift')).body).toEqual({
+      latest: null, changes: { added: [], changed: [], removed: [] },
+    });
     expect((await call('GET', `/mcp-servers/${id}`)).body).toMatchObject({ pinned_snapshot_id: null });
     await expect(call('POST', `/mcp-servers/${id}/pin`, { snapshot_id })).rejects.toMatchObject({ status: 409 });
 
@@ -85,6 +157,7 @@ it.skipIf(!hasTestDatabase)('authors the catalog, discovers through the gateway 
     expect(sync).toHaveBeenCalled();
     expect((await call('DELETE', `/mcp-servers/${id}`)).status).toBe(204);
     expect((await call('GET', `/mcp-servers/${id}`)).status).toBe(404);
+    expect((await read(pickerPath, { p: 'viewer' })).body).toEqual({ items: [] });
     expect((await call('DELETE', '/profiles/' + profileId)).status).toBe(204);
     expect((await call('DELETE', '/providers/' + provider_id)).status).toBe(204);
     expect((await call('DELETE', '/groups/g')).status).toBe(204);

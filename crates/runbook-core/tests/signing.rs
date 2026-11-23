@@ -56,6 +56,8 @@ fn sign_then_verify_round_trips() {
     assert_eq!(back, claims);
 
     let user = UserAssertionClaims {
+        session_hash: None,
+        fresh_mfa: None,
         iss: "https://runbooks.example".into(),
         aud: "runner:ri_1".into(),
         jti: "j".into(),

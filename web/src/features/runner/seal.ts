@@ -7,7 +7,7 @@ export interface CredentialBinding extends DestinationConfig {
   secret_meta: Record<string, { version: number; fingerprint?: string; created_at?: string }>;
 }
 
-async function verifyVaultSignature(identityKey: string, signature: string, fields: string[]) {
+export async function verifyVaultSignature(identityKey: string, signature: string, fields: string[]) {
   const publicKey = await crypto.subtle.importKey(
     'raw',
     fromBase64Url(identityKey),

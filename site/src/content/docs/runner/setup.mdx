@@ -7,7 +7,7 @@ sidebar:
 
 ## Enable the runner
 
-The runner is an optional part of a self-hosted Runbook install. On Docker, the opt-in switch is the Compose `runner` profile. On GKE, the Terraform switch `runner_enabled = true` provisions Cloud KMS and separate service accounts. Kubernetes workloads, Workload Identity bindings, and the Kubernetes sandbox backend are deferred.
+The runner is an optional part of a self-hosted Runbook install. On Docker, the opt-in switch is the Compose `runner` profile. On GKE, the Terraform switch `runner_enabled = true` enables the [Autopilot runner and gVisor sandbox backend](/runner/gke/).
 
 For Compose, start the core server with its signing key and configure an HTTPS origin that the core can reach for the runner API. Route `/runner/v1/` to the runner API on port 8090. The browser reaches the API through the core proxy. Use the same HTTPS origin for issuing the bootstrap token and for registration.
 

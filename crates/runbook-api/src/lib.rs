@@ -22,6 +22,7 @@ pub mod router;
 pub mod routes;
 pub mod runner_access;
 mod runner_context;
+mod runner_oauth;
 pub mod runner_proxy;
 pub mod runners;
 pub mod session;

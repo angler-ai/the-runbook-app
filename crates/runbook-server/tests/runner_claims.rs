@@ -155,6 +155,10 @@ async fn ready_pages_across_postgres_rows_with_tied_timestamps() {
         assert_eq!(next.body["items"].as_array().unwrap().len(), 1);
         assert_eq!(next.body["items"][0]["step_run_id"], run.check);
         assert_eq!(next.body["next_cursor"], Value::Null);
+        let status = f.call("GET", &format!("/v1/orgs/{}/runner", f.org), &run.reg.admin, Value::Null).await;
+        assert_eq!(status.status, 200, "{}", status.body);
+        assert_eq!(status.body["queued_steps"], 101);
+
         let foreign = f.call("GET", &format!("/v1/runner-installs/{}/ready?group={}&project=prj_00000000000000000000000099",
             run.reg.install, run.reg.group), &run.reg.directory, Value::Null).await;
         assert_eq!(foreign.status, 200, "{}", foreign.body);

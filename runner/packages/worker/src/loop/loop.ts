@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import type { FormatsPlugin } from 'ajv-formats';
 import type { Outcome } from '../claim.ts';
 import { whileActive } from '../lease.ts';
-import { deadline, type LoopLimits, StepStopped } from './limits.ts';
+import { deadline, OAuthBlocked, type LoopLimits, StepStopped } from './limits.ts';
 import { toolPrompt } from './prompt.ts';
 import type { AgentTool } from './tools.ts';
 
@@ -154,6 +154,7 @@ export async function runAgent(options: AgentLoop): Promise<AgentResult> {
     return failed('max_turns');
   } catch (error) {
     options.signal.throwIfAborted();
+    if (error instanceof OAuthBlocked) throw error;
     if (error instanceof StepStopped) return failed(error.reason);
     const budget = /^budget reached: ([a-z._:-]+)$/.exec(error instanceof Error ? error.message : '');
     return failed(budget ? `limit:${budget[1]}` : 'model_failed');

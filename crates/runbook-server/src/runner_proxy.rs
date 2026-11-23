@@ -45,10 +45,16 @@ pub fn fetch(
     request: RunnerHttpRequest,
 ) -> Result<RunnerHttpResponse, &'static str> {
     let base = request.url.split('?').next().unwrap_or_default();
-    runbook_core::runners::validate_url(base, config.private_networks)
-        .map_err(|_| "runner.url_forbidden")?;
+    let allow_private = config.private_networks
+        && config.private_url.as_ref().is_none_or(|pin| {
+            base == pin
+                || base
+                    .strip_prefix(pin)
+                    .is_some_and(|rest| rest.starts_with('/'))
+        });
+    runbook_core::runners::validate_url(base, allow_private).map_err(|_| "runner.url_forbidden")?;
     let policy = TargetPolicy {
-        allow_private: config.private_networks,
+        allow_private,
         allow_link_local: false,
     };
     let resolve = config.resolver.clone().unwrap_or_else(system_resolver);
@@ -101,4 +107,47 @@ pub fn fetch(
         content_type,
         body,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn private_runner_proxy_allows_only_the_pinned_service() {
+        let config = RunnerConfig {
+            private_networks: true,
+            private_url: Some("http://runner-api.runbook-runner.svc.cluster.local:8090".to_owned()),
+            resolver: Some(Arc::new(|host, port| {
+                assert_eq!(host, "runner-api.runbook-runner.svc.cluster.local");
+                assert_eq!(port, 8090);
+                Ok(Vec::new())
+            })),
+            ..RunnerConfig::default()
+        };
+        let send = |url: &str| {
+            fetch(
+                &config,
+                RunnerHttpRequest {
+                    url: url.to_owned(),
+                    method: "GET".to_owned(),
+                    headers: Vec::new(),
+                    body: Vec::new(),
+                },
+            )
+            .err()
+        };
+        assert_eq!(
+            send("http://runner-api.runbook-runner.svc.cluster.local:8090/runner/v1/status"),
+            Some("runner.unreachable")
+        );
+        for other in [
+            "http://runner-api.runbook-runner.svc.cluster.local:8091/runner/v1/status",
+            "http://runner-api.runbook-runner.svc.cluster.local:80900/runner/v1/status",
+            "http://127.0.0.1:8090/runner/v1/status",
+            "https://10.0.0.4:8090/runner/v1/status",
+        ] {
+            assert_eq!(send(other), Some("runner.url_forbidden"));
+        }
+    }
 }

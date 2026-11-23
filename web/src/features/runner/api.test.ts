@@ -46,3 +46,34 @@ test('a revoked credential conflict tells the operator to re-create it', async (
     runnerRequest('ri_1', '/credentials/cred_1/test', 'POST').catch(runnerError),
   ).resolves.toBe('The credential is revoked. Re-create it to use it again.');
 });
+
+test('reports a server fault with the request ID and leaves validation errors specific', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json(
+          { error: { code: 'internal', message: 'internal error' } },
+          { status: 500, headers: { 'X-Request-ID': 'request-fixture' } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        Response.json(
+          {
+            error: {
+              code: 'environment.invalid',
+              message: 'setup_timeout_s must be between 1 and 600',
+            },
+          },
+          { status: 422 },
+        ),
+      ),
+  );
+  await expect(
+    runnerRequest('ri_1', '/environments/env_1', 'PATCH', {}).catch(runnerError),
+  ).resolves.toBe('The runner could not complete this operation. Request ID: request-fixture.');
+  await expect(
+    runnerRequest('ri_1', '/environments/env_1', 'PATCH', {}).catch(runnerError),
+  ).resolves.toBe('setup_timeout_s must be between 1 and 600');
+});

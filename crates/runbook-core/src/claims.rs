@@ -219,7 +219,7 @@ pub(crate) fn fence<S: SessionStore>(
     if current.released
         || current.claim_id != claim.id
         || current.generation != claim.generation.get()
-        || current.owner != principal.actor
+        || !current.owner.same_claim_actor(&principal.actor)
         || current
             .lease_deadline_at_ms
             .is_some_and(|deadline| work.at_ms() >= deadline)

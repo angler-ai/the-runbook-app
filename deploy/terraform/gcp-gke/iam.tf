@@ -1,5 +1,5 @@
 resource "google_service_account" "runbook_gsa" {
-  account_id   = "runbook-gsa"
+  account_id   = local.service_account_ids["runbook-gsa"]
   display_name = "Runbook GKE Service Account"
   project      = var.project_id
 
@@ -30,7 +30,7 @@ resource "google_project_iam_member" "cloudsql_client" {
 resource "google_service_account_iam_member" "workload_identity_user" {
   service_account_id = google_service_account.runbook_gsa.name
   role               = "roles/iam.workloadIdentityUser"
-  member             = "serviceAccount:${var.project_id}.svc.id.goog[runbook/runbook-ksa]"
+  member             = "serviceAccount:${var.project_id}.svc.id.goog[${local.core_namespace_name}/${local.core_ksa_name}]"
 }
 
 resource "google_project_iam_member" "cloudsql_instance_user" {

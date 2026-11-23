@@ -559,6 +559,7 @@ fn views_carry_metadata_never_secrets() {
         name: "ci".into(),
         created_at: Some(NOW),
         created_by: Some(user(1)),
+        owner: None,
         fresh_mfa_at_issue: false,
     };
     let v = view(&record, &meta);

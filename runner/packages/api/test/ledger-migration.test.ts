@@ -49,3 +49,48 @@ it.skipIf(!hasTestDatabase)('keeps ambiguous legacy usage pending without choosi
     await rm(old, { recursive: true, force: true });
   }
 });
+
+it.skipIf(!hasTestDatabase)('carries daily spend and an open hold into the new monthly budgets', async () => {
+  const old = await mkdtemp(join(tmpdir(), 'runbook-monthly-ledger-'));
+  try {
+    for (const name of await readdir(MIGRATIONS_DIR)) {
+      if (/^\d{4}_.*\.sql$/.test(name) && name < '0033') {
+        await copyFile(new URL(name, MIGRATIONS_DIR), join(old, name));
+      }
+    }
+    const db = await createTestDatabase({
+      async beforeMigrate(client) {
+        const { rows: [current] } = await client.query<{ name: string }>('SELECT current_database() AS name');
+        const database = new URL(TEST_DATABASE_URL!);
+        database.pathname = current!.name;
+        await migrate(database.toString(), pathToFileURL(old + sep));
+        await client.query(`
+          INSERT INTO ledger_buckets(id,level,key,period,period_start,spent_usd,reserved_usd) VALUES
+            ('a1','agent','a','day','2026-01-01',0.5,0),
+            ('a2','agent','a','day','2026-01-02',0.75,0.25),
+            ('p2','project','p','day','2026-01-02',1.5,0.25);
+          INSERT INTO ledger_reservations(id,step_run_id,group_id,runner_id,bucket_ids,kind,amount_usd)
+          VALUES ('hold','step','g','r','["a2","p2"]','model',0.25);
+        `);
+      },
+    });
+    try {
+      const { budgetBuckets } = await import('../src/ledger/buckets.ts');
+      const { settle } = await import('../src/ledger/settle.ts');
+      const ids = new Map(budgetBuckets({
+        stepId: 'step', runId: 'run', agentId: 'a', projectId: 'p', groupId: 'g', orgId: 'org', runnerId: 'r',
+        timeZone: 'UTC', caps: {},
+      }, new Date('2026-01-02T00:00:00Z')).filter(({ period }) => period === 'month').map(({ level, id }) => [level, id]));
+      await settle(db.pool('scheduler'), { reservation_id: 'hold', actual_usd: 0.1, usage: {} });
+      expect((await db.admin().query("SELECT id,spent_usd,reserved_usd FROM ledger_buckets WHERE period='month' ORDER BY level")).rows)
+        .toEqual([
+          { id: ids.get('agent'), spent_usd: '1.350000', reserved_usd: '0.000000' },
+          { id: ids.get('project'), spent_usd: '1.600000', reserved_usd: '0.000000' },
+        ]);
+    } finally {
+      await db.drop();
+    }
+  } finally {
+    await rm(old, { recursive: true, force: true });
+  }
+});

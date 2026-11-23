@@ -49,6 +49,14 @@ runbook me tasks --kind approval          # what's waiting on me
 runbook step decide "$SR" --option ship --comment "Canaries are clean"
 ```
 
+## Independent review
+
+Use [`exclude_completers_of`](/reference/keys/#specstepsapprovalexclude_completers_of)
+to keep contributors to named tasks and their agents from deciding the approval.
+The rule applies to direct and team approvers, including escalations.
+A gate with no independent approver stays open under its usual reminder,
+escalation and expiry policies.
+
 ## Timeouts and escalation
 
 <Flow

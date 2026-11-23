@@ -328,6 +328,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "1032_runner_decision_contract.sql",
         sql: include_str!("../../../cloudflare/migrations/d1/1032_runner_decision_contract.sql"),
     },
+    Migration {
+        version: 1033,
+        name: "1033_project_slack_run_started.sql",
+        sql: include_str!("../../../cloudflare/migrations/d1/1033_project_slack_run_started.sql"),
+    },
 ];
 
 pub fn checksum(sql: &str) -> String {
@@ -787,6 +792,10 @@ mod tests {
             (
                 "1032_runner_decision_contract.sql",
                 "89a3e1cda762ba407bcdb33bf89f125b9cdb7d561998ac8ce0152f874c2355ed",
+            ),
+            (
+                "1033_project_slack_run_started.sql",
+                "16e12a245653a733b4d2992534fd712f347b20f6a8d660b323075224958729c7",
             ),
         ];
         assert_eq!(MIGRATIONS.len(), pinned.len(), "pin every migration");

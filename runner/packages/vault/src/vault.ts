@@ -13,7 +13,10 @@ import { IngestKeys, publicKeyFingerprint } from './ingest.ts';
 import type { Kek } from './kek/index.ts';
 import { loadOrCreateKey } from './keys.ts';
 import { rewrapVaultKeys } from './rewrap.ts';
+import { OAuthAccessService } from './oauth/access.ts';
+import { TunneledOAuthProvider, type OAuthProvider } from './oauth/provider.ts';
 import { ReleaseService } from './releases.ts';
+import type { SecretManager } from './secret-manager.ts';
 import { SecretStore } from './secrets.ts';
 
 export interface VaultOptions {
@@ -22,10 +25,12 @@ export interface VaultOptions {
   orgId: string;
   now?: () => Date;
   log?: Logger;
-  assertion?: Pick<AssertionOptions, 'coreUrl' | 'installId' | 'fetch'>;
+  assertion?: Pick<AssertionOptions, 'coreUrl' | 'jwksBaseUrl' | 'installId' | 'fetch'>;
   /** The core (grants, JWKS) and the gateway (material); without them only sealing works. */
   core?: CoreOptions;
   gateway?: GatewayOptions;
+  oauthProvider?: OAuthProvider;
+  secretManager?: Pick<SecretManager, 'access' | 'assertAllowed'>;
   /** How often to renew grants and end revoked releases (ms); 0 disables the timers (tests). */
   renewIntervalMs?: number;
 }
@@ -42,6 +47,7 @@ export class Vault {
   readonly ingest: IngestKeys;
   readonly secrets: SecretStore;
   readonly assertions: AssertionVerifier | undefined;
+  readonly oauth: OAuthAccessService | undefined;
   readonly releases: ReleaseService | undefined;
   private rotating?: Promise<number>;
   private readonly timers: NodeJS.Timeout[] = [];
@@ -62,6 +68,7 @@ export class Vault {
       kek: this.kek,
       orgId: this.orgId,
       displayKey,
+      secretManager: options.secretManager,
       now: this.now,
       log: this.log,
     });
@@ -77,12 +84,19 @@ export class Vault {
         return inserted.rowCount === 1;
       },
     });
+    const gateway = options.gateway && new GatewayClient(options.gateway);
+    this.oauth = gateway && options.gateway ? new OAuthAccessService({
+      pool: options.pool, gateway, secrets: this.secrets, now: this.now,
+      identity: this.identity, installId: this.installId, log: this.log,
+      provider: options.oauthProvider ?? new TunneledOAuthProvider(options.gateway.baseUrl, options.gateway.token),
+    }) : undefined;
     this.releases =
-      options.core && options.gateway
+      options.core && gateway
         ? new ReleaseService({
             pool: this.pool,
             core: new CoreGrants(options.core, this.now),
-            gateway: new GatewayClient(options.gateway),
+            gateway,
+            oauth: this.oauth,
             secrets: this.secrets,
             now: this.now,
             log: this.log,
@@ -99,6 +113,7 @@ export class Vault {
     const displayKey = await loadOrCreateKey(full.pool, full.kek, 'fingerprint');
     const identity = await VaultIdentity.load(full.pool, full.kek);
     const vault = new Vault(full, displayKey, identity);
+    await vault.oauth?.restoreDiscoveryCandidates(vault.orgId);
     const key = await vault.ingest.current();
     // Operators compare this with `runbook runner credential set --pin` (design §7.4).
     vault.log.info('ingest key ready', {
@@ -115,6 +130,7 @@ export class Vault {
       vault.every(interval, 'grant renewal', () => vault.releases!.renewer.runDue());
       vault.every(3_600_000, 'secret version cleanup', () => vault.secrets.destroyExpiredVersions());
     }
+    if (vault.oauth && interval > 0) vault.every(60_000, 'OAuth keep-alive', () => vault.oauth!.maintain());
     vault.every(3_600_000, 'KEK re-wrap', () => vault.rewrapKeys());
     if (vault.assertions) vault.every(60_000, 'assertion replay cleanup', () =>
       vault.pool.query('DELETE FROM vault_assertion_replays WHERE expires_at < $1', [vault.now()]));

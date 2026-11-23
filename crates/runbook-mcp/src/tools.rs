@@ -143,7 +143,7 @@ pub fn definitions() -> Vec<Value> {
         ),
         tool(
             "start_execution",
-            "Start an execution of a runbook. version selects a published version number or an rbv_ ID (default latest published). Returns execution_id, runbook_version_id and runbook_version. CLI: runbook run start <runbook>[@<n|rbv_id>] --project <p> --json.",
+            "Start an execution of a runbook. version selects a published version number or an rbv_ ID (default latest published). Returns execution_id, runbook_version_id and runbook_version. Use web_url from the data block to share the run page. CLI: runbook run start <runbook>[@<n|rbv_id>] --project <p> --json.",
             false,
             json!({
                 "project": project(),
@@ -159,14 +159,14 @@ pub fn definitions() -> Vec<Value> {
         ),
         tool(
             "get_execution",
-            "Execution status, result, progress and the resume brief (completed work, approval decisions and comments, ready steps). approval_agents lists approvals a runner agent may decide and its state (may_decide, reviewing, abstained, decided); people can always decide first. Recorded values are returned inside a RUNBOOK DATA block. CLI: runbook run get <exe> --json.",
+            "Execution status, result, progress and the resume brief (completed work, approval decisions and comments, ready steps). approval_agents lists approvals a runner agent may decide and its state (may_decide, reviewing, abstained, decided); eligible people can decide first. The data block includes url (API) and web_url (run page). Recorded values are returned inside a RUNBOOK DATA block. CLI: runbook run get <exe> --json.",
             true,
             json!({"execution_id": execution_id()}),
             &["execution_id"],
         ),
         tool(
             "search_executions",
-            "Filter a project's executions by status, tags, runbook or fields. CLI: runbook run list --project <p> --json.",
+            "Filter a project's executions by status, tags, runbook or fields. Each run in the data block includes its web_url. CLI: runbook run list --project <p> --json.",
             true,
             json!({
                 "project": project(),
@@ -433,7 +433,7 @@ fn runner_definitions() -> Vec<Value> {
             "Create credential metadata or propose it for approval. Requires runner:admin. Hand the returned URL and CLI command to a person for secret entry.",
             false,
             json!({"install_id": install(), "name": s("Credential name"),
-                "type": {"enum":["api-key","model-provider","mcp-bearer"]},
+                "type": {"enum":["api-key","model-provider","mcp-bearer","mcp-oauth"]},
 
                 "config": {
                     "type": "object", "description": "Public destination configuration only",
@@ -446,11 +446,24 @@ fn runner_definitions() -> Vec<Value> {
                             "method": {"enum": ["GET", "HEAD"]}, "path": s("Relative test path")
                         }},
                         "provider": s("Model provider name"), "endpoint": s("Model endpoint"),
-                        "models": string_list("Supported model names"), "url": s("MCP server URL")
+                        "models": string_list("Supported model names"), "url": s("MCP server URL"),
+                        "registration_mode": {"enum":["dynamic","pre-registered"]}, "client_id": s("OAuth client ID"),
+                        "token_endpoint_auth_method": {"enum":["none","client_secret_basic","client_secret_post"]},
+                        "scopes": string_list("OAuth scopes"),
+                        "extra_parameters": {"type":"object","additionalProperties":false,"properties":{
+                            "prompt":s("Consent prompt"), "access_type":s("Access type"), "login_hint":s("Login hint")
+                        }}
                     }
                 },
                 "label": {"enum":["read","write","destructive"]}}),
             &["install_id", "name", "type", "config"],
+        ),
+        tool(
+            "connect_runner_credential",
+            "OAuth connect requires a browser. This tool returns the available human handoff.",
+            true,
+            json!({"install_id": install(), "credential_id": s("Credential ID")}),
+            &["install_id", "credential_id"],
         ),
         tool(
             "revoke_runner_credential",
@@ -556,6 +569,9 @@ pub async fn call<B: AsyncBackend + ?Sized>(
     };
     let result = match name {
         "runner_status" => runner_status(b, &a).await,
+        "connect_runner_credential" | "reconnect_runner_credential" => Err(BackendError::Usage(
+            "OAuth connect requires a browser session. Use Settings or runbook runner credential connect.".into(),
+        )),
         "list_runner_agents"
         | "get_runner_agent"
         | "create_runner_agent"
@@ -647,6 +663,10 @@ fn error_outcome(tool: &str, a: &Args<'_>, e: &BackendError, key: Option<String>
         BackendError::Problem { .. } if code.starts_with("claim.") || code == "step.not_claimed" => (
             "reconcile",
             "Your claim on this step is no longer valid (the lease expired, it was released, or another session took it over). Stop working on this step and do not report it; call get_next_steps or get_execution to see what changed, then continue with ready work.".into(),
+        ),
+        BackendError::Problem { .. } if code == "approval.excluded_completer" => (
+            "request_human",
+            "You completed a step this approval must review independently. An eligible reviewer must decide it.".into(),
         ),
         BackendError::Problem { status: 409, .. } if code == "approval.not_open" => (
             "reconcile",
@@ -1791,6 +1811,8 @@ fn credential_handoff<B: AsyncBackend + ?Sized>(
         "api-key" => "key",
         "model-provider" => "api_key",
         "mcp-bearer" => "token",
+        "mcp-oauth" => return Ok(Outcome::new(json!({"credential_id": id}))
+            .data(reply).next(json!("connect_oauth_in_browser"), "Discover and confirm the OAuth endpoints in Runner settings, then connect in a browser.")),
         _ => return Err(BackendError::Usage("unsupported credential type".into())),
     };
     let origin = b.web_origin().unwrap_or_default();

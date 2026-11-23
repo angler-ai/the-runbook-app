@@ -56,6 +56,7 @@ fn agent() -> ActorPrincipal {
             session_id: "s1".into(),
             name: "ops".into(),
             model: None,
+            service_attribution: None,
         },
         credential_ref: "exec_ops".into(),
     }
@@ -422,6 +423,7 @@ fn agent_decisions_are_recorded_as_agent_decisions() {
             session_id: "s1".into(),
             name: "ops".into(),
             model: Some("model-a".into()),
+            service_attribution: None,
         },
         ..agent()
     };

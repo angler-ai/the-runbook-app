@@ -83,6 +83,7 @@ async fn dispatch<B: Backends>(backends: &B, r: &Request) -> Result<serde_json::
         .map_err(|_| UNAVAILABLE)?;
     let factory = backends.authoring();
     let needle = text.to_lowercase();
+    let origin = backends.origin();
 
     let mut scanned = 0;
     for project in snapshot.projects.values() {
@@ -159,10 +160,13 @@ async fn dispatch<B: Backends>(backends: &B, r: &Request) -> Result<serde_json::
             vec![]
         };
         for run in page {
+            let url = runbook_model::execution_api_url(&origin, &run.execution_id);
             view.runs.push(UniversalRunHit {
                 project_id: project.id.clone(),
                 project_slug: project.slug.clone(),
                 run: RunSearchEntry {
+                    web_url: runbook_model::execution_web_url(&url, &run.execution_id),
+                    url,
                     id: run.execution_id,
                     runbook_id: run.runbook_id,
                     status: run.status,

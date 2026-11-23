@@ -6,7 +6,7 @@ import { expect, it, vi } from 'vitest';
 import { workerClients } from '../src/clients.ts';
 import { claimExecutor } from '../src/execute.ts';
 
-it.each([['v1', 'safe'], ['v2', 'safe'], ['v2', 'untyped'], ['v2', 'typed']])(
+it.each([['v1', 'safe'], ['v2', 'safe'], ['v2', 'untyped'], ['v2', 'typed'], ['v2', 'setup-ok'], ['v2', 'setup-error'], ['v2', 'setup-timeout'], ['v2', 'compute-budget']])(
   'uses the profile key and protects reported output in %s (%s)', async (version, resultKind) => {
   const bearer = 't'.repeat(32);
   const config = loadConfig('worker', {
@@ -19,6 +19,9 @@ it.each([['v1', 'safe'], ['v2', 'safe'], ['v2', 'untyped'], ['v2', 'typed']])(
   const claims = { sub: 'step', runner_id: 'r', group_id: 'g', project_id: 'p', agent_id: 'a',
     claim_id: 'claim', generation: 1, connections: null, step_deadline_ms: null } as GrantClaims;
   const sandbox = sandboxIdForClaim(claims);
+  const hasSetup = resultKind.startsWith('setup-');
+  const setupFail = hasSetup && resultKind !== 'setup-ok';
+  const image = `registry.example/runner@sha256:${'a'.repeat(64)}`;
   const requests: unknown[] = [];
   const entries: string[] = [];
   const contextCalls: URL[] = [];
@@ -42,12 +45,21 @@ it.each([['v1', 'safe'], ['v2', 'safe'], ['v2', 'untyped'], ['v2', 'typed']])(
       case '/internal/worker/step':
         return Response.json({ profile: 'fast', max_output_tokens: 100, credentials: [
           { credential_id: 'model-key', delivery: 'model' },
-        ], instructions: '', limits: { max_tokens: 100, timeout_s: 60 }, size: 'small' });
+        ], instructions: '', limits: { max_tokens: 100, timeout_s: 60 }, size: 'small',
+          ...(hasSetup && { environment: { image, has_setup: true } }) });
       case '/internal/release':
         requests.push(await request.json());
         return Response.json({ release_id: 'key' });
       case '/internal/sandboxes':
+        expect(await request.json()).toMatchObject({ image: hasSetup ? image : 'image' });
+        if (resultKind === 'compute-budget') return Response.json({ level: 'environment', budget: {
+          scope: 'environment', key: 'env-1', period: 'month', cap: 2, detail: 'environment Example: monthly budget $2 reached',
+        } }, { status: 402 });
         return Response.json({ sandbox_id: sandbox });
+      case `/internal/sandboxes/${sandbox}/setup`:
+        expect(request.headers.get('x-runbook-capability')).toBe('capability');
+        return Response.json({ exit_code: setupFail ? 1 : 0, timed_out: resultKind === 'setup-timeout',
+          stdout: 'setup says released-value', stderr: '' });
       case '/internal/claims/transcript': {
         const { role, value } = await request.json() as { role: string; value: unknown };
         entries.push(JSON.stringify({ role, value }));
@@ -62,7 +74,7 @@ it.each([['v1', 'safe'], ['v2', 'safe'], ['v2', 'untyped'], ['v2', 'typed']])(
     }
   });
   const messages: string[] = [];
-  const modelResult = resultKind === 'safe' ? { outputs: { ok: true }, summary: 'finished' }
+  const modelResult = resultKind === 'safe' || resultKind === 'setup-ok' ? { outputs: { ok: true }, summary: 'finished' }
     : { outputs: { ok: 'released-value' }, summary: 'summary contains released-value' };
   const model = vi.fn<typeof fetch>(async (_input, init) => {
     messages.push(String(init?.body));
@@ -93,7 +105,18 @@ it.each([['v1', 'safe'], ['v2', 'safe'], ['v2', 'untyped'], ['v2', 'typed']])(
     const result = await execute({ stepRunId: 'step', claim: { id: 'claim', generation: 1 },
       signal: new AbortController().signal, capability: () => 'capability', registerSandbox: () => undefined,
       sandboxStarted: () => undefined });
-    expect(result).toMatchObject(resultKind === 'safe'
+    if (resultKind === 'compute-budget') {
+      expect(result).toMatchObject({ status: 'failed', summary: 'environment Example: monthly budget $2 reached' });
+      expect(model).not.toHaveBeenCalled();
+      return;
+    }
+    if (hasSetup) expect(entries[0]).toContain('setup says [REDACTED]');
+    if (setupFail) {
+      expect(result).toMatchObject({ status: 'failed', outputs: {}, summary: 'environment_setup_failed' });
+      expect(model).not.toHaveBeenCalled();
+      return;
+    }
+    expect(result).toMatchObject(resultKind === 'safe' || resultKind === 'setup-ok'
       ? { status: 'succeeded', outputs: { ok: true }, summary: 'finished' }
       : resultKind === 'typed'
         ? { status: 'failed', outputs: {}, summary: 'output_redacted' }

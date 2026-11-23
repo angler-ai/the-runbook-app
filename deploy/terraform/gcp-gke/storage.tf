@@ -1,5 +1,5 @@
 locals {
-  gcs_bucket_name     = var.gcs_bucket_name != "" ? var.gcs_bucket_name : "${var.project_id}-runbook-blobs"
+  gcs_bucket_name     = "${var.name_prefix}${var.gcs_bucket_name != "" ? var.gcs_bucket_name : "${var.project_id}-runbook-blobs"}"
   gcs_bucket_location = var.gcs_bucket_location != "" ? var.gcs_bucket_location : var.region
 }
 
@@ -9,6 +9,7 @@ resource "google_storage_bucket" "blobs" {
 
   name     = local.gcs_bucket_name
   location = local.gcs_bucket_location
+  labels   = local.additional_labels
   project  = var.project_id
 
   uniform_bucket_level_access = true

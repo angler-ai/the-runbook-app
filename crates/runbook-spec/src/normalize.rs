@@ -11,7 +11,12 @@ pub fn normalize(spec: &Spec) -> std::result::Result<NormalizedRunbook, Vec<Diag
     if !capabilities.is_empty() {
         return Err(capabilities);
     }
-    Reader { spec }.run().map_err(|e| vec![e])
+    Reader {
+        spec,
+        stored: false,
+    }
+    .run()
+    .map_err(|e| vec![e])
 }
 
 /// Reuse source-language invariants on data generated from an already bounded
@@ -26,7 +31,12 @@ pub(crate) fn normalize_lowered(
     if !capabilities.is_empty() {
         return Err(capabilities);
     }
-    Reader { spec: &spec }.run().map_err(|e| vec![e])
+    Reader {
+        spec: &spec,
+        stored: true,
+    }
+    .run()
+    .map_err(|e| vec![e])
 }
 fn diagnostic(spec: &Spec, code: &str, path: &str) -> Diagnostic {
     let span = spec.source_spans.get(path);
@@ -167,6 +177,7 @@ fn preflight(spec: &Spec) -> Result<()> {
 }
 
 struct Reader<'a> {
+    stored: bool,
     spec: &'a Spec,
 }
 type Result<T> = std::result::Result<T, Diagnostic>;
@@ -785,7 +796,7 @@ impl Reader<'_> {
         }
         let inputs = self.schema(body, "inputs", "/spec")?;
         let triggers = self.triggers(body, &inputs)?;
-        Ok(NormalizedRunbook {
+        let ir = NormalizedRunbook {
             metadata: RunbookMetadata {
                 id: self.runbook_slug(metadata)?,
                 title: match self.optional_string(metadata, "title", "/metadata")? {
@@ -810,7 +821,88 @@ impl Reader<'_> {
             triggers,
             source_json: self.spec.source_json().clone(),
             source_yaml: self.spec.raw_source.clone(),
-        })
+        };
+        self.check_excluded_completers(&ir.steps, &mut BTreeSet::new())?;
+        self.check_excluded_completers(&ir.finally, &mut BTreeSet::new())?;
+        Ok(ir)
+    }
+
+    // A sequence guarantees the earlier work it ran when reaching a later
+    // sibling. Conditional bodies and repetitions can execute zero times.
+    fn check_excluded_completers<'a>(
+        &self,
+        nodes: &'a [Node],
+        preceding: &mut BTreeSet<&'a str>,
+    ) -> Result<()> {
+        for node in nodes {
+            match &node.kind {
+                NodeKind::Approval(approval) => {
+                    let mut seen = BTreeSet::new();
+                    for (index, id) in approval.exclude_completers_of.iter().enumerate() {
+                        if !preceding.contains(id.as_str()) || !seen.insert(id) {
+                            return Err(self.err(
+                                "spec.invalid_excluded_completer",
+                                &format!(
+                                    "{}/approval/exclude_completers_of/{index}",
+                                    node.source_path
+                                ),
+                            ));
+                        }
+                    }
+                }
+                NodeKind::Task(task) if task.actor != Actor::Agent && node.guard.is_none() => {
+                    preceding.insert(&node.id);
+                }
+                NodeKind::Group(group) => {
+                    let mut normal = preceding.clone();
+                    self.check_excluded_completers(&group.children, &mut normal)?;
+                    self.check_excluded_completers(&group.catch, &mut preceding.clone())?;
+                    self.check_excluded_completers(&group.finally, &mut preceding.clone())?;
+                    if node.guard.is_none()
+                        && group.catch.is_empty()
+                        && node.on_failure == FailurePolicy::Fail
+                    {
+                        *preceding = normal;
+                    }
+                }
+                NodeKind::Parallel { children, join, .. } => {
+                    let mut joined = preceding.clone();
+                    for child in children {
+                        let mut branch = preceding.clone();
+                        self.check_excluded_completers(std::slice::from_ref(child), &mut branch)?;
+                        joined.extend(branch);
+                    }
+                    if node.guard.is_none()
+                        && join.is_all()
+                        && node.on_failure == FailurePolicy::Fail
+                    {
+                        *preceding = joined;
+                    }
+                }
+                NodeKind::Foreach(body) => {
+                    let mut iteration = preceding.clone();
+                    self.check_excluded_completers(&body.children, &mut iteration)?;
+                    if node.guard.is_none() && node.on_failure == FailurePolicy::Fail {
+                        *preceding = iteration;
+                    }
+                }
+                NodeKind::Loop(body) => {
+                    let mut iteration = preceding.clone();
+                    self.check_excluded_completers(&body.children, &mut iteration)?;
+                    if node.guard.is_none() && node.on_failure == FailurePolicy::Fail {
+                        *preceding = iteration;
+                    }
+                }
+                NodeKind::Switch(switch) => {
+                    for case in &switch.cases {
+                        self.check_excluded_completers(&case.children, &mut preceding.clone())?;
+                    }
+                    self.check_excluded_completers(&switch.default, &mut preceding.clone())?;
+                }
+                _ => {}
+            }
+        }
+        Ok(())
     }
     /// LANG9b: `spec.triggers`. Each kind is a list (at most
     /// [`MAX_TRIGGERS`]) of entries with IDs unique across both kinds.
@@ -1013,7 +1105,7 @@ impl Reader<'_> {
         for key in map.keys() {
             let common = matches!(
                 key.as_str(),
-                "id" | "title" | "if" | "on_failure" | "timeout" | "labels"
+                "id" | "title" | "if" | "on_failure" | "timeout" | "labels" | "due_after"
             ) || key.starts_with("x-");
             let specific = match keys.first().copied() {
                 None => {
@@ -1281,6 +1373,15 @@ impl Reader<'_> {
             on_failure,
             timeout,
             kind,
+            due_after: self
+                .optional_duration(map, "due_after", path)?
+                .map(|due| {
+                    if due.millis > 36_500 * 86_400_000 {
+                        return Err(self.err("spec.invalid_value", &pointer(path, "due_after")));
+                    }
+                    Ok(due)
+                })
+                .transpose()?,
             labels,
             followup,
         })
@@ -1562,6 +1663,16 @@ impl Reader<'_> {
                 ApprovalTimeout::Decide(self.required_string(m, "decide", &p)?)
             }
         };
+        let exclude_completers_of = self.optional_strings(map, "exclude_completers_of", path)?;
+        if !self.stored
+            && !exclude_completers_of.is_empty()
+            && matches!(on_timeout, ApprovalTimeout::Decide(_))
+        {
+            return Err(self.err(
+                "spec.independent_review_required",
+                &pointer(path, "on_timeout"),
+            ));
+        }
         let on_expired = match self.optional_string(map, "on_expired", path)?.as_deref() {
             None | Some("pause") => ExpiredPolicy::Pause,
             Some("fail") => ExpiredPolicy::Fail,
@@ -1607,6 +1718,7 @@ impl Reader<'_> {
             options,
             approves,
             approvers,
+            exclude_completers_of,
             min: self.optional_positive(map, "min", path, 1)?,
             timeout,
             on_timeout,

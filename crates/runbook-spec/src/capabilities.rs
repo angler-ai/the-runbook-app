@@ -176,6 +176,7 @@ impl Context {
             (Defaults, "actor" | "timeout" | "on_failure") => Atom("A5/A15/A18"),
             (Defaults, "agent") => DefaultsAgent,
             (DefaultsAgent, "name") => Atom("R0"),
+            (Node, "due_after") => Atom("LANG9"),
             (Defaults | Node, "remind_after" | "remind_every" | "escalate_after") => Atom("LANG9"),
             (Defaults | Node, "escalate_to") => Data("LANG9"),
             (Defaults | Node, "retry") => Retry,
@@ -249,7 +250,9 @@ impl Context {
                 Approval,
                 "prompt" | "min" | "timeout" | "escalation_timeout" | "on_expired" | "allow_agents",
             ) => Atom("A6/A16/A18/B1/B6"),
-            (Approval, "escalate_to" | "approves") => Data("A6/A16/A18/B1/B6"),
+            (Approval, "escalate_to" | "approves" | "exclude_completers_of") => {
+                Data("A6/A16/A18/B1/B6")
+            }
             (Approval, "agent") => ApprovalAgent,
             (ApprovalAgent, "name" | "model" | "max_cost_usd" | "max_tokens" | "after") => {
                 Atom("R0")

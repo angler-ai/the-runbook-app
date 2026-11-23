@@ -240,6 +240,9 @@ pub fn message_for(code: &str, path: &str) -> String {
                 "catch_on needs a catch block on the same group.".into()
             }
         }
+        "spec.invalid_excluded_completer" => {
+            "Name a distinct human-capable task that precedes this approval on every path.".into()
+        }
         "spec.followup_invalid" => {
             if at_path {
                 format!(

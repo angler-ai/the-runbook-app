@@ -391,6 +391,7 @@ pub async fn consume_batch(
             .await;
             let _ = runbook_core::slack::fan_out_slack(
                 &notify,
+                &directory,
                 &SlackFetch,
                 slack.as_ref(),
                 &body.scope,

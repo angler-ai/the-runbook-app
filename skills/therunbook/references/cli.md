@@ -185,6 +185,8 @@ are read-only; when you run runbooks, use the tools and commands above.
 | `pin_runner_mcp_snapshot` | `runbook runner mcp-server pin <server> <snapshot> --json` | Pins the selected snapshot. |
 | `label_runner_mcp_tools` | `runbook runner mcp-server label-tools <server> --file <json> --json` | Pass the complete tool_labels map. |
 | `list_runner_credential_types` | `runbook runner credential types --json` | Lists secret field names. |
+| `get_runner_credential` | `runbook runner credential status <credential> --json` | Shows credential metadata and its OAuth status. |
+| `connect_runner_credential` | `runbook runner credential connect <credential> --binding-pin <hash>` | Opens a browser handoff for a human organization admin. The MCP tool refuses to initiate consent. |
 | `label_runner_credential` | `runbook runner credential label <credential> <label> --json` | Changes the access label through the vault. |
 | `share_runner_credential` | `runbook runner credential share <credential> --file <json> --json` | Pass sharing.projects as all, none, or project IDs. |
 | `set_runner_agent_profiles` | `runbook runner agent-profiles <agent> --project <p> --file <json> --json` | Pass the full profiles array. Widening changes may create proposals. |

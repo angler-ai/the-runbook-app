@@ -52,6 +52,16 @@ pub async fn vote<S: SessionStore>(
     let user = principal
         .user_id()
         .ok_or(ActorError::rejected("approval.not_eligible"))?;
+    let step = &work.runtime.state.steps[work.step_index(step_run_id)?];
+    if runbook_engine::independent_review_unknown_service(&work.runtime.state, step)
+        && work
+            .runtime
+            .directory
+            .project_role(&work.runtime.scope.project_id, user)
+            == Some(runbook_model::ProjectRole::Admin)
+    {
+        return Err(ActorError::rejected("approval.unknown_service_contributor"));
+    }
     let eligibility = vote_eligibility(
         &work.runtime.directory,
         &work.runtime.scope.project_id,
@@ -204,6 +214,7 @@ pub(crate) async fn claim_decision<S: SessionStore>(
             session_id: claim_id.to_string(),
             name: entry.name.clone(),
             model: Some(model.to_owned()),
+            service_attribution: None,
         },
         credential_ref: principal.clone(),
         principal,

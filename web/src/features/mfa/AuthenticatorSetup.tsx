@@ -33,6 +33,7 @@ export interface AuthenticatorSetupProps {
    */
   onEnrolled?(): void | Promise<void>;
   onCancel?(): void;
+  inline?: boolean;
 }
 
 /** A setup lasts ten minutes and belongs to the browser session that started it. */
@@ -57,7 +58,12 @@ const ENDED =
  * Set up an authenticator app: scan the QR code (drawn locally) or type the
  * key, confirm with a code, then save the backup codes shown once.
  */
-export function AuthenticatorSetup({ onDone, onEnrolled, onCancel }: AuthenticatorSetupProps) {
+export function AuthenticatorSetup({
+  onDone,
+  onEnrolled,
+  onCancel,
+  inline = false,
+}: AuthenticatorSetupProps) {
   const [setup, setSetup] = useState<TotpSetup | null>(null);
   const [startedAt, setStartedAt] = useState(0);
   const [step, setStep] = useState<'start' | 'scan' | 'codes'>('start');
@@ -76,7 +82,7 @@ export function AuthenticatorSetup({ onDone, onEnrolled, onCancel }: Authenticat
     setBusy(true);
     setError(null);
     try {
-      setSetup(await enableTotp());
+      setSetup(await enableTotp(!inline));
       setStartedAt(Date.now());
       setStep('scan');
     } catch (err) {
@@ -187,8 +193,9 @@ export function AuthenticatorSetup({ onDone, onEnrolled, onCancel }: Authenticat
       <div role="status" className="grid gap-1 text-sm">
         <p className="text-fg">Your authenticator app is set up.</p>
         <p className="text-fg-muted">
-          Setting it up does not count as confirming it is you. The next sensitive action will ask
-          for a new code from the app.
+          {inline
+            ? 'Save your backup codes, then use a new code to continue the action.'
+            : 'Setting it up does not count as confirming it is you. The next sensitive action will ask for a new code from the app.'}
         </p>
       </div>
       <BackupCodes codes={setup?.backupCodes ?? []} />

@@ -113,7 +113,7 @@ pub(super) fn register(paths: &mut Map<String, Value>) {
 /// What receivers can rely on (PRD section 9).
 pub(super) fn delivery_contract() -> Value {
     json!({
-        "envelope": ["id (evt_…)", "type", "version (1)", "created_at", "org", "project", "execution {id, title, runbook, runbook_version_id, runbook_version, url}", "sequence", "data"],
+        "envelope": ["id (evt_…)", "type", "version (1)", "created_at", "org", "project", "execution {id, title, runbook, runbook_version_id, runbook_version, url, web_url}", "sequence", "data"],
         "events": catalog(),
         "headers": ["Runbook-Event-Id", "Runbook-Event-Type", "Runbook-Delivery-Id", "Runbook-Timestamp", "Runbook-Signature"],
         "signature": {
@@ -137,6 +137,7 @@ fn catalog() -> Value {
         "step.blocked",
         "step.completed",
         "step.reminder",
+        "step.overdue",
         "step.escalated",
         "execution.queued",
         "execution.started",
@@ -149,6 +150,9 @@ fn catalog() -> Value {
         "runner.probe_succeeded",
         "runner.secret_in_response",
         "runner.binding_mismatch",
+        "credential.reconnect_required",
+        "credential.oauth_expiring",
+        "credential.oauth_refresh_failing",
         "runner.release_denied",
         "webhook.test"
     ])

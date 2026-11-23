@@ -7,7 +7,8 @@ import { mcpRoute } from '../src/mcp/server.ts';
 import { connectUpstream } from '../src/mcp/upstream.ts';
 import { MaterialStore } from '../src/material.ts';
 
-vi.mock('../src/mcp/upstream.ts', () => ({
+vi.mock('../src/mcp/upstream.ts', async (load) => ({
+  ...await load<Record<string, unknown>>(),
   connectUpstream: vi.fn(async (_url, _kind, authorize) => {
     await authorize();
     return {

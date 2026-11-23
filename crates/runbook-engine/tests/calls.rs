@@ -274,6 +274,7 @@ fn a_cancelled_or_failed_run_closes_even_when_its_outputs_are_missing() {
                 session_id: "s1".into(),
                 name: "bot".into(),
                 model: None,
+                service_attribution: None,
             },
             at_ms: Some(5),
         }],

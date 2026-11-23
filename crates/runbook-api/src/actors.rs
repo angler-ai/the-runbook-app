@@ -90,6 +90,10 @@ impl<D: DirectoryOperations, C: CredentialStore, B: ActorBackend> ActorService<D
             Err(e) => {
                 let mut out = Response::error(e.status, e.code, &r.request_id);
                 out.body["errors"] = serde_json::json!(e.diagnostics);
+                if e.code == "approval.excluded_completer" {
+                    out.body["detail"] =
+                        "You completed a step this approval must review independently.".into();
+                }
                 out
             }
         }

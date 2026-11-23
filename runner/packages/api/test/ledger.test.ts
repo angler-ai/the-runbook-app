@@ -6,6 +6,7 @@ import { budgetBuckets, type BudgetContext } from '../src/ledger/buckets.ts';
 import { reserve, reserveInTransaction } from '../src/ledger/reserve.ts';
 import { admit, reapSlots, releaseSlot } from '../src/scheduler/admission.ts';
 import { reconcile, settle } from '../src/ledger/settle.ts';
+import { deliverBudgetAlerts } from '../src/ledger/alerts.ts';
 import { ledgerRoutes } from '../src/ledger/routes.ts';
 
 const context = (id: string): BudgetContext => ({
@@ -55,6 +56,51 @@ describe.skipIf(!hasTestDatabase)('ledger (Postgres)', () => {
       [model.reservation_id])).rows).toEqual([{ status: 'settled', actual_usd: '0.500000' }]);
     expect((await pool.query('SELECT kind, cost_usd FROM usage_events WHERE step_run_id = $1',
       [ctx.stepId])).rows).toEqual([{ kind: 'model', cost_usd: '0.500000' }]);
+  });
+  it('keeps a spent monthly budget closed when a later policy raises the cap', async () => {
+    const pool = db.pool('scheduler');
+    const ctx = context('closed-month');
+    const hold = await reserve(pool, { ...ctx, caps: { 'agent:month': 1 } }, 1, 'model');
+    if (!('reservation_id' in hold)) throw new Error('reservation refused');
+    await settle(pool, { reservation_id: hold.reservation_id, actual_usd: 1, usage: {} });
+    expect(await reserve(pool, { ...ctx, caps: { 'agent:month': 2 } }, 0.01, 'model')).toEqual({ level: 'agent' });
+  });
+  it('tracks unavoidable compute overrun without charging it against budget holds', async () => {
+    const pool = db.pool('scheduler');
+    const ctx = { ...context('compute-overrun'), caps: { 'project:month': 1 } };
+    const hold = await reserve(pool, ctx, 1, 'compute');
+    if (!('reservation_id' in hold)) throw new Error('reservation refused');
+    const request = { reservation_id: hold.reservation_id, actual_usd: 1.25, usage: {} };
+    await settle(pool, request);
+    await settle(pool, request);
+    expect((await pool.query("SELECT spent_usd FROM ledger_buckets WHERE level='project' AND period='month' AND key=$1", [ctx.projectId])).rows)
+      .toEqual([{ spent_usd: '1.000000' }]);
+    expect((await pool.query('SELECT actual_usd,overrun_usd FROM ledger_reservations WHERE id=$1', [hold.reservation_id])).rows)
+      .toEqual([{ actual_usd: '1.250000', overrun_usd: '0.250000' }]);
+  });
+  it('retries a project threshold with its original occurrence and audience', async () => {
+    const eventsDb = await createTestDatabase();
+    const pool = eventsDb.pool('scheduler');
+    try {
+      const ctx = { ...context('project-alert'), caps: { 'project:month': 1 }, alerts: { project: 50 } };
+      const hold = await reserve(pool, ctx, 0.75, 'model');
+      if (!('reservation_id' in hold)) throw new Error('reservation refused');
+      await settle(pool, { reservation_id: hold.reservation_id, actual_usd: 0.75, usage: {} });
+      const events: unknown[] = [];
+      const options = { coreUrl: 'https://core.example', installId: 'install', token: 'directory',
+        fetch: (async (_url: string, init: RequestInit) => {
+          events.push(JSON.parse(String(init.body)));
+          return new Response(null, { status: events.length === 1 ? 503 : 204 });
+        }) as typeof fetch };
+      const now = Date.now() + 1000;
+      await deliverBudgetAlerts(pool, options, new Date(now));
+      await deliverBudgetAlerts(pool, options, new Date(now + 30_001));
+      expect(events).toEqual([expect.objectContaining({ data: expect.objectContaining({
+        project_id: ctx.projectId, occurred_at_ms: expect.any(Number), event_id: expect.any(String),
+      }) }), events[0]]);
+    } finally {
+      await eventsDb.drop();
+    }
   });
   it('reserve_checks_every_level_in_one_transaction', async () => {
     const pool = db.pool('scheduler');

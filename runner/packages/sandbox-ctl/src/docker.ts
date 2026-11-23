@@ -6,7 +6,9 @@ import type { ExecRequest, ExecResponse, SandboxListenerResponse, SandboxSize } 
 import { HttpError } from '@runbook/runner-shared/http';
 import { loadRedaction, type StreamRedactor } from '@runbook/runner-shared/redact';
 import { SandboxSubnets } from './subnets.ts';
-import { FILE_HELPER, NODE, SANDBOX_LABEL, template } from './template.ts';
+import { EXIT_MARGIN_MS, FILE_HELPER, NODE, SANDBOX_LABEL, TRUSTED_HELPER, template }
+  from './template.ts';
+import { DIGEST_IMAGE } from './kubernetes-template.ts';
 
 export interface SandboxNetwork { id: string; gatewayAddress?: string; bridgeGateway?: string; subnetIndex?: number }
 export interface DockerSandbox {
@@ -14,6 +16,10 @@ export interface DockerSandbox {
   network: SandboxNetwork;
   containerId: string;
   listener: SandboxListenerResponse;
+  resources?: { vcpu: number; gib: number };
+  startedAt?: number;
+  env?: Record<string, string>;
+  customImage?: boolean;
 }
 
 const status = (error: unknown) => (error as { statusCode?: number } | null)?.statusCode;
@@ -21,11 +27,11 @@ const unavailable = () => new HttpError(503, 'sandbox.unavailable', 'sandbox ope
 const gone = () => new HttpError(410, 'sandbox.gone', 'sandbox container is gone');
 const timedOut = () => new HttpError(408, 'sandbox.exec_timeout', 'sandbox execution timed out');
 const invalidFile = () => new HttpError(422, 'sandbox.invalid_file', 'file is unavailable in the workspace');
-const OUTPUT_LIMIT = 256 * 1024;
+export const OUTPUT_LIMIT = 256 * 1024;
 const REDACTION_TAIL = 4096;
 const CLIPPED = '\n[TRUNCATED]';
 
-function captureEnds(redactor: StreamRedactor) {
+export function captureEnds(redactor: StreamRedactor) {
   const decoder = new StringDecoder('utf8');
   const raw = createHash('sha256');
   const safe = createHash('sha256');
@@ -74,6 +80,23 @@ function captureEnds(redactor: StreamRedactor) {
   };
 }
 
+export function validateExec(request: ExecRequest, setup = false): void {
+  if (!Array.isArray(request.argv) || !request.argv.length || request.argv.length > 256 ||
+      !request.argv.every((arg) => typeof arg === 'string' && !arg.includes('\0')) ||
+      typeof request.cwd !== 'string' || !/^\/workspace(?:\/[^\0]*)?$/.test(request.cwd) ||
+      request.cwd.split('/').includes('..') || !Number.isFinite(request.timeout_s) ||
+      request.timeout_s <= 0 || request.timeout_s > (setup ? 600 : 300) ||
+      (request.return_partial !== undefined && typeof request.return_partial !== 'boolean') ||
+      (request.stdin !== undefined && (typeof request.stdin !== 'string' || Buffer.byteLength(request.stdin) > 128 * 1024))) {
+    throw new HttpError(422, 'sandbox.invalid_exec', 'invalid sandbox execution request');
+  }
+}
+
+export function validatePath(path: string): void {
+  if (!path || path.length > 1024 ||
+      path.split('/').some((part) => !part || part === '.' || part === '..' || /[\0\\]/.test(part))) throw invalidFile();
+}
+
 export class DockerSandboxBackend {
   private readonly docker: Docker;
   readonly image: string;
@@ -81,6 +104,7 @@ export class DockerSandboxBackend {
 
   private readonly subnets: SandboxSubnets;
   private readonly sandboxLabel: string;
+  private trustedVolume?: Promise<string>;
 
   constructor(docker: Docker, image: string, gateway?: string, subnetPool?: string, sandboxLabel = SANDBOX_LABEL) {
     this.docker = docker;
@@ -130,22 +154,78 @@ export class DockerSandboxBackend {
     }
   }
 
-  async start(id: string, network: SandboxNetwork, size: SandboxSize, listener: SandboxListenerResponse, timeoutMs = 900_000): Promise<DockerSandbox> {
+  async requireLocalImage(image: string) {
+    if (!DIGEST_IMAGE.test(image)) throw unavailable();
+    const metadata = await this.docker.getImage(image).inspect().catch((error: unknown) => {
+      if (status(error) === 404) throw new HttpError(503, 'sandbox.image_missing', 'approved digest must be preloaded on the Docker host');
+      throw unavailable();
+    });
+    if (!metadata.RepoDigests?.includes(image)) throw unavailable();
+    if (Object.keys(metadata.Config.Volumes ?? {}).length) {
+      throw new HttpError(422, 'sandbox.image_volumes_denied', 'sandbox images cannot declare Docker volumes');
+    }
+    return metadata.Id;
+  }
+
+  private async seedTrustedVolume(): Promise<string> {
+    const metadata = await this.docker.getImage(this.image).inspect();
+    const name = 'runbook-trusted-' + createHash('sha256').update(metadata.Id).digest('hex');
+    await this.docker.createVolume({ Name: name, Driver: 'local' });
+    // Docker copies the trusted image directory into an empty named volume
+    // when it is attached. The custom container can only mount it read-only.
+    const seed = await this.docker.createContainer({
+      Image: metadata.Id, Entrypoint: [TRUSTED_HELPER], Cmd: ['version'],
+      User: '10001:10001', Healthcheck: { Test: ['NONE'] },
+      HostConfig: { NetworkMode: 'none', ReadonlyRootfs: true, CapDrop: ['ALL'],
+        Mounts: [{ Type: 'volume', Source: name, Target: '/runbook-trusted' }] },
+    });
     try {
-      const opts = template(id, network.id, this.image, size, listener, timeoutMs, this.sandboxLabel);
+      await seed.start();
+      if ((await seed.wait()).StatusCode !== 0) throw unavailable();
+      return name;
+    } finally {
+      await seed.remove({ force: true });
+    }
+  }
+
+  async customProbe(sandbox: DockerSandbox, bridge?: string) {
+    return this.exec(sandbox, { argv: [TRUSTED_HELPER, 'probe-docker', bridge ?? ''], cwd: '/workspace', timeout_s: 6 },
+      undefined, false, true);
+  }
+
+  async start(id: string, network: SandboxNetwork, size: SandboxSize, listener: SandboxListenerResponse,
+    timeoutMs = 900_000, image = this.image, options: { custom?: boolean; setup?: boolean } = {}): Promise<DockerSandbox> {
+    try {
+      const customImage = options.custom ?? (image !== this.image && DIGEST_IMAGE.test(image));
+      const local = customImage ? await this.requireLocalImage(image) : image;
+      const opts = template(id, network.id, local, size, listener, timeoutMs, this.sandboxLabel);
+      if (customImage || options.setup) {
+        this.trustedVolume ??= this.seedTrustedVolume().catch((error: unknown) => {
+          this.trustedVolume = undefined;
+          throw error;
+        });
+        const volume = await this.trustedVolume;
+        if (customImage) {
+          opts.Entrypoint = [TRUSTED_HELPER];
+          opts.Cmd = ['idle', String(timeoutMs + EXIT_MARGIN_MS)];
+        }
+        opts.HostConfig!.Mounts = [{ Type: 'volume', Source: volume, Target: '/runbook-trusted', ReadOnly: true,
+          VolumeOptions: { NoCopy: true, Labels: {}, DriverConfig: { Name: 'local', Options: {} } } }];
+      }
       const container = await this.docker.createContainer(opts).catch((error: unknown) => {
         if (status(error) === 404) throw new HttpError(503, 'sandbox.image_missing',
-          'Sandbox image ' + this.image + ' is missing. Build or pull it before starting the runner.');
+          'Sandbox image ' + image + ' is missing. Build or pull it before starting the runner.');
         throw error;
       });
       await container.start();
-      const sandbox = { id, containerId: container.id, network, listener };
+      const sandbox = { id, containerId: container.id, network, listener, customImage };
+      if (customImage) return sandbox;
       const probe = await this.exec(sandbox, { argv: ['/bin/sh', '-c',
         'command -v bash >/dev/null && command -v rg >/dev/null'], cwd: '/workspace', timeout_s: 3 });
       if (probe.exit_code !== 0) throw new HttpError(503, 'sandbox.missing_tools', 'sandbox image must include Bash and ripgrep');
       return sandbox;
     } catch (error) {
-      if (error instanceof HttpError && ['sandbox.missing_tools', 'sandbox.image_missing'].includes(error.code)) throw error;
+      if (error instanceof HttpError && ['sandbox.missing_tools', 'sandbox.image_missing', 'sandbox.image_volumes_denied'].includes(error.code)) throw error;
       throw unavailable();
     }
   }
@@ -208,27 +288,21 @@ export class DockerSandboxBackend {
     }
   }
 
-  async exec(sandbox: DockerSandbox, request: ExecRequest): Promise<ExecResponse> {
-    if (!Array.isArray(request.argv) || !request.argv.length || request.argv.length > 256 ||
-        !request.argv.every((arg) => typeof arg === 'string' && !arg.includes('\0')) ||
-        typeof request.cwd !== 'string' || !/^\/workspace(?:\/[^\0]*)?$/.test(request.cwd) ||
-        request.cwd.split('/').includes('..') || !Number.isFinite(request.timeout_s) ||
-        request.timeout_s <= 0 || request.timeout_s > 300 ||
-        (request.return_partial !== undefined && typeof request.return_partial !== 'boolean') ||
-        (request.stdin !== undefined && (typeof request.stdin !== 'string' || Buffer.byteLength(request.stdin) > 128 * 1024))) {
-      throw new HttpError(422, 'sandbox.invalid_exec', 'invalid sandbox execution request');
-    }
+  async exec(sandbox: DockerSandbox, request: ExecRequest, _signal?: AbortSignal, setup = false, probe = false): Promise<ExecResponse> {
+    validateExec(request, setup);
     const redaction = await loadRedaction();
     const container = this.docker.getContainer(sandbox.containerId);
     let stream: Duplex | undefined;
     let timer: NodeJS.Timeout | undefined;
     const watchdog = new AbortController();
     const run = async () => {
-      // GNU timeout supervises this Docker exec's process group inside the sandbox.
-      // The controller watchdog bounds the Docker transport independently.
+      const command = setup
+        ? [TRUSTED_HELPER, 'setup-docker', String(Math.round(request.timeout_s * 1000)), ...request.argv]
+        : probe ? request.argv : ['/usr/bin/timeout', '--kill-after=1s', '--', `${request.timeout_s}s`, ...request.argv];
       const execution = await container.exec({
-        Cmd: ['/usr/bin/timeout', '--kill-after=1s', '--', `${request.timeout_s}s`, ...request.argv],
+        Cmd: command,
         WorkingDir: request.cwd, User: '10001:10001',
+        ...(sandbox.env && { Env: Object.entries(sandbox.env).map(([name, value]) => `${name}=${value}`) }),
         AttachStdout: true, AttachStderr: true, AttachStdin: request.stdin !== undefined, Tty: false,
       });
       watchdog.signal.throwIfAborted();
@@ -314,7 +388,7 @@ export class DockerSandboxBackend {
             watchdog.abort();
             stream?.destroy();
             reject(timedOut());
-          }, request.timeout_s * 1000 + 4000);
+          }, Math.round(request.timeout_s * 1000) + 4000);
         }),
       ]);
     } catch (error) {
@@ -330,8 +404,7 @@ export class DockerSandboxBackend {
   }
 
   private async file(sandbox: DockerSandbox, operation: 'read' | 'write', path: string, content?: string) {
-    if (!path || path.length > 1024 ||
-        path.split('/').some((part) => !part || part === '.' || part === '..' || /[\0\\]/.test(part))) throw invalidFile();
+    validatePath(path);
     const result = await this.exec(sandbox, {
       argv: [NODE, '-e', FILE_HELPER, operation, path], cwd: '/workspace', timeout_s: 10,
       ...(content === undefined ? {} : { stdin: content }),

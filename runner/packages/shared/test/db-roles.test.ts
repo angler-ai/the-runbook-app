@@ -1,3 +1,4 @@
+import { readdirSync } from 'node:fs';
 // The runner database's per-process roles (design §7.9, plan "Runner
 // database"). These grants are security requirements: the vault is the only
 // reader and writer of secret tables, and nobody can rewrite the audit log.
@@ -161,7 +162,8 @@ describe.skipIf(!hasTestDatabase)('runner database roles', () => {
     const { migrate } = await import('../src/db.ts');
     await migrate(db.adminUrl);
     const { rows } = await db.admin().query(`SELECT version FROM runner_schema_migrations ORDER BY version`);
-    expect(rows.map((r) => r.version)).toEqual(['0001_init', '0002_assertion_replays', '0003_budget_policy', '0004_slot_claim', '0005_gateway_tool_records', '0006_credential_deletion', '0007_catalog_snapshots', '0008_scheduler_events', '0009_sandbox_metering', '0010_worker_reports', '0011_vault_model_profile_policy', '0012_agent_observations', '0013_cache_write_usage', '0014_vertex_gemini', '0015_vault_assertion_replays', '0016_transcript_writer', '0017_atomic_seal_metadata', '0018_vault_credential_policy', '0019_reservation_capability', '0020_usage_reconciliation', '0021_atomic_credential_policy', '0022_vault_proposal_policy', '0023_pending_usage_writer', '0024_ambiguous_legacy_usage', '0025_transcript_claim', '0026_decision_ledger', '0027_task_claim_ledger']);
+    const files = readdirSync(new URL('../../api/migrations/', import.meta.url)).filter((name) => name.endsWith('.sql')).sort();
+    expect(rows.map((r) => r.version)).toEqual(files.map((name) => name.slice(0, -4)));
   });
 
   it('openPool refuses a superuser or a role outside its group', async () => {
@@ -203,6 +205,44 @@ describe.skipIf(!hasTestDatabase)('runner database roles', () => {
       await admin.query(`DROP TABLE IF EXISTS owned_${suffix}`);
       await admin.query(`DROP ROLE IF EXISTS ${twoRoles}`);
       await admin.query(`DROP ROLE IF EXISTS ${owner}`);
+    }
+  });
+
+  it('checks the prefixed IAM login before switching to a process group', async () => {
+    const { openPool, installRoleNames } = await import('../src/db.ts');
+    const prefix = 'gke' + Math.random().toString(36).slice(2, 10);
+    const names = installRoleNames(prefix);
+    const login = prefix + '_login';
+    const password = 'fake-test-only-password';
+    const admin = db.admin();
+    const url = new URL(db.adminUrl);
+    url.username = login;
+    url.password = password;
+    const previous = process.env.RUNNER_DB_ROLE_PREFIX;
+    process.env.RUNNER_DB_ROLE_PREFIX = prefix;
+    const asApi = async () => {
+      const pool = openPool('api', url.toString());
+      try { return (await pool.query('SELECT current_user')).rows[0]?.current_user as string; }
+      finally { await pool.end(); }
+    };
+    try {
+      for (const name of Object.values(names)) await admin.query(`CREATE ROLE ${name} NOLOGIN`);
+      await admin.query(`CREATE ROLE ${login} LOGIN NOINHERIT PASSWORD '${password}' IN ROLE ${names.api}, ${names.scheduler}`);
+      expect(await asApi()).toBe(names.api);
+      await admin.query(`GRANT pg_read_all_data TO ${login}`);
+      await expect(asApi()).rejects.toThrow(/pg_read_all_data/);
+      await admin.query(`REVOKE pg_read_all_data FROM ${login}`);
+      await admin.query(`ALTER ROLE ${login} CREATEROLE`);
+      await expect(asApi()).rejects.toThrow(/privileged/);
+      await admin.query(`ALTER ROLE ${login} NOCREATEROLE`);
+      await admin.query(`CREATE TABLE owned_${prefix} (x int)`);
+      await admin.query(`ALTER TABLE owned_${prefix} OWNER TO ${login}`);
+      await expect(asApi()).rejects.toThrow(/owns/);
+    } finally {
+      if (previous === undefined) delete process.env.RUNNER_DB_ROLE_PREFIX;
+      else process.env.RUNNER_DB_ROLE_PREFIX = previous;
+      await admin.query(`DROP TABLE IF EXISTS owned_${prefix}`);
+      await admin.query(`DROP ROLE IF EXISTS ${login}, ${Object.values(names).join(', ')}`);
     }
   });
 

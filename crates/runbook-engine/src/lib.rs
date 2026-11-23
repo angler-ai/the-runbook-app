@@ -113,6 +113,7 @@ pub use assignment::{AssigneeRequest, ResolvedAssignee, TakenOver, agents_may_cl
 mod approval;
 pub use approval::{
     ApprovalDecision, ApprovalSignature, ApprovalState, ResolvedVote, VoteEligibility, apply_vote,
+    excluded_completers, independent_review_missing_report, independent_review_unknown_service,
 };
 
 mod wait;

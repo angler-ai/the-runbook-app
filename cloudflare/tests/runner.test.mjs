@@ -14,20 +14,33 @@ for (const transport of ['public fetch', 'the certificate binding']) {
       const url = new URL(request.url);
       assert.equal(url.origin, 'https://runner.example');
       forwarded.push({ url, method: request.method, headers: request.headers, body: await request.text() });
-      return runnerReply();
+      const reply = await runnerReply();
+      return typeof reply === 'function' ? reply() : reply;
+    };
+    const auth = (request) => {
+      if (new URL(request.url).pathname !== '/internal/session') return new Response(null, { status: 404 });
+      const cookie = request.headers.get('cookie');
+      if (cookie === '__Host-runbook.session_token=oauth-unavailable') return new Response(null, { status: 503 });
+      const session = /^__Host-runbook\.session_token=(oauth-current|oauth-other)$/.exec(cookie ?? '')?.[1];
+      if (!session) return new Response(null, { status: 401 });
+      return Response.json({ auth_user_id: 'fixture-oauth-owner', email: 'runner-owner@example.test', email_verified: true,
+        session_id: session, expires_at: Date.now() + 3600_000, mfa_enrolled: true,
+        ...(session === 'oauth-current' && { mfa_method: 'totp', mfa_verified_at: Date.now() }) });
     };
     const worker = await startWorker({
       ...transport === 'the certificate binding'
         ? {
-            serviceBindings: { RUNBOOK_RUNNER_MTLS: runnerFetch },
+            serviceBindings: { RUNBOOK_RUNNER_MTLS: runnerFetch, AUTH: auth },
             outboundService: () => new Response('Unexpected public fetch', { status: 502 }),
           }
-        : { outboundService: runnerFetch },
+        : { outboundService: runnerFetch, serviceBindings: { AUTH: auth } },
       faults: false,
       d1: { DATA: { id: '00000000-0000-0000-0000-0000000000b2' } },
       vars: {
         RUNBOOK_D1_SHARDS: JSON.stringify({ control: 'DB', default: 'DATA' }),
         BOOTSTRAP_SECRET: boot,
+        RUNBOOK_ORIGIN: 'https://runbook.test',
+        RUNBOOK_AUTH_INTERNAL_SECRET: 'fake-cloudflare-session-fixture-0123456789',
         WEBHOOK_SECRET_KEY: randomBytes(32).toString('base64'),
       },
     });
@@ -44,8 +57,11 @@ for (const transport of ['public fetch', 'the certificate binding']) {
       "UPDATE credential SET payload = json_insert(payload, '$.scopes[#]', 'runner:read', '$.scopes[#]', 'runner:admin') WHERE secret_hash = ?",
     ).bind(hash).run();
 
+    await db.prepare('INSERT INTO verified_email(email, user_id) VALUES (?, ?)').bind('runner-owner@example.test', user).run();
+
     await runnerScenario({
-      call, token, project, org, user, url: 'https://runner.example', forwarded,
+      call, token, project, org, user, url: 'https://runner.example', forwarded, oauthBrowser: { origin: 'https://runbook.test' },
+      readiness: '/health',
       setRunnerReply: (reply) => { runnerReply = reply; },
     });
     const audit = await db.prepare(

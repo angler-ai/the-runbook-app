@@ -41,6 +41,7 @@ pub const CATALOG: &[&str] = &[
     "step.blocked",
     "step.completed",
     "step.reminder",
+    "step.overdue",
     "step.escalated",
     "execution.queued",
     "execution.started",
@@ -54,6 +55,9 @@ pub const CATALOG: &[&str] = &[
     "runner.probe_succeeded",
     "runner.secret_in_response",
     "runner.binding_mismatch",
+    "credential.reconnect_required",
+    "credential.oauth_expiring",
+    "credential.oauth_refresh_failing",
     "runner.release_denied",
     TEST_EVENT,
 ];
@@ -64,6 +68,7 @@ pub const HUMAN_EVENTS: &[&str] = &[
     "approval.expired",
     "step.blocked",
     "step.reminder",
+    "step.overdue",
     "step.escalated",
 ];
 pub const TEST_EVENT: &str = "webhook.test";

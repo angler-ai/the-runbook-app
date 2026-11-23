@@ -50,6 +50,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0045_org_security.sql"),
     include_str!("../migrations/0046_runner_decisions.sql"),
     include_str!("../migrations/0047_runner_decision_contract.sql"),
+    include_str!("../migrations/0048_project_slack_run_started.sql"),
 ];
 /// UPD1: the schema this code migrates to (its last migration's number).
 pub const SCHEMA_VERSION: u32 = MIGRATIONS.len() as u32;

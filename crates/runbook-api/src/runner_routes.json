@@ -158,6 +158,20 @@
     },
     {
       "method": "GET",
+      "path": "/runner/v1/mcp-servers/{server_id}/tools",
+      "scope": "runner:read",
+      "sensitive": false,
+      "mfa_reason": "Read under runner authorization"
+    },
+    {
+      "method": "GET",
+      "path": "/runner/v1/mcp-servers/{server_id}/drift",
+      "scope": "runner:read",
+      "sensitive": false,
+      "mfa_reason": "Read under runner authorization"
+    },
+    {
+      "method": "GET",
       "path": "/runner/v1/credentials",
       "scope": "runner:read",
       "sensitive": false,
@@ -211,6 +225,42 @@
       "scope": "runner:admin",
       "sensitive": true,
       "mfa_reason": "Revokes a runner credential"
+    },
+    {
+      "method": "POST",
+      "path": "/runner/v1/credentials/{credential_id}/oauth-discover",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Discovers the OAuth issuer and endpoints"
+    },
+    {
+      "method": "POST",
+      "path": "/runner/v1/credentials/{credential_id}/oauth-confirm",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Confirms the OAuth endpoints and registers a client"
+    },
+    {
+      "method": "POST",
+      "path": "/runner/v1/credentials/{credential_id}/connect",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Starts an OAuth authorization under a full human session"
+    },
+    {
+      "method": "POST",
+      "path": "/runner/v1/credentials/{credential_id}/disconnect",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Disconnects an OAuth credential"
+    },
+    {
+      "method": "POST",
+      "path": "/runner/v1/oauth/callback/{credential_id}",
+      "scope": "runner:admin",
+      "sensitive": false,
+      "mfa_reason": "Completes a browser authorization after step-up at connect",
+      "core_only": true
     },
     {
       "method": "GET",
@@ -351,6 +401,76 @@
       "scope": "runner:admin",
       "sensitive": false,
       "mfa_reason": "Edits a proposal without applying it"
+    },
+    {
+      "method": "GET",
+      "path": "/runner/v1/environments",
+      "scope": "runner:read",
+      "sensitive": false,
+      "mfa_reason": "Read under runner authorization"
+    },
+    {
+      "method": "GET",
+      "path": "/runner/v1/environments/{environment_id}",
+      "scope": "runner:read",
+      "sensitive": false,
+      "mfa_reason": "Read under runner authorization"
+    },
+    {
+      "method": "POST",
+      "path": "/runner/v1/environments",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Changes sandbox environment configuration"
+    },
+    {
+      "method": "PATCH",
+      "path": "/runner/v1/environments/{environment_id}",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Changes sandbox environment configuration"
+    },
+    {
+      "method": "DELETE",
+      "path": "/runner/v1/environments/{environment_id}",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Changes sandbox environment configuration"
+    },
+    {
+      "method": "POST",
+      "path": "/runner/v1/environments/{environment_id}/resolve-digest",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Resolves and pins a sandbox image digest"
+    },
+    {
+      "method": "GET",
+      "path": "/runner/v1/environment-registries",
+      "scope": "runner:read",
+      "sensitive": false,
+      "mfa_reason": "Read under runner authorization"
+    },
+    {
+      "method": "PUT",
+      "path": "/runner/v1/environment-registries",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Changes allowed sandbox image registries"
+    },
+    {
+      "method": "GET",
+      "path": "/runner/v1/projects/{project_id}/mcp-tools",
+      "scope": "runner:read",
+      "sensitive": false,
+      "mfa_reason": "Read under runner authorization"
+    },
+    {
+      "method": "GET",
+      "path": "/runner/v1/budgets",
+      "scope": "runner:read",
+      "sensitive": false,
+      "mfa_reason": "Read under runner authorization"
     },
     {
       "method": "GET",

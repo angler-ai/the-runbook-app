@@ -322,6 +322,8 @@ describe('counts and activity', () => {
   const run = (id: string, status: string, created: number, completed?: number): RunEntry =>
     ({
       id,
+      url: `/v1/executions/${id}`,
+      web_url: `/x/${id}`,
       runbook_id: 'rb_1',
       status,
       title: id,
@@ -413,6 +415,8 @@ describe('review round 1', () => {
   const entry = (id: string, created: number) =>
     ({
       id,
+      url: `/v1/executions/${id}`,
+      web_url: `/x/${id}`,
       runbook_id: 'rb_1',
       status: 'succeeded',
       title: id,

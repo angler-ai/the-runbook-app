@@ -94,6 +94,11 @@ services:
   runner-vault:
     <<: *runner
     command: [vault]
+    # No public bridge. Provider requests use the vault-authenticated CONNECT
+    # listener on runner-internal; the native core has its own private link.
+    networks: [runner-internal, runner-vault-core]
+    environment:
+      RUNNER_VAULT_CORE_URL: http://runner-core:8080
     user: "${RUNNER_KEK_UID:-10001}:${RUNNER_KEK_GID:-10001}"
     env_file:
       - path: ./runner-config/vault.env
@@ -133,6 +138,8 @@ networks:
       config:
         - subnet: "${RUNNER_INTERNAL_SUBNET:-172.31.89.0/24}"
   runner-egress: {}
+  runner-vault-core:
+    internal: true
 
 volumes:
   runner-pgdata:

@@ -125,6 +125,8 @@ pub fn resume_brief(state: &ExecutionState, audience: Option<ActorKind>) -> Resu
         NextAction::Wait
     };
     ResumeBrief {
+        url: state.url.clone(),
+        web_url: runbook_model::execution_web_url(&state.url, &state.id),
         schema_revision: SCHEMA_REVISION,
         execution_id: state.id.clone(),
         completed_steps,

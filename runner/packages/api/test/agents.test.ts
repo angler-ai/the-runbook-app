@@ -251,7 +251,7 @@ it.skipIf(!hasTestDatabase)('agent saves pin the project skill body for the capa
     }, async () => undefined, directory);
     const claims: UserAssertionClaims = {
       aud: 'runner:install', iss: 'core', jti: 'test', iat: 0, exp: 60, org_id: 'org', user_id: 'human',
-      org_role: 'owner', principal: 'human', project_roles: { p: 'admin' },
+      org_role: 'owner', principal: 'human', session_hash: 'browser', project_roles: { p: 'admin' },
       scopes: ['runner:read', 'runner:admin'], htm: 'POST', htu: '', bh: '',
     };
     const root = '/runner/v1/projects/p/agents';

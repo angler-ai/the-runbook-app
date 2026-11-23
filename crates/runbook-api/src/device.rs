@@ -279,6 +279,7 @@ async fn token<B: Backends>(backends: &B, r: &Request) -> Response {
             .collect(),
         created_at: Some(now),
         created_by: Some(grant.user_id.clone()),
+        owner: None,
         fresh_mfa_at_issue: grant.fresh_mfa_at_issue,
     };
     if backends

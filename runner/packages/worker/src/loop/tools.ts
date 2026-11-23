@@ -1,3 +1,6 @@
+import { MCP_ACCESS_BLOCKED, type McpAccessBlocked } from '@runbook/runner-shared/contracts/internal';
+import { McpError } from '@modelcontextprotocol/sdk/types.js';
+import { OAuthBlocked } from './limits.ts';
 import { createHash } from 'node:crypto';
 import type { ExecRequest, ExecResponse } from '@runbook/runner-shared/contracts/internal';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -175,7 +178,18 @@ export function workspaceTools(clients: Clients, ctx: ExecutionContext, id: stri
   }))];
 }
 
-export async function mcpTools(gatewayUrl: string, token: string, ctx: ExecutionContext, initialSignal = ctx.signal, reserved?: Set<string>, readOnly = false) {
+export async function mcpTools(gatewayUrl: string, token: string, ctx: ExecutionContext, initialSignal = ctx.signal, reserved?: Set<string>, readOnly = false,
+  rejected?: (releaseId: string, tokenVersion: number, signal: AbortSignal) => Promise<unknown>) {
+  async function classify(error: unknown, signal: AbortSignal): Promise<never> {
+    if (!(error instanceof McpError) || error.code !== MCP_ACCESS_BLOCKED) throw error;
+    const blocked = error.data as McpAccessBlocked | undefined;
+    if (blocked?.kind !== 'missing_access' && blocked?.kind !== 'insufficient_scope') throw error;
+    if (blocked.kind === 'missing_access' && typeof blocked.release_id === 'string' &&
+        typeof blocked.token_version === 'number' && Number.isSafeInteger(blocked.token_version)) {
+      await rejected?.(blocked.release_id, blocked.token_version, signal).catch(() => undefined);
+    }
+    throw new OAuthBlocked(blocked.kind);
+  }
   const client = new Client({ name: 'runbook-worker', version: '0.1.1' });
   const transport = new StreamableHTTPClientTransport(new URL(`/mcp/${encodeURIComponent(ctx.stepRunId)}`, gatewayUrl), {
     fetch: async (input, init) => {
@@ -208,12 +222,12 @@ export async function mcpTools(gatewayUrl: string, token: string, ctx: Execution
         call: (args, signal, callId) => client.callTool({
           name: tool.name, arguments: args,
           ...(callId && { _meta: { 'runbook/idempotency-key': `${ctx.stepRunId}:${callId}` } }),
-        }, undefined, { signal }),
+        }, undefined, { signal }).catch((error: unknown) => classify(error, signal)),
       };
     });
     return { tools, close: () => client.close() };
   } catch (error) {
     await client.close().catch(() => undefined);
-    throw error;
+    return classify(error, initialSignal);
   }
 }

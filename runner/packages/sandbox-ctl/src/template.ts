@@ -3,6 +3,7 @@ import type { SandboxListenerResponse, SandboxSize } from '@runbook/runner-share
 
 export const SANDBOX_LABEL = 'runbook.sandbox';
 export const EXIT_MARGIN_MS = 3000;
+export const TRUSTED_HELPER = '/runbook-trusted/helper';
 export const NODE = '/usr/local/bin/node';
 export const SIZES = {
   small: { vcpu: 0.5, gib: 1 },
@@ -20,7 +21,7 @@ export function template(id: string, network: string, image: string, size: Sandb
   const ca = '/workspace/.runbook-ca.pem';
   return {
     name: id, Image: image, User: '10001:10001', WorkingDir: '/workspace',
-    Entrypoint: [NODE, '-e'],
+    Entrypoint: [NODE, '-e'], Healthcheck: { Test: ['NONE'] },
     Cmd: ['require("node:fs").writeFileSync(process.env.SSL_CERT_FILE, process.env.RUNBOOK_SANDBOX_CA, { mode: 0o400 }); setTimeout(() => {}, Number(process.argv[1]));', String(timeoutMs + EXIT_MARGIN_MS)],
     Env: [
       `HTTPS_PROXY=${proxy.href}`, `HTTP_PROXY=${proxy.href}`, `https_proxy=${proxy.href}`, `http_proxy=${proxy.href}`,

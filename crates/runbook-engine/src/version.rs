@@ -27,9 +27,11 @@
 //!   is skipped and it closes failed (a cancelled run stays cancelled).
 //!   Earlier versions refuse that fault, so runs under versions 1 to 5
 //!   replay unchanged and are not held to the ceiling.
+//! - 7: independent approval decisions exclude every recorded contributor.
+//! - 8: independent review uses shared foreach iterations, amended results and service-token attribution.
 
 /// The engine semantics this build writes for new runs.
-pub const ENGINE_VERSION: u32 = 6;
+pub const ENGINE_VERSION: u32 = 8;
 /// The version of logs recorded before the marker existed.
 pub const LEGACY_ENGINE_VERSION: u32 = 1;
 
@@ -50,6 +52,11 @@ pub(crate) const WAIT_CAP: u32 = 4;
 pub(crate) const OUTPUTS_BUDGET: u32 = 5;
 /// Version 6 rule: the hard ceiling on a run's event log (CF13b).
 pub(crate) const RUN_CEILING: u32 = 6;
+
+/// Version 7 records independent approval decisions after filtering all contributors.
+pub(crate) const INDEPENDENT_APPROVALS: u32 = 7;
+
+pub(crate) const SCOPED_INDEPENDENT_APPROVALS: u32 = 8;
 
 pub(crate) fn check(version: u32) -> Result<(), crate::EngineError> {
     if (LEGACY_ENGINE_VERSION..=ENGINE_VERSION).contains(&version) {

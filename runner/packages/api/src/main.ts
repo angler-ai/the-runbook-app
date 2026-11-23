@@ -6,11 +6,13 @@ import { createJsonHandler } from '@runbook/runner-shared/http';
 import { createLogger } from '@runbook/runner-shared/log';
 import { AssertionVerifier } from './auth.ts';
 import { syncDirectory, syncGroupProjects } from './directory-sync.ts';
+import { startInstallationHeartbeat } from './installation-heartbeat.ts';
 import { deliverBudgetAlerts } from './ledger/alerts.ts';
 import { stepCostRoute } from './ledger/step-cost.ts';
 import { ledgerRoutes } from './ledger/routes.ts';
 import { checkCoreContract } from './registration.ts';
 import { sandboxMeterRoute } from './resources/activity.ts';
+import { installationImage, seedEnvironment } from './resources/environments.ts';
 import { gatewayResources } from './resources/gateway.ts';
 import { publicResources } from './resources/public.ts';
 import { loadUsageMetrics } from './resources/usage.ts';
@@ -28,8 +30,16 @@ export async function main(): Promise<void> {
   const directory = { coreUrl, installId, token, orgId };
   await checkCoreContract(coreUrl);
   const db = openPool('api', config.databaseUrl!);
+  const image = installationImage();
+  if (image) await seedEnvironment(db, orgId, image);
   await syncGroupProjects(db, directory);
   const ledger = openPool('scheduler', config.schedulerDatabaseUrl!);
+  const workerUrl = process.env.RUNNER_GKE_WORKER_URL;
+  const capacity = Number(process.env.RUNNER_INSTALL_WORKER_CAPACITY);
+  const runnerId = config.runnerIds?.[0];
+  if (workerUrl && (!runnerId || config.runnerIds?.length !== 1 || !Number.isSafeInteger(capacity) || capacity < 1)) {
+    throw new Error('invalid installed runner heartbeat configuration');
+  }
   const log = createLogger('api');
   const verifier = new CapabilityVerifier({ coreUrl, runnerIds: config.runnerIds! });
   let alertDelivery: Promise<void> | undefined;
@@ -39,7 +49,7 @@ export async function main(): Promise<void> {
       .finally(() => { alertDelivery = undefined; });
   };
   const schedule = scheduler({ db: ledger, coreUrl, installId, token, orgId, log, verifier,
-    notify: workerNotifier(ledger, log), wakeAlerts: flushAlerts });
+    notify: workerNotifier(ledger, log), wakeAlerts: flushAlerts, requireDefaultEnvironment: true });
   const webhook = coreWebhook(ledger, { secret: config.coreWebhookSecret, orgId, wake: schedule.wake });
   const internal = createJsonHandler({
     log, inboundTokens: config.inboundTokens, workerTokens: config.workerTokens,
@@ -47,7 +57,7 @@ export async function main(): Promise<void> {
       ...schedule.routes,
       ...gatewayResources(db, verifier, orgId),
       sandboxMeterRoute(ledger),
-      ...ledgerRoutes(ledger, verifier, orgId, flushAlerts),
+      ...ledgerRoutes(ledger, verifier, orgId, flushAlerts, true),
       stepCostRoute(ledger, verifier, flushAlerts),
     ],
   });
@@ -90,8 +100,12 @@ export async function main(): Promise<void> {
   sweep();
   flushAlerts();
   void sync();
+  const stopHeartbeat = workerUrl && runnerId ? startInstallationHeartbeat({
+    coreUrl, installId, token, workerUrl, runnerId, capacity, pool: ledger,
+  }, () => log.error('runner installation heartbeat failed')) : undefined;
   const close = () => {
     clearInterval(timer);
+    stopHeartbeat?.();
     function closeServer(listener: http.Server) {
       return new Promise<void>((resolve) => listener.close(() => resolve()));
     }

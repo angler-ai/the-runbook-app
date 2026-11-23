@@ -16,6 +16,7 @@ interface Reservation {
   actual_usd: string | null;
   status: 'reserved' | 'settled' | 'released';
   usage_pending: boolean;
+  overrun_usd: string;
 }
 
 function usageCounters(request: SettleRequest): number[] {
@@ -52,6 +53,8 @@ export async function settleInTransaction(client: pg.PoolClient, request: Settle
   if (reservation.kind === 'admission' && actual !== 0) {
     throw new HttpError(400, 'ledger.invalid_amount', 'invalid admission settlement');
   }
+  const charged = Math.min(actual, micros(reservation.amount_usd));
+  const overrun = actual - charged;
   const buckets = await lockBuckets(client, reservation.bucket_ids);
   if (buckets.length !== reservation.bucket_ids.length) throw new Error('reservation bucket missing');
   const alerts: BudgetAlert[] = [];
@@ -60,14 +63,16 @@ export async function settleInTransaction(client: pg.PoolClient, request: Settle
     alerts.push(...crossed);
     await client.query(
       `UPDATE ledger_buckets SET reserved_usd = reserved_usd - $2, spent_usd = spent_usd + $3,
-       alerts_sent = $4 WHERE id = $1`,
-      [bucket.id, reservation.amount_usd, dollars(actual),
-        JSON.stringify([...bucket.alerts_sent, ...crossed.map(({ threshold }) => threshold)])],
+       alerts_sent = $4, configured_alert_sent = configured_alert_sent OR $5, overrun_usd = overrun_usd + $6,
+       closed_cap_usd = CASE WHEN level IN ('agent','environment') AND spent_usd + overrun_usd + $3 + $6 >= cap_usd
+         THEN LEAST(closed_cap_usd, cap_usd) ELSE closed_cap_usd END WHERE id = $1`,
+      [bucket.id, reservation.amount_usd, dollars(charged),
+        JSON.stringify([...bucket.alerts_sent, ...crossed.map(({ threshold }) => threshold)]), bucket.alert_threshold_percent != null && crossed.length > 0, dollars(overrun)],
     );
   }
   await client.query(
-    "UPDATE ledger_reservations SET actual_usd = $2, status = 'settled', settled_at = now(), usage_pending = $3 WHERE id = $1",
-    [request.reservation_id, dollars(actual), reservation.kind === 'model' && request.usage_pending === true],
+    "UPDATE ledger_reservations SET actual_usd = $2, status = 'settled', settled_at = now(), usage_pending = $3, overrun_usd = $4 WHERE id = $1",
+    [request.reservation_id, dollars(actual), reservation.kind === 'model' && request.usage_pending === true, dollars(overrun)],
   );
   if (reservation.kind !== 'admission') {
     const compute = ['vcpu_seconds', 'gib_seconds'].map((key) => {
@@ -87,7 +92,8 @@ export async function settleInTransaction(client: pg.PoolClient, request: Settle
         agent, reservation.kind, ...counters, dollars(actual), ...compute, request.reservation_id],
     );
   }
-  await enqueueBudgetAlerts(client, alerts, reservation.group_id, reservation.runner_id);
+  await enqueueBudgetAlerts(client, alerts, reservation.group_id, reservation.runner_id,
+    buckets.find(({ level }) => level === 'project')?.key);
   return alerts;
 }
 
@@ -118,21 +124,30 @@ export async function reconcile(pool: pg.Pool, request: SettleRequest,
     }
     const buckets = await lockBuckets(client, reservation.bucket_ids);
     if (buckets.length !== reservation.bucket_ids.length) throw new Error('reservation bucket missing');
-    const delta = actual - micros(reservation.actual_usd);
+    const charged = Math.min(actual, micros(reservation.amount_usd));
+    const delta = charged - (micros(reservation.actual_usd) - micros(reservation.overrun_usd));
+    const overrun = actual - charged;
+    const overrunDelta = overrun - micros(reservation.overrun_usd);
     const alerts: BudgetAlert[] = [];
     for (const bucket of buckets) {
-      const crossed = delta > 0 ? crossedThresholds(bucket, delta) : [];
+      const measuredDelta = delta + overrunDelta;
+      const crossed = measuredDelta > 0 ? crossedThresholds(bucket, measuredDelta) : [];
       alerts.push(...crossed);
-      await client.query('UPDATE ledger_buckets SET spent_usd = spent_usd + $2, alerts_sent = $3 WHERE id = $1',
-        [bucket.id, dollars(delta), JSON.stringify([...bucket.alerts_sent, ...crossed.map(({ threshold }) => threshold)])]);
+      await client.query(`UPDATE ledger_buckets SET spent_usd = spent_usd + $2, alerts_sent = $3,
+        configured_alert_sent = configured_alert_sent OR $4, overrun_usd = overrun_usd + $5,
+        closed_cap_usd = CASE WHEN level IN ('agent','environment') AND spent_usd + overrun_usd + $2 + $5 >= cap_usd
+          THEN LEAST(closed_cap_usd, cap_usd) ELSE closed_cap_usd END WHERE id = $1`,
+        [bucket.id, dollars(delta), JSON.stringify([...bucket.alerts_sent, ...crossed.map(({ threshold }) => threshold)]),
+          bucket.alert_threshold_percent != null && crossed.length > 0, dollars(overrunDelta)]);
     }
     const { rows: [updated] } = await client.query<{ updated: boolean }>(
       'SELECT reconcile_pending_usage($1,$2,$3,$4,$5,$6,$7) AS updated',
       [request.reservation_id, dollars(actual), ...counters, authorization.overrideHold === true]);
     if (!updated?.updated) throw new HttpError(409, 'ledger.not_pending', 'reservation is not pending reconciliation');
-    await client.query('UPDATE ledger_reservations SET actual_usd = $2, usage_pending = false WHERE id = $1',
-      [request.reservation_id, dollars(actual)]);
-    await enqueueBudgetAlerts(client, alerts, reservation.group_id, reservation.runner_id);
+    await client.query('UPDATE ledger_reservations SET actual_usd = $2, usage_pending = false, overrun_usd = $3 WHERE id = $1',
+      [request.reservation_id, dollars(actual), dollars(overrun)]);
+    await enqueueBudgetAlerts(client, alerts, reservation.group_id, reservation.runner_id,
+    buckets.find(({ level }) => level === 'project')?.key);
     return alerts;
   });
 }

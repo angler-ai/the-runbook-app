@@ -110,6 +110,12 @@ async fn dispatch<B: Backends>(backends: &B, r: &Request) -> Result<Value, Error
     // Recheck revocation/issuer after waiting for the execution lock.
     let current = access(backends, secret).await?;
     let identity = Identity {
+        service_attribution: crate::actor_store::service_attribution(
+            backends,
+            &verified.scope.org_id,
+            &current.principal.issuer,
+        )
+        .await?,
         key: format!("execution:{}", current.principal.family_id),
         human: None,
         credential_ref: current.record.token_id.to_string(),

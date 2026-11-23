@@ -69,7 +69,7 @@ pub async fn handle<B: Backends>(backends: &B, r: Request) -> Response {
         }
         Ok(Reply::Redirect(location)) => {
             let mut response = Response::json(302, Value::Null, &r.request_id);
-            response.location = Some(Box::new(location));
+            response.navigation = Some(Box::new(crate::problem::Navigation::Redirect(location)));
             response
         }
         Err((status, code)) => Response::error(status, code, &r.request_id),

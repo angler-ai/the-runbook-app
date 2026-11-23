@@ -55,6 +55,13 @@ export function vaultRoutes(vault: Vault, soleRunner?: string): Route[] {
           handle: async (ctx) => ({ body: await releases.release(ctx.body as never, workerRunner(ctx)) }),
         },
         {
+          method: 'POST', path: '/internal/oauth/rejected', callers: ['worker'],
+          async handle(ctx) {
+            await releases.oauthRejected(ctx.body, workerRunner(ctx));
+            return { status: 204 };
+          },
+        },
+        {
           method: 'POST',
           path: '/internal/end-claim',
           callers: ['worker'],
@@ -86,6 +93,18 @@ export function vaultRoutes(vault: Vault, soleRunner?: string): Route[] {
           },
         },
         {
+          method: 'POST', path: '/internal/mcp/{server_id}/oauth-discover', callers: ['api'],
+          async handle(ctx) {
+            const id = ctx.params.server_id!;
+            await credentialOperator(ctx, `/runner/v1/mcp-servers/${id}/discover`);
+            const { rows: [source] } = await vault.pool.query<{ url: string; transport: 'streamable-http' | 'sse'; credential_id?: string }>(
+              'SELECT url, transport, credential_id FROM mcp_servers WHERE id = $1 AND deleted_at IS NULL', [id],
+            );
+            if (!source?.credential_id) throw new HttpError(404, 'mcp.discovery_denied', 'MCP OAuth server unavailable');
+            return { body: await releases.discover(source, true) };
+          },
+        },
+        {
           method: 'POST',
           path: '/internal/mcp/discover',
           callers: ['api'],
@@ -103,14 +122,46 @@ export function vaultRoutes(vault: Vault, soleRunner?: string): Route[] {
         },
       ]
     : [];
+  const oauthRoutes: Route[] = vault.oauth
+    ? ['oauth-discover', 'oauth-confirm', 'connect', 'disconnect', 'callback'].map((operation) => ({
+        method: 'POST', path: `/internal/oauth/{credential_id}/${operation}`, callers: ['api'],
+        async handle(ctx) {
+          const id = ctx.params.credential_id!;
+          const claims = await asserted(ctx, operation === 'callback'
+            ? `/runner/v1/oauth/callback/${id}` : `/runner/v1/credentials/${id}/${operation}`);
+          const oauth = vault.oauth!;
+          switch (operation) {
+            case 'oauth-discover': return { body: await oauth.discover(id, claims) };
+            case 'oauth-confirm': {
+              const result = await oauth.confirm(id, claims, ctx.body);
+              if (!('connected' in result) || !result.connected || !releases) return { body: result };
+              const test = await releases.test({ credential_id: id }, { kind: 'user', id: claims.user_id })
+                .catch(() => ({ ok: false, error_class: 'unreachable' }));
+              await vault.pool.query(`UPDATE credentials c SET oauth_status = oauth_status || $2::jsonb
+                FROM credential_oauth o WHERE c.id = $1 AND c.id = o.credential_id AND o.generation = $3
+                  AND c.oauth_status->>'connect_result' = 'connected'`, [id,
+                JSON.stringify({ connect_test: test.ok ? 'passed' : test.error_class }), result.generation]);
+              return { body: { ...result, test } };
+            }
+            case 'connect': return { body: await oauth.start(id, claims, ctx.body) };
+            case 'disconnect': {
+              const result = await oauth.disconnect(id, claims);
+              return { status: result.pending_purge ? 202 : 200, body: result };
+            }
+            default: return { body: await oauth.callback(id, claims, ctx.body) };
+          }
+        },
+      }))
+    : [];
   return [
     ...releaseRoutes,
+    ...oauthRoutes,
     {
       method: 'POST', path: '/internal/credential-proposals/{proposal_id}/approve', callers: ['api'],
       async handle(ctx) {
         const id = ctx.params.proposal_id!;
         const claims = await asserted(ctx, `/runner/v1/proposals/${id}/approve`);
-        return { status: await approveCredentialProposal(vault.pool, claims, id) };
+        return { status: await approveCredentialProposal(vault.pool, claims, id, vault.oauth) };
       },
     },
     {
@@ -127,7 +178,7 @@ export function vaultRoutes(vault: Vault, soleRunner?: string): Route[] {
       async handle(ctx) {
         const id = ctx.params.credential_id!;
         const claims = await asserted(ctx, `/runner/v1/credentials/${id}`, 'PATCH');
-        return { body: await writeCredentialMetadata(vault.pool, claims, ctx.body, id) };
+        return { body: await writeCredentialMetadata(vault.pool, claims, ctx.body, id, vault.oauth) };
       },
     },
     {

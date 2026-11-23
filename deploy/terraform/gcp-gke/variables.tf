@@ -320,7 +320,7 @@ variable "blob_prefix" {
 variable "runner_enabled" {
   type        = bool
   default     = false
-  description = "Provision runner IAM identities and its vault key. Runner workloads wait for the R2 Kubernetes sandbox backend."
+  description = "Provision the runner and its gVisor sandbox namespace, with per-process identity and networking."
 }
 
 variable "sql_api_deletion_protection" {
@@ -418,6 +418,254 @@ variable "runner_kek_rotation_period" {
 
 variable "runner_vault_vertex_enabled" {
   description = "Grant the runner vault's service account roles/aiplatform.user. Leave off until attached-identity model use is enabled in the runner."
+  type        = bool
+  default     = false
+}
+
+variable "runner_image" {
+  type        = string
+  default     = ""
+  description = "Digest reference for ghcr.io/angler-ai/runbook-runner."
+  validation {
+    condition     = !var.runner_enabled || can(regex("^ghcr[.]io/angler-ai/runbook-runner@sha256:[0-9a-f]{64}$", var.runner_image)) || (var.name_prefix != "" && can(regex("^[^@[:space:]]+/${var.name_prefix}runbook-runner@sha256:[0-9a-f]{64}$", var.runner_image)))
+    error_message = "When enabled, pin runbook-runner by digest."
+  }
+}
+
+variable "runner_sandbox_image" {
+  type        = string
+  default     = ""
+  description = "Digest reference for ghcr.io/angler-ai/runbook-sandbox."
+  validation {
+    condition     = !var.runner_enabled || can(regex("^ghcr[.]io/angler-ai/runbook-sandbox@sha256:[0-9a-f]{64}$", var.runner_sandbox_image)) || (var.name_prefix != "" && can(regex("^[^@[:space:]]+/${var.name_prefix}runbook-sandbox@sha256:[0-9a-f]{64}$", var.runner_sandbox_image)))
+    error_message = "When enabled, pin runbook-sandbox by digest."
+  }
+}
+
+variable "runner_secret_versions" {
+  type        = map(string)
+  default     = {}
+  description = "Per-process Secret Manager references, in projects/PROJECT/secrets/SECRET/versions/VERSION form."
+  validation {
+    condition = !var.runner_enabled || (!var.runner_database_bootstrap_ready && length(var.runner_secret_versions) == 0) || (
+      toset(keys(var.runner_secret_versions)) == toset(["api", "vault", "gateway", "worker", "sandbox-ctl"]) &&
+      alltrue([for value in values(var.runner_secret_versions) : can(regex("^projects/[^/]+/secrets/[^/]+/versions/[1-9][0-9]*$", value))]) &&
+      length(distinct([for value in values(var.runner_secret_versions) : split("/versions/", value)[0]])) == 5
+    )
+    error_message = "Provide a distinct Secret Manager secret with a numeric version for each process."
+  }
+}
+
+variable "runner_install" {
+  type = object({
+    id          = string
+    org_id      = string
+    group_id    = string
+    runner_id   = string
+    role_prefix = string
+  })
+  default     = null
+  description = "IDs from one-time runner registration and a unique PostgreSQL role prefix for the installation."
+  validation {
+    condition = !var.runner_enabled || (!var.runner_database_bootstrap_ready && var.runner_install == null) || try(
+      alltrue([for id in [var.runner_install.id, var.runner_install.org_id, var.runner_install.group_id, var.runner_install.runner_id] : can(regex("^[A-Za-z0-9_-]+$", id))]) &&
+      can(regex("^[a-z][a-z0-9_]{2,29}$", var.runner_install.role_prefix)), false
+    )
+    error_message = "Provide runner registration IDs and a PostgreSQL role prefix of 3 to 30 lowercase letters, digits or underscores."
+  }
+}
+
+variable "runner_max_sandbox_pods" {
+  type        = number
+  default     = 20
+  description = "Sandbox namespace pod quota."
+  validation {
+    condition     = floor(var.runner_max_sandbox_pods) == var.runner_max_sandbox_pods && var.runner_max_sandbox_pods >= 1 && var.runner_max_sandbox_pods <= 1000
+    error_message = "Set an integer quota from 1 to 1000."
+  }
+}
+
+variable "runner_worker_capacity" {
+  type        = number
+  default     = 1
+  description = "Concurrent claims for the runner-worker Deployment."
+  validation {
+    condition     = floor(var.runner_worker_capacity) == var.runner_worker_capacity && var.runner_worker_capacity >= 1 && var.runner_worker_capacity <= var.runner_max_sandbox_pods
+    error_message = "Set an integer capacity from 1 to runner_max_sandbox_pods."
+  }
+}
+
+variable "runner_sql_max_connections" {
+  type        = number
+  default     = null
+  description = "Override Cloud SQL max_connections when the runner is enabled. By default the budget uses the tier limit of 25 on db-f1-micro, 50 on db-g1-small or 100 on db-custom-1-3840. Set it explicitly for other tiers."
+  validation {
+    condition     = var.runner_sql_max_connections == null ? true : floor(var.runner_sql_max_connections) == var.runner_sql_max_connections && var.runner_sql_max_connections >= 14
+    error_message = "Set an integer max_connections of at least 14."
+  }
+}
+
+variable "runner_database_pool_size" {
+  type        = number
+  default     = 4
+  description = "Upper bound per runner pool (API, scheduler, vault). The shared instance budget may require a smaller pool."
+  validation {
+    condition     = floor(var.runner_database_pool_size) == var.runner_database_pool_size && var.runner_database_pool_size >= 1 && var.runner_database_pool_size <= 10
+    error_message = "Set an integer runner pool size from 1 to 10."
+  }
+}
+
+variable "runner_database_bootstrap_ready" {
+  type        = bool
+  default     = false
+  description = "Enable the runner migration Job and Deployments after database ownership and core CONNECT grants are prepared."
+}
+
+variable "runner_dns_ip" {
+  type        = string
+  default     = "169.254.20.10"
+  description = "NodeLocal DNS IPv4 address on the target GKE cluster."
+  validation {
+    condition     = can(cidrnetmask("${var.runner_dns_ip}/32"))
+    error_message = "Use an IPv4 address."
+  }
+}
+
+variable "name_prefix" {
+  type        = string
+  default     = ""
+  description = "Prefix for names created by this installation. Leave empty for existing installations."
+
+  validation {
+    condition     = var.name_prefix == "" || can(regex("^[a-z][a-z0-9-]{0,19}-$", var.name_prefix))
+    error_message = "Use an empty prefix or up to 21 lowercase letters, digits and hyphens, starting with a letter and ending with a hyphen."
+  }
+}
+
+variable "labels" {
+  type        = map(string)
+  default     = {}
+  description = "Additional labels on supported resources. Built-in Kubernetes labels take precedence."
+}
+
+variable "release_channel" {
+  type        = string
+  default     = null
+  description = "Release channel for a new Autopilot cluster. Null leaves channel selection to GKE (normally REGULAR)."
+
+  validation {
+    condition     = var.release_channel == null ? true : contains(["RAPID", "REGULAR", "STABLE", "EXTENDED"], var.release_channel)
+    error_message = "Use RAPID, REGULAR, STABLE, EXTENDED, or null."
+  }
+}
+
+variable "deletion_protection" {
+  type        = bool
+  default     = true
+  description = "Protect a module-created GKE cluster against Terraform deletion."
+}
+
+variable "sql_final_backup" {
+  type        = bool
+  default     = true
+  description = "Take a final Cloud SQL backup on instance deletion."
+}
+
+variable "sql_final_backup_retention_days" {
+  type        = number
+  default     = 30
+  description = "Retention period for the final Cloud SQL backup."
+
+  validation {
+    condition     = var.sql_final_backup_retention_days >= 1 && var.sql_final_backup_retention_days <= 365 && floor(var.sql_final_backup_retention_days) == var.sql_final_backup_retention_days
+    error_message = "Use a whole number of days from 1 through 365."
+  }
+}
+
+variable "sql_retain_backups_on_delete" {
+  type        = bool
+  default     = true
+  description = "Retain existing Cloud SQL backups after deletion."
+}
+
+variable "kms_prevent_destroy" {
+  type        = bool
+  default     = true
+  description = "Keep the vault key protected. Set false only when creating a new, prefixed, disposable installation."
+
+  validation {
+    condition     = var.kms_prevent_destroy || var.name_prefix != ""
+    error_message = "Disabling KMS protection requires a nonempty name_prefix."
+  }
+}
+
+variable "ingress_enabled" {
+  type        = bool
+  default     = true
+  description = "Create the public GKE Ingress, reserved external IP, and managed certificate."
+}
+
+variable "runner_sandbox_images" {
+  description = "Additional approved sandbox images as full registry/repository@sha256 digest references. The installation sandbox image is always included."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition = length(var.runner_sandbox_images) <= 64 && alltrue([
+      for image in var.runner_sandbox_images :
+      can(regex("^([a-z0-9.-]+)(:[0-9]+)?/[a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64}$", image))
+    ])
+    error_message = "Specify at most 64 full sandbox image references pinned by SHA-256 digest."
+  }
+}
+
+variable "runner_registry_https_cidrs" {
+  description = "Optional IPv4 CIDRs for runner-api to resolve image tags over HTTPS, including any anonymous token endpoint. Fully pinned images need no registry lookup."
+  type        = set(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for cidr in var.runner_registry_https_cidrs : can(cidrnetmask(cidr)) && !endswith(cidr, "/0")])
+    error_message = "Use specific IPv4 CIDRs for the registry HTTPS endpoints."
+  }
+}
+
+variable "runner_secret_manager_secret_ids" {
+  description = "Secret Manager release policy entries for secrets in this project, with their allowed credential types, exact destinations, and optional version."
+  type = list(object({
+    resource     = string
+    version      = optional(string)
+    types        = set(string)
+    destinations = set(string)
+  }))
+  default = []
+
+  validation {
+    condition = alltrue([
+      for entry in var.runner_secret_manager_secret_ids :
+      startswith(entry.resource, "projects/${var.project_id}/secrets/") &&
+      can(regex("^projects/[^/]+/secrets/[A-Za-z0-9_-]{1,255}$", entry.resource)) &&
+      (entry.version == null || can(regex("^(latest|[1-9][0-9]{0,18})$", entry.version))) &&
+      length(entry.types) > 0 &&
+      length(setsubtract(entry.types, toset(["api-key", "mcp-bearer", "model-provider"]))) == 0 &&
+      length(entry.destinations) > 0 &&
+      alltrue([for destination in entry.destinations : try(trimspace(destination) != "", false)])
+    ])
+    error_message = "Specify each secret's full resource name in the deployment project, an optional version (latest or a positive integer), and nonempty supported types and destinations."
+  }
+
+  validation {
+    # The startup resource can identify the same project by number or by ID.
+    condition = length(setintersection(
+      toset([for entry in var.runner_secret_manager_secret_ids : basename(entry.resource)]),
+      toset([for version in values(var.runner_secret_versions) : try(split("/", version)[3], "")])
+    )) == 0
+    error_message = "Runner startup secrets cannot appear in runner_secret_manager_secret_ids."
+  }
+}
+
+variable "manage_secret_manager_audit_config" {
+  description = "Opt in to replacing this project's Secret Manager service audit configuration with Data Read and Data Write logging. Leave false to manage audit policy separately."
   type        = bool
   default     = false
 }

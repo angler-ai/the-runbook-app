@@ -274,7 +274,8 @@
         "title": { "type": "string" },
         "if": { "type": "string" },
         "on_failure": { "$ref": "#/$defs/failure" },
-        "timeout": { "$ref": "#/$defs/duration" }
+        "timeout": { "$ref": "#/$defs/duration" },
+        "due_after": { "$ref": "#/$defs/duration" }
       },
       "patternProperties": { "^x-": true }
     },
@@ -505,6 +506,7 @@
       "properties": {
         "prompt": { "type": "string" },
         "options": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/approvalOption" } },
+        "exclude_completers_of": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/nodeId" } },
         "approves": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
         "approvers": { "$ref": "#/$defs/approvers" },
         "min": { "$ref": "#/$defs/positiveU32" },

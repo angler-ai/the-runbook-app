@@ -308,11 +308,81 @@ const runnerSettingsRoute = createRoute({
   path: '/settings/organization/runner',
   validateSearch: (search: Record<string, unknown>): { tab?: string } =>
     typeof search.tab === 'string' ? { tab: search.tab } : {},
-  component: lazyRouteComponent(
-    () => import('../features/runner/RunnerSettingsPage'),
-    'RunnerSettingsPage',
-  ),
+  beforeLoad: ({ search, location }) => {
+    const oauth =
+      /^oauth-result=([A-Za-z0-9_-]{1,128})\.(connected|confirm-account|test-failed|failed)$/.exec(
+        location.hash,
+      );
+    if (oauth) {
+      let connection: string | null = null;
+      try {
+        connection = sessionStorage.getItem(`runner-connect:${oauth[1]}`);
+      } catch {
+        /* storage can be unavailable */
+      }
+      if (connection && /^[A-Za-z0-9_.:-]+$/.test(connection)) {
+        throw redirect({
+          to: '/runner/connections/$connection',
+          params: { connection },
+          search: { tab: oauth[2] === 'connected' ? 'tools' : 'connect' },
+          hash: location.hash,
+          replace: true,
+        });
+      }
+    }
+    const pages = {
+      overview: 'overview',
+      providers: 'models',
+      mcp: 'connections',
+      credentials: 'credentials',
+      policy: 'policy',
+      audit: 'audit',
+      proposals: 'proposals',
+    } as const;
+    const page =
+      (search.tab && Object.hasOwn(pages, search.tab)
+        ? pages[search.tab as keyof typeof pages]
+        : undefined) ?? (location.hash.startsWith('oauth-') ? 'credentials' : 'overview');
+    throw redirect({ to: `/runner/${page}`, hash: location.hash, replace: true });
+  },
 });
+
+const runnerIndexRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: '/runner',
+  beforeLoad: () => {
+    throw redirect({ to: '/runner/overview', replace: true });
+  },
+});
+
+const runnerPages = [
+  'overview',
+  'connections',
+  'models',
+  'environments',
+  'budgets',
+  'policy',
+  'agents',
+  'credentials',
+  'audit',
+  'proposals',
+] as const;
+const runnerPage = lazyRouteComponent(
+  () => import('../features/runner/RunnerSettingsPage'),
+  'RunnerSettingsPage',
+);
+function runnerRoute<const Path extends string>(path: Path) {
+  return createRoute({ getParentRoute: () => authenticatedRoute, path, component: runnerPage });
+}
+const runnerConnectionsDetailRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: '/runner/connections/$connection',
+  validateSearch: (search: Record<string, unknown>): { tab?: string } =>
+    typeof search.tab === 'string' ? { tab: search.tab } : {},
+  component: runnerPage,
+});
+const runnerEnvironmentRoute = runnerRoute('/runner/environments/$environment');
+const runnerSectionRoutes = runnerPages.map((page) => runnerRoute(`/runner/${page}` as const));
 
 const projectSettingsRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
@@ -401,6 +471,10 @@ const routeTree = rootRoute.addChildren([
     securitySettingsRoute,
     organizationSettingsRoute,
     runnerSettingsRoute,
+    runnerIndexRoute,
+    ...runnerSectionRoutes,
+    runnerConnectionsDetailRoute,
+    runnerEnvironmentRoute,
     projectSettingsRoute,
     projectAgentsRoute,
     projectAgentRoute,

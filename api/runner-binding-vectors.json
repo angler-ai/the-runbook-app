@@ -113,5 +113,62 @@
       ]
     },
     "hash": "CVjz8uWJ1xVUQYtszCQOdKDPENtIsYBYnDBLijyeB6Y"
+  },
+  {
+    "type": "mcp-oauth",
+    "config": {
+      "url": "https://mcp.example/team/mcp",
+      "resource": "https://mcp.example/team",
+      "issuer": "https://issuer.example/tenant",
+      "iss_supported": true,
+      "authorization_endpoint": "https://issuer.example/authorize?tenant=team",
+      "token_endpoint": "https://issuer.example/token/",
+      "revocation_endpoint": "https://revoke.example/token",
+      "registration_endpoint": null,
+      "token_endpoint_auth_method": "client_secret_basic",
+      "registration_mode": "pre-registered",
+      "client_id": "public-app-id",
+      "redirect_uri": "https://runbook.example/v1/runner/oauth/callback/cred_1",
+      "scopes": [
+        "files:write",
+        "files:read",
+        "files:write"
+      ],
+      "extra_parameters": {
+        "prompt": "consent",
+        "access_type": "offline"
+      }
+    },
+    "groups": [
+      "rg_b",
+      "rg_a"
+    ],
+    "binding": {
+      "url": "https://mcp.example/team/mcp",
+      "registration_mode": "pre-registered",
+      "client_id": "public-app-id",
+      "token_endpoint_auth_method": "client_secret_basic",
+      "scopes": [
+        "files:read",
+        "files:write"
+      ],
+      "extra_parameters": {
+        "prompt": "consent",
+        "access_type": "offline"
+      },
+      "resource": "https://mcp.example/team",
+      "issuer": "https://issuer.example/tenant",
+      "iss_supported": true,
+      "authorization_endpoint": "https://issuer.example/authorize?tenant=team",
+      "token_endpoint": "https://issuer.example/token/",
+      "revocation_endpoint": "https://revoke.example/token",
+      "registration_endpoint": null,
+      "redirect_uri": "https://runbook.example/v1/runner/oauth/callback/cred_1",
+      "groups": [
+        "rg_a",
+        "rg_b"
+      ]
+    },
+    "hash": "dAHzynxhKn04AhFhR0c-z-5AEnUobj742vyDctsIj4w"
   }
 ]

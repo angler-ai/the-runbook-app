@@ -44,6 +44,38 @@ can check the ingest-key fingerprint from a trusted source with `--pin`.
 For unattended entry it also checks the expected destination binding.
 See [credential entry and rotation](/runner/credentials/).
 
+## OAuth trust and logging
+
+The vault performs metadata, registration, exchange, refresh and revocation
+requests over a vault-authenticated CONNECT tunnel. The gateway validates
+and pins public addresses, while TLS from the vault to the OAuth provider
+protects the request content. The vault keeps client secrets and refresh
+tokens. A compromised gateway can capture a released OAuth access token and
+replay it until the provider expires or revokes it.
+
+The client shows the OAuth endpoints before confirmation and computes their
+binding. The vault checks the binding whenever it opens a token. The core and
+browser verify the vault’s signed authorization URL against the registered
+vault identity before the browser follows it. CLI connections pin that
+identity in the browser handoff. The core
+receives the authorization callback on a per-credential URL and forwards
+its parameters in an assertion-bound POST. Keep proxy, load balancer and
+Workers logging from recording query strings for
+`/v1/runner/oauth/callback/*`. The GKE module disables access logging on the
+shared core ingress backend. Apply equivalent request-log suppression on
+other deployments. Workers invocation logging should stay disabled
+for the API Worker. Callback responses redirect to a clean settings URL with
+`Cache-Control: no-store` and `Referrer-Policy: no-referrer`.
+
+The native Compose vault uses private networks to reach the core, Postgres
+and the gateway. On Kubernetes, in-cluster HTTP carries per-process bearer
+credentials and signed assertions and can carry live access tokens between
+the vault and gateway. The Kubernetes sandbox controller can exec into
+sandboxes in its namespace. A core Cloud SQL superuser may reach the runner
+database and see encrypted data and metadata. The KEK remains scoped to the
+vault. Workers cores need a reachable runner endpoint, such as an mTLS
+endpoint or a Cloudflare Tunnel.
+
 ## Storage and rotation
 
 The vault encrypts each secret version with a fresh AES-256-GCM data key,

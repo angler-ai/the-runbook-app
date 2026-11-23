@@ -30,6 +30,7 @@ pub fn recognizes(path: &str) -> bool {
         || org_runner_path(path)
         || crate::grants::recognizes(path)
         || crate::runner_proxy::recognizes(path)
+        || crate::runner_oauth::credential_id(path).is_some()
 }
 fn org_runner_path(path: &str) -> bool {
     let mut parts = path.split('/');

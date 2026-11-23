@@ -187,6 +187,7 @@ pub fn advance_time(state: &ExecutionState, at_ms: i64) -> Result<Vec<Command>, 
         Task,
         Timer(u32),
         Reminder,
+        Overdue,
         Escalation,
     }
     let mut candidates: Vec<(i64, u8, usize, Due)> = vec![];
@@ -229,6 +230,9 @@ pub fn advance_time(state: &ExecutionState, at_ms: i64) -> Result<Vec<Command>, 
                 candidates.push((at, 3, index, Due::Timer(generation)));
             }
         }
+        if let Some(at) = crate::followup::overdue_due(state, step)?.filter(|at| *at <= at_ms) {
+            candidates.push((at, 6, index, Due::Overdue));
+        }
         // LANG9: reminders and escalation for a step left open.
         if let Some(at) = crate::followup::reminder_due(state, step)?.filter(|at| *at <= at_ms) {
             candidates.push((at, 4, index, Due::Reminder));
@@ -245,6 +249,12 @@ pub fn advance_time(state: &ExecutionState, at_ms: i64) -> Result<Vec<Command>, 
         return Ok(vec![Command::ExpireExecution { deadline_at_ms: at }]);
     }
     let step = &state.steps[index];
+    if matches!(due, Due::Overdue) {
+        return Ok(vec![Command::MarkStepOverdue {
+            step_id: step.step_id.clone(),
+            due_at_ms: at,
+        }]);
+    }
     let id = step
         .id
         .clone()
@@ -290,7 +300,9 @@ pub fn advance_time(state: &ExecutionState, at_ms: i64) -> Result<Vec<Command>, 
         Due::Escalation => Command::ResolveStepEscalation {
             request: crate::followup::escalation_request(state, step, at)?,
         },
-        Due::Execution => return Err(EngineError::invariant("execution deadline was not handled")),
+        Due::Execution | Due::Overdue => {
+            return Err(EngineError::invariant("deadline was not handled"));
+        }
     };
     Ok(vec![command])
 }
@@ -435,6 +447,9 @@ pub(crate) fn queue_notice(
     {
         return Err(EngineError::new("notification.not_pending"));
     }
+    if notice.kind == ApprovalNoticeKind::Escalated {
+        record.escalation_notice_recipients = Some(notice.recipients.clone());
+    }
     Ok(())
 }
 /// The trusted runtime may queue a notice with its teams expanded to their
@@ -514,6 +529,7 @@ pub fn next_wakeup(state: &ExecutionState) -> Result<Option<i64>, EngineError> {
             );
         }
         // LANG9: mirror `advance_time`'s reminders and escalation.
+        consider(crate::followup::overdue_due(state, step)?);
         consider(crate::followup::reminder_due(state, step)?);
         consider(crate::followup::escalation_due(state, step)?);
     }

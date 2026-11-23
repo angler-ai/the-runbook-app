@@ -218,6 +218,14 @@ carry a payload.
 
 Fix: remove `outputs`, or wait for a `signal`.
 
+## spec.invalid_excluded_completer
+
+An approval's `exclude_completers_of` contains a duplicate or names something
+other than a human-capable task that precedes the approval on every path.
+
+Fix: name each preceding task once and move the review into the same path
+when the work is conditional.
+
 ## spec.followup_invalid
 The reminder or escalation keys don't fit together: `remind_every`
 without `remind_after`, `escalate_after` without `escalate_to` (or the

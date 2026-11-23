@@ -358,6 +358,7 @@ pub fn no_install() -> RunnerStatusView {
         vault_identity_key: None,
         groups: vec![],
         runners: vec![],
+        queued_steps: None,
         last_heartbeat_at: None,
     }
 }

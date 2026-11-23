@@ -31,6 +31,8 @@ import { VaultError } from './errors.ts';
 import type { GatewayClient } from './gateway.ts';
 import { checkRunnerPolicy, notAllowed } from './policy.ts';
 import { Renewer } from './renewer.ts';
+import type { OAuthAccess, OAuthAccessService } from './oauth/access.ts';
+import { getConnection, unavailable } from './oauth/state.ts';
 import type { SecretStore } from './secrets.ts';
 import { groupAllowed, typeImpl } from './types/index.ts';
 
@@ -43,6 +45,7 @@ export interface ReleaseDeps {
   core: CoreGrants;
   gateway: GatewayClient;
   secrets: SecretStore;
+  oauth?: OAuthAccessService;
   now: () => Date;
   log: Logger;
 }
@@ -127,6 +130,10 @@ export class ReleaseService {
   }
 
   async revoke(credentialId: string, destroy: boolean, claims: UserAssertionClaims): Promise<void> {
+    const current = await this.d.secrets.credential(credentialId);
+    if (current.type === 'mcp-oauth' && current.status !== 'revoked' && this.d.oauth) {
+      await this.d.oauth.disconnect(credentialId, claims);
+    }
     await withTransaction(this.d.pool, async (client) => {
       await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 7419006))', [credentialId]);
       const credential = await this.d.secrets.credential(credentialId, client, true);
@@ -155,6 +162,14 @@ export class ReleaseService {
     await this.renewer.runDue();
   }
 
+  async oauthRejected(body: unknown, runnerId: string): Promise<void> {
+    const input = body as { capability?: unknown; release_id?: unknown; token_version?: unknown } | undefined;
+    const claim = await this.verifyCapability(input?.capability);
+    if (claim.runner_id !== runnerId || typeof input?.release_id !== 'string' || !ID.test(input.release_id) ||
+        typeof input.token_version !== 'number' || !Number.isSafeInteger(input.token_version) || input.token_version < 1) throw notAllowed();
+    await this.renewer.oauthRejected(claim, input.release_id, input.token_version);
+  }
+
   async endClaim(body: { capability?: unknown } | undefined, runnerId?: string): Promise<void> {
     const claims = await this.verifyCapability(body?.capability);
     if (runnerId && claims.runner_id !== runnerId) {
@@ -180,9 +195,12 @@ export class ReleaseService {
       });
       await checkRunnerPolicy(this.d.pool, cap, credential, delivery);
       const impl = typeImpl(credential.type);
-      if (impl.secretFields.length !== 1) throw new VaultError(400, 'release.unsupported_type', 'type not releasable in v1');
-      field = impl.secretFields[0] as string;
-      const latest = await this.d.secrets.latestVersion(credentialId, field);
+      const oauth = credential.type === 'mcp-oauth';
+      if (!oauth && impl.secretFields.length !== 1) throw new VaultError(400, 'release.unsupported_type', 'type not releasable in v1');
+      field = oauth ? 'access_token' : impl.secretFields[0] as string;
+      if (oauth && credential.status !== 'active') throw unavailable();
+      const latest = oauth ? (await getConnection(this.d.pool, credentialId))?.generation :
+        await this.d.secrets.latestVersion(credentialId, field);
       if (latest === undefined) throw new VaultError(409, 'secret.not_set', 'the credential has no secret yet');
       version = latest;
     } catch (e) {
@@ -224,14 +242,12 @@ export class ReleaseService {
     // can't be audited doesn't stand).
     const releaseId = id('rel');
     let pushed = false;
+    let gatewayEpoch: string | undefined;
+    let materialExpiry = claims.exp * 1000;
     try {
-      const opened = await this.d.secrets.openForRelease({
-        credentialId, field, pinnedVersion: version,
-        authorize: (credential) => checkRunnerPolicy(this.d.pool, claims, credential, delivery),
-      });
-      try {
-        if (!groupAllowed(opened.groups, claims.group_id)) throw notAllowed();
-        await this.d.pool.query(
+      const deliver = async (material: OAuthAccess['material'], binding: Record<string, unknown>, expiry: number, db: pg.Pool | pg.PoolClient) => {
+        materialExpiry = expiry;
+        await db.query(
           `INSERT INTO releases (id, step_run_id, claim_id, generation, group_id, runner_id, project_id, agent_id,
              agent_version, credential_id, field, credential_version, delivery, grant_jti, status, expires_at, created_at)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'live', $15, $16)`,
@@ -255,8 +271,8 @@ export class ReleaseService {
           ],
         );
         try {
-          await checkRunnerPolicy(this.d.pool, claims, await this.d.secrets.credential(credentialId), delivery);
-          await this.d.gateway.push({
+          await checkRunnerPolicy(db, claims, await this.d.secrets.credential(credentialId, db), delivery);
+          gatewayEpoch = await this.d.gateway.push({
             release_id: releaseId,
             step_run_id: claims.sub,
             claim_id: claims.claim_id,
@@ -264,12 +280,12 @@ export class ReleaseService {
             runner_id: claims.runner_id,
             credential_id: credentialId,
             delivery,
-            binding: opened.binding,
-            material: { fields: { [field]: opened.value.toString('utf8') } },
-            expires_at: iso(claims.exp),
+            binding,
+            material,
+            expires_at: new Date(expiry).toISOString(),
           });
         } catch (e) {
-          await this.d.pool.query(`UPDATE releases SET status = 'failed', ended_at = $2, reason = $3 WHERE id = $1`, [
+          await db.query(`UPDATE releases SET status = 'failed', ended_at = $2, reason = $3 WHERE id = $1`, [
             releaseId,
             this.d.now(),
             'delivery_failed',
@@ -277,8 +293,29 @@ export class ReleaseService {
           throw e;
         }
         pushed = true;
-      } finally {
-        opened.value.fill(0);
+      };
+      if (field === 'access_token') {
+        if (!this.d.oauth) throw unavailable();
+        await this.d.oauth.ensureAccess(credentialId, 'release');
+        await this.d.core.grant(claims.sub, {
+          kind: 'capability', claim_id: claims.claim_id, generation: claims.generation, runner_id: claims.runner_id,
+        }, { claim_id: claims.claim_id, generation: claims.generation, runner_id: claims.runner_id,
+          group_id: claims.group_id, agent_id: claims.agent_id, agent_version: claims.agent_version, project_id: claims.project_id });
+        await this.d.oauth.withAccess(credentialId, materialExpiry, async (access, db) => {
+          if (access.generation !== version) throw unavailable();
+          await deliver(access.material, access.binding, access.expiresAt, db);
+        });
+      } else {
+        const opened = await this.d.secrets.openForRelease({
+          credentialId, field, pinnedVersion: version,
+          authorize: (credential) => checkRunnerPolicy(this.d.pool, claims, credential, delivery),
+        });
+        try {
+          if (!groupAllowed(opened.groups, claims.group_id)) throw notAllowed();
+          await deliver({ fields: { [field]: opened.value.toString('utf8') } }, opened.binding, materialExpiry, this.d.pool);
+        } finally {
+          opened.value.fill(0);
+        }
       }
       await this.audit('credential.released', credentialId, cap, {
         release_id: releaseId,
@@ -325,44 +362,69 @@ export class ReleaseService {
       },
       issuedAt: claims.iat,
       expiresAt: claims.exp,
+      materialExpiry,
+      gatewayEpoch,
     });
     this.d.log.info('released', { release_id: releaseId, step_run_id: claims.sub, credential_id: credentialId, version, delivery });
-    return { release_id: releaseId, material_handle: releaseId, expires_at: iso(claims.exp) };
+    return { release_id: releaseId, material_handle: releaseId, expires_at: new Date(materialExpiry).toISOString() };
   }
 
-  async discover(body: Partial<McpDiscoveryRequest> | undefined): Promise<{ tools: unknown[] }> {
+  async discover(body: Partial<McpDiscoveryRequest> | undefined, oauthAuthorized = false): Promise<{ tools: unknown[] }> {
     if (typeof body?.url !== 'string' || (body.transport !== 'streamable-http' && body.transport !== 'sse')) bad('endpoint');
     const { url, transport, credential_id } = body;
     if (credential_id === undefined) return this.d.gateway.discover({ url, transport });
     if (typeof credential_id !== 'string' || !ID.test(credential_id)) bad('credential_id');
     const credential = await this.d.secrets.credential(credential_id);
-    if (credential.type !== 'mcp-bearer' || credential.status !== 'active' || this.d.secrets.binding(credential).binding.url !== url) {
+    if ((credential.type !== 'mcp-bearer' && !(credential.type === 'mcp-oauth' && oauthAuthorized)) || credential.status !== 'active' || this.d.secrets.binding(credential).binding.url !== url) {
       throw new VaultError(403, 'mcp.discovery_denied', 'MCP discovery credential unavailable');
     }
-    return this.withTestMaterial(credential.id, async ({ releaseId }) => this.d.gateway.discover({ url, transport, release_id: releaseId }));
+    return this.withTestMaterial(credential.id, async ({ releaseId, version }) => {
+      const startedAt = this.d.now();
+      const tools = await this.d.gateway.discover({ url, transport, release_id: releaseId });
+      if (credential.type === 'mcp-oauth') {
+        await this.d.oauth?.recordSuccessfulAccess(credential.id, version, startedAt);
+      }
+      return tools;
+    }, oauthAuthorized);
   }
 
   private async withTestMaterial<T>(credentialId: string, action: (input: {
     releaseId: string; binding: Record<string, unknown>; version: number;
-  }) => Promise<T>): Promise<T> {
-    const opened = await this.d.secrets.openForRelease({ credentialId });
+  }) => Promise<T>, refresh = false): Promise<T> {
+    const credential = await this.d.secrets.credential(credentialId);
+    const oauth = credential.type === 'mcp-oauth';
     const releaseId = id('rel_test');
     const stepRunId = `test:${releaseId}`;
-    const delivery = typeImpl(opened.credential.type).deliveries[0] as Delivery;
-    const expires = Math.floor(this.d.now().getTime() / 1000) + TEST_RELEASE_SECONDS;
-    try {
-      await this.d.pool.query(
+    const delivery = typeImpl(credential.type).deliveries[0] as Delivery;
+    const expires = this.d.now().getTime() + 1000 * TEST_RELEASE_SECONDS;
+    const push = async (field: string, version: number, binding: Record<string, unknown>, material: OAuthAccess['material'], expiry: number,
+      db: pg.Pool | pg.PoolClient) => {
+      await db.query(
         `INSERT INTO releases (id, step_run_id, credential_id, field, credential_version, delivery, status, expires_at, created_at)
          VALUES ($1, $2, $3, $4, $5, $6, 'test', $7, $8)`,
-        [releaseId, stepRunId, credentialId, opened.field, opened.version, delivery, new Date(expires * 1000), this.d.now()],
+        [releaseId, stepRunId, credentialId, field, version, delivery, new Date(expiry), this.d.now()],
       );
       await this.d.gateway.push({
-        release_id: releaseId, step_run_id: stepRunId, credential_id: credentialId, delivery, binding: opened.binding,
-        material: { fields: { [opened.field]: opened.value.toString('utf8') } }, expires_at: iso(expires),
+        release_id: releaseId, step_run_id: stepRunId, credential_id: credentialId, delivery, binding, material, expires_at: new Date(expiry).toISOString(),
       });
-      return await action({ releaseId, binding: opened.binding, version: opened.version });
+      return { releaseId, binding, version };
+    };
+    try {
+      if (oauth) {
+        if (!this.d.oauth) throw unavailable();
+        if (refresh) await this.d.oauth.ensureAccess(credentialId, 'test');
+        const access = await this.d.oauth.withAccess(credentialId, expires, (access, db) =>
+          push('access_token', access.version, access.binding, access.material, access.expiresAt, db));
+        return await action(access);
+      }
+      const opened = await this.d.secrets.openForRelease({ credentialId });
+      try {
+        return await action(await push(opened.field, opened.version, opened.binding,
+          { fields: { [opened.field]: opened.value.toString('utf8') } }, expires, this.d.pool));
+      } finally {
+        opened.value.fill(0);
+      }
     } finally {
-      opened.value.fill(0);
       await this.d.gateway.remove(releaseId).catch((e: unknown) =>
         this.d.log.error('could not delete test material at the gateway', { release_id: releaseId, ...errorFields(e) }),
       );
@@ -375,8 +437,12 @@ export class ReleaseService {
     const credential = await this.d.secrets.credential(body.credential_id);
     const impl = typeImpl(credential.type);
     return this.withTestMaterial(credential.id, async ({ releaseId, binding, version }) => {
+      const startedAt = this.d.now();
       const outcome = await this.d.gateway.test({ release_id: releaseId, request: impl.testRequest(binding, credential.config) });
       const result = classifyTest(outcome);
+      if (result.ok && credential.type === 'mcp-oauth') {
+        await this.d.oauth?.recordSuccessfulAccess(credential.id, version, startedAt);
+      }
       await this.d.pool.query('UPDATE releases SET reason = $2 WHERE id = $1', [releaseId, result.ok ? 'ok' : result.error_class]);
       await audit(this.d.pool, {
         actor,
@@ -389,6 +455,6 @@ export class ReleaseService {
       });
       this.d.log.info('credential tested', { credential_id: credential.id, ok: result.ok, error_class: result.error_class ?? null });
       return result;
-    });
+    }, true);
   }
 }

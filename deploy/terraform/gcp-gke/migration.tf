@@ -1,10 +1,10 @@
 locals {
   # A Job's pod template is immutable. Change the name when its inputs
   # change. Increment the revision when changing static template fields.
-  migration_job_name = "runbook-migrate-${substr(sha256(jsonencode([
+  migration_job_name = "${var.name_prefix}runbook-migrate-${substr(sha256(jsonencode(concat([
     1, var.image, var.cloud_sql_proxy_image, var.database_auth, local.workload_secret_name,
-    var.allow_newer_schema, var.project_id, var.region, var.sql_instance_name,
-  ])), 0, 12)}"
+    var.allow_newer_schema, var.project_id, var.region, local.sql_instance_name,
+  ], length(var.labels) == 0 ? [] : [var.labels]))), 0, 12)}"
 }
 
 # UPD1: migrate once, before the Deployment rolls. The Cloud SQL proxy is
@@ -38,11 +38,11 @@ resource "kubernetes_manifest" "migration_job" {
     metadata = {
       name      = local.migration_job_name
       namespace = kubernetes_namespace.runbook.metadata[0].name
-      labels = {
+      labels = merge(var.labels, {
         "app.kubernetes.io/name"       = "runbook"
         "app.kubernetes.io/component"  = "migration"
         "app.kubernetes.io/managed-by" = "terraform"
-      }
+      })
     }
     spec = {
       backoffLimit            = 2
@@ -52,11 +52,11 @@ resource "kubernetes_manifest" "migration_job" {
         # Not app.kubernetes.io/name = runbook: the Service and the PDB
         # select on that, and the load balancer would route to this pod.
         metadata = {
-          labels = {
+          labels = merge(var.labels, {
             "app.kubernetes.io/name"      = "runbook-migrate"
             "app.kubernetes.io/part-of"   = "runbook"
             "app.kubernetes.io/component" = "migration"
-          }
+          })
         }
         spec = {
           serviceAccountName = kubernetes_service_account.runbook_ksa.metadata[0].name

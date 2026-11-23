@@ -25,6 +25,7 @@ export interface Config {
   /** The org this control plane serves (api, vault). */
   orgId?: string;
   coreUrl?: string;
+  vaultCoreUrl?: string;
   /** The core token this process presents: directory (api), claim (worker), release (vault). */
   coreToken?: string;
   metricsToken?: string;
@@ -223,13 +224,15 @@ export function loadConfig(role: RunnerRole, env: Record<string, string | undefi
   }
   if (spec.orgId) config.orgId = need('RUNNER_ORG_ID');
   config.coreUrl = url('CORE_URL', true, coreSchemes);
+  if (role === 'vault') config.vaultCoreUrl = url('RUNNER_VAULT_CORE_URL', false, internalSchemes);
+  else forbid('RUNNER_VAULT_CORE_URL', 'this private core link belongs to the vault');
   if (spec.core?.token) config.coreToken = secret(spec.core.token);
   for (const t of ['CORE_DIRECTORY_TOKEN', 'CORE_CLAIM_TOKEN', 'CORE_RELEASE_TOKEN']) {
     if (t !== spec.core?.token) forbid(t, 'each process holds only its own core token');
   }
 
   const pg = ['postgres:', 'postgresql:'];
-  if (spec.database) config.databaseUrl = url('RUNNER_DATABASE_URL', true, pg);
+  if (spec.database && !(role === 'worker' && env.RUNNER_SANDBOX_BACKEND === 'kubernetes')) config.databaseUrl = url('RUNNER_DATABASE_URL', true, pg);
   else forbid('RUNNER_DATABASE_URL', 'it has no database access');
   if (spec.schedulerDatabase) config.schedulerDatabaseUrl = url('RUNNER_SCHEDULER_DATABASE_URL', true, pg);
   else forbid('RUNNER_SCHEDULER_DATABASE_URL', 'only runner-api runs the scheduler');

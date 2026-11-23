@@ -310,6 +310,27 @@ pub fn call_links(view: &serde_json::Value) -> Vec<String> {
     lines
 }
 
+/// Budget blocks recorded by the runner scheduler, for human-readable run details.
+pub fn runner_budget_lines(view: &serde_json::Value) -> Vec<String> {
+    use crate::memory::clean;
+    view["steps"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|step| {
+            let runner = &step["runner"];
+            let reason = runner["waiting_reason"].as_str()?;
+            let scope = reason.strip_prefix("limit:")?;
+            let path = clean(step["path"].as_str().unwrap_or("unknown"));
+            let detail = runner["waiting_detail"]
+                .as_str()
+                .map(clean)
+                .unwrap_or_else(|| format!("{} limit reached", clean(scope)));
+            Some(format!("step {path}: {detail}"))
+        })
+        .collect()
+}
+
 /// R1-D2: what runner agents did on the run's approvals, for `run get`: an
 /// agent's decision, the agent reviewing now (people can still decide),
 /// its abstentions, and when an agent may decide. Agent-written text is

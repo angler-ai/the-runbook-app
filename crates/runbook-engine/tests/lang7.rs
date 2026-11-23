@@ -19,6 +19,7 @@ fn agent() -> ActorRef {
         session_id: "session-1".into(),
         name: "test".into(),
         model: None,
+        service_attribution: None,
     }
 }
 fn addressed(spec: &str, inputs: &[Input]) -> Trace {

@@ -116,6 +116,29 @@ enum CredentialCommand {
     },
     #[command(about = "Revoke a runner credential")]
     Revoke { credential: String },
+    /// Show a credential, including OAuth connection status.
+    Status { credential: String },
+    /// Discover the issuer and endpoints for an OAuth credential.
+    Discover { credential: String },
+    /// Confirm the displayed OAuth endpoints and register the client once.
+    Confirm {
+        credential: String,
+        #[arg(long)]
+        binding_pin: Option<String>,
+        #[arg(
+            long,
+            help = "Retry an ambiguous client registration (the provider may retain the old registration)"
+        )]
+        reset_registration: bool,
+    },
+    /// Connect or reconnect an OAuth credential in a browser.
+    Connect {
+        credential: String,
+        #[arg(long)]
+        binding_pin: Option<String>,
+    },
+    /// Disconnect an OAuth credential and revoke the provider grant.
+    Disconnect { credential: String },
     /// List credential types and their secret field names.
     Types,
     /// Test a stored credential against its configured destination.
@@ -187,7 +210,18 @@ fn install(api: &ApiClient, org: Option<&str>, id: Option<&str>) -> Exit<String>
     if let Some(id) = id {
         return crate::cliutil::parse_id::<runbook_model::RunnerInstallId>(id, "runner install");
     }
-    let org = crate::admin::resolve_org(api, org)?;
+    let org = match org {
+        Some(org) => crate::admin::resolve_org(api, Some(org))?,
+        None => {
+            // Runner-only tokens can identify their own org via /me without
+            // the directory scopes required by /v1/orgs.
+            let me = api.get_json("/v1/me").map_err(api_failed)?;
+            me["org"]["id"]
+                .as_str()
+                .ok_or_else(|| fail("the credential did not identify its organization"))?
+                .to_owned()
+        }
+    };
     let status = api
         .get_json(&format!("/v1/orgs/{org}/runner"))
         .map_err(api_failed)?;
@@ -334,6 +368,83 @@ fn run_runner(env: &Env, args: RunnerArgs) -> Exit<i32> {
         RunnerCommand::Credential(command) => {
             let install = install(&api, org, args.install.as_deref())?;
             match command {
+                CredentialCommand::Status { credential } => proxy(
+                    &api,
+                    &install,
+                    "GET",
+                    &format!("credentials/{}", segment(&credential)?),
+                    None,
+                )?,
+                CredentialCommand::Discover { credential } => {
+                    let id = segment(&credential)?;
+                    oauth_discovery(&api, &install, id)?
+                }
+                CredentialCommand::Confirm {
+                    credential,
+                    binding_pin,
+                    reset_registration,
+                } => {
+                    let id = segment(&credential)?;
+                    let candidate = oauth_discovery(&api, &install, id)?;
+                    let digest = bound_text(&candidate["binding_hash"]).map_err(fail)?;
+                    if let Some(pin) = binding_pin {
+                        if digest != pin {
+                            return Err(fail("OAuth destination does not match --binding-pin"));
+                        }
+                    } else {
+                        eprintln!("{}", candidate["config"]);
+                        eprintln!("Binding SHA-256 {digest}");
+                        eprintln!("Confirm these OAuth endpoints? [y/N]");
+                        let mut answer = String::new();
+                        if !io::stdin().is_terminal()
+                            || io::stdin().read_line(&mut answer).is_err()
+                            || !matches!(answer.trim(), "y" | "Y" | "yes" | "Yes")
+                        {
+                            return Err(fail("OAuth endpoints were not confirmed"));
+                        }
+                    }
+                    proxy(
+                        &api,
+                        &install,
+                        "POST",
+                        &format!("credentials/{id}/oauth-confirm"),
+                        Some(
+                            &json!({ "binding_hash": digest, "reset_registration": reset_registration }),
+                        ),
+                    )?
+                }
+                CredentialCommand::Connect {
+                    credential,
+                    binding_pin,
+                } => oauth_connect(
+                    &api,
+                    &crate::admin::resolve_org(&api, org)?,
+                    &install,
+                    segment(&credential)?,
+                    binding_pin.as_deref(),
+                )?,
+                CredentialCommand::Disconnect { credential } => {
+                    let id = segment(&credential)?;
+                    let response = proxy(
+                        &api,
+                        &install,
+                        "POST",
+                        &format!("credentials/{id}/disconnect"),
+                        Some(&json!({})),
+                    )?;
+                    if response["pending_purge"] == true {
+                        let seconds = response["access_token_remaining_ms"]
+                            .as_u64()
+                            .unwrap_or(0)
+                            .div_ceil(1000);
+                        eprintln!(
+                            "Pending gateway purge. Released access may last up to {seconds} more seconds."
+                        );
+                    } else if response["revoked"] == false {
+                        eprintln!("Disconnected locally. Revoke the grant at the provider.");
+                    }
+                    response
+                }
                 CredentialCommand::Types => {
                     proxy(&api, &install, "GET", "credentials?presets=true", None)?
                 }
@@ -589,21 +700,9 @@ fn verify_vault_signature<const N: usize>(
     signature: &str,
     fields: [&str; N],
 ) -> Result<(), ()> {
-    let raw: [u8; 32] = B64
-        .decode(anchor)
-        .map_err(|_| ())?
-        .try_into()
-        .map_err(|_| ())?;
-    let public = ed25519_dalek::VerifyingKey::from_bytes(&raw).map_err(|_| ())?;
-    let signature = B64.decode(signature).map_err(|_| ())?;
-    let signature = ed25519_dalek::Signature::from_slice(&signature).map_err(|_| ())?;
-    let mut message = Vec::new();
-    for field in fields {
-        let length = u32::try_from(field.len()).map_err(|_| ())?;
-        message.extend_from_slice(&length.to_be_bytes());
-        message.extend_from_slice(field.as_bytes());
-    }
-    public.verify_strict(&message, &signature).map_err(|_| ())
+    runbook_core::signing::verify_vault_statement(anchor, signature, &fields)
+        .then_some(())
+        .ok_or(())
 }
 
 fn verify_credential_receipt(
@@ -782,12 +881,231 @@ fn destination_binding(metadata: &Value) -> Result<Value, &'static str> {
                 "header_name": header, "header_format": format, "groups": groups,
             }))
         }
+        "mcp-oauth" => oauth_binding(config, groups),
         "mcp-bearer" => Ok(json!({
             "url": bound_endpoint(&config["url"], false)?, "header_name": "authorization",
             "header_format": "Bearer {}", "groups": groups,
         })),
         _ => Err(BAD_DESTINATION),
     }
+}
+
+fn oauth_url(value: &Value) -> Result<&str, &'static str> {
+    let raw = bound_text(value)?;
+    let url = url::Url::parse(raw).map_err(|_| BAD_DESTINATION)?;
+    if raw != raw.trim()
+        || raw.contains('\\')
+        || raw.chars().any(char::is_control)
+        || url.scheme() != "https"
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.fragment().is_some()
+    {
+        return Err(BAD_DESTINATION);
+    }
+    Ok(raw)
+}
+
+fn oauth_binding(config: &Value, groups: Value) -> Result<Value, &'static str> {
+    let mode = bound_text(&config["registration_mode"])?;
+    if !matches!(mode, "dynamic" | "pre-registered") {
+        return Err(BAD_DESTINATION);
+    }
+    let mut scopes = Vec::new();
+    if let Some(values) = config.get("scopes") {
+        scopes = values
+            .as_array()
+            .ok_or(BAD_DESTINATION)?
+            .iter()
+            .map(bound_text)
+            .collect::<Result<Vec<_>, _>>()?;
+        scopes.sort_by(|left, right| left.encode_utf16().cmp(right.encode_utf16()));
+        scopes.dedup();
+    }
+    let extras = config
+        .get("extra_parameters")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    if !extras.as_object().is_some_and(|extras| {
+        extras.iter().all(|(key, value)| {
+            matches!(key.as_str(), "prompt" | "access_type" | "login_hint") && value.is_string()
+        })
+    }) {
+        return Err(BAD_DESTINATION);
+    }
+    let mut binding = json!({
+        "url": oauth_url(&config["url"])?,
+        "registration_mode": mode,
+        "client_id": config["client_id"],
+        "token_endpoint_auth_method": config["token_endpoint_auth_method"],
+        "scopes": scopes,
+        "extra_parameters": extras,
+        "groups": groups,
+    });
+    if config.get("issuer").is_some() {
+        for name in [
+            "resource",
+            "issuer",
+            "authorization_endpoint",
+            "token_endpoint",
+            "redirect_uri",
+        ] {
+            binding[name] = json!(oauth_url(&config[name])?);
+        }
+        for name in ["revocation_endpoint", "registration_endpoint"] {
+            binding[name] = if config[name].is_null() {
+                Value::Null
+            } else {
+                json!(oauth_url(&config[name])?)
+            };
+        }
+        binding["iss_supported"] = json!(config["iss_supported"].as_bool().ok_or(BAD_DESTINATION)?);
+    }
+    Ok(binding)
+}
+
+fn oauth_discovery(api: &ApiClient, install: &str, id: &str) -> Exit<Value> {
+    let mut candidate = proxy(
+        api,
+        install,
+        "POST",
+        &format!("credentials/{id}/oauth-discover"),
+        Some(&json!({})),
+    )?;
+    let metadata = json!({ "type": "mcp-oauth", "config": candidate["config"], "groups": candidate["groups"] });
+    let binding = destination_binding(&metadata).map_err(fail)?;
+    candidate["binding_hash"] = json!(destination_hash(&metadata["type"], &binding));
+    Ok(candidate)
+}
+
+fn oauth_connect(
+    api: &ApiClient,
+    org: &str,
+    install: &str,
+    id: &str,
+    pin: Option<&str>,
+) -> Exit<Value> {
+    let path = format!("credentials/{id}");
+    let credential = proxy(api, install, "GET", &path, None)?;
+    if credential["type"] != "mcp-oauth" || !credential["config"]["issuer"].is_string() {
+        return Err(fail("discover and confirm the OAuth endpoints first"));
+    }
+    let binding = destination_binding(&credential).map_err(fail)?;
+    let digest = destination_hash(&credential["type"], &binding);
+    if pin.is_some_and(|pin| pin != digest) {
+        return Err(fail("OAuth destination does not match --binding-pin"));
+    }
+    let caller = api.get_json("/v1/me").map_err(api_failed)?;
+    if caller["credential"]["actor_kind"] != "human" {
+        return Err(fail(
+            "OAuth connect requires a human organization administrator",
+        ));
+    }
+    let user = segment(bound_text(&caller["user"]["id"]).map_err(fail)?)?;
+    let origin = url::Url::parse(&api.host)
+        .map_err(|_| fail("invalid Runbook origin"))?
+        .origin()
+        .ascii_serialization();
+    if binding["redirect_uri"] != format!("{origin}/v1/runner/oauth/callback/{id}") {
+        return Err(fail(
+            "OAuth redirect URI does not match this Runbook origin",
+        ));
+    }
+    let identity = core_vault_identity(api, org, install)?;
+    let identity = segment(&identity)?;
+    let mut handoff_bytes = [0u8; 32];
+    getrandom::fill(&mut handoff_bytes).map_err(|_| fail("cannot generate an OAuth handoff"))?;
+    let handoff_id = B64.encode(handoff_bytes);
+    let handoff = format!(
+        "{origin}/settings/organization/runner?tab=credentials#oauth-connect={id}.{digest}.{user}.{identity}.{handoff_id}"
+    );
+    eprintln!("OAuth destination {binding}");
+    eprintln!("Binding SHA-256 {digest}");
+    eprintln!("After provider consent, review and confirm the account in the browser.");
+    eprintln!("Open this URL in a browser signed in as the same Runbook user:\n{handoff}");
+    let baseline = &credential["oauth_status"]["connect_attempt_at"];
+    let mut until = std::time::Instant::now() + std::time::Duration::from_secs(600);
+    let mut launched = false;
+    while std::time::Instant::now() < until {
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        if !launched {
+            let reply = proxy(
+                api,
+                install,
+                "POST",
+                &format!("{path}/oauth-confirm"),
+                Some(&json!({ "binding_hash": digest, "authorization_handoff": handoff_id })),
+            )?;
+            let Some(proof) = reply.get("authorization") else {
+                continue;
+            };
+            let url =
+                verified_authorization(proof, identity, org, install, id, &digest, &handoff_id)
+                    .map_err(fail)?;
+            eprintln!("Open this verified authorization URL in the same browser:\n{url}");
+            launched = true;
+            until = std::time::Instant::now() + std::time::Duration::from_secs(600);
+        }
+        let current = proxy(api, install, "GET", &path, None)?;
+        let state = &current["oauth_status"];
+        if &state["connect_attempt_at"] != baseline {
+            match state["connect_result"].as_str() {
+                Some("connected") if state["connect_test"].is_string() => return Ok(state.clone()),
+                Some(
+                    "denied" | "invalid_callback" | "exchange_failed" | "reconnect_required"
+                    | "expired",
+                ) => {
+                    return Err(fail("OAuth authorization did not complete"));
+                }
+                _ => {}
+            }
+        }
+    }
+    Err(fail("timed out waiting for browser OAuth authorization"))
+}
+
+fn verified_authorization<'a>(
+    proof: &'a Value,
+    identity: &str,
+    org: &str,
+    install: &str,
+    id: &str,
+    binding: &str,
+    handoff: &str,
+) -> Result<&'a str, &'static str> {
+    const BAD: &str = "could not verify the signed vault authorization";
+    let text = |name: &str| proof[name].as_str().ok_or(BAD);
+    let expires = proof["expires_at_ms"].as_u64().ok_or(BAD)?;
+    let now = std::time::UNIX_EPOCH
+        .elapsed()
+        .map_err(|_| BAD)?
+        .as_millis();
+    let url = text("authorization_url")?;
+    oauth_url(&proof["authorization_url"]).map_err(|_| BAD)?;
+    verify_vault_signature(
+        identity,
+        text("identity_signature")?,
+        [
+            "runbook-runner/oauth-start/v1",
+            org,
+            install,
+            id,
+            binding,
+            url,
+            text("nonce_hash")?,
+            text("session_hash")?,
+            text("request_id")?,
+            &expires.to_string(),
+            handoff,
+        ],
+    )
+    .map_err(|_| BAD)?;
+    if u128::from(expires) <= now || u128::from(expires) > now + 720_000 {
+        return Err(
+            "the signed OAuth proof is outside the accepted time window. Check the vault and client clocks",
+        );
+    }
+    Ok(url)
 }
 
 fn destination_hash(kind: &Value, binding: &Value) -> String {
@@ -880,6 +1198,52 @@ fn set_credential(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cli_accepts_sixty_seconds_of_vault_clock_skew_for_its_signed_handoff() {
+        use ed25519_dalek::{Signer, SigningKey};
+        let identity = SigningKey::from_bytes(&[7; 32]);
+        let anchor = B64.encode(identity.verifying_key().to_bytes());
+        let url = "https://auth.example/authorize?code_challenge=fixture";
+        let expires = (std::time::UNIX_EPOCH.elapsed().unwrap().as_millis() as u64) + 660_000;
+        let expires_text = expires.to_string();
+        let mut statement = Vec::new();
+        for field in [
+            "runbook-runner/oauth-start/v1",
+            "org",
+            "install",
+            "credential",
+            "binding",
+            url,
+            "nonce-hash",
+            "session-hash",
+            "request",
+            &expires_text,
+            "handoff",
+        ] {
+            statement.extend((field.len() as u32).to_be_bytes());
+            statement.extend(field.as_bytes());
+        }
+        let mut proof = json!({"authorization_url": url, "expires_at_ms": expires, "nonce_hash": "nonce-hash",
+            "session_hash": "session-hash", "request_id": "request",
+            "identity_signature": B64.encode(identity.sign(&statement).to_bytes())});
+        let verify = |proof: &Value, handoff: &str| {
+            verified_authorization(
+                proof,
+                &anchor,
+                "org",
+                "install",
+                "credential",
+                "binding",
+                handoff,
+            )
+            .map(str::to_owned)
+        };
+        assert_eq!(verify(&proof, "handoff").unwrap(), url);
+        assert!(verify(&proof, "different-handoff").is_err());
+        proof["authorization_url"] = json!("https://auth.example/authorize?code_challenge=changed");
+        assert!(verify(&proof, "handoff").is_err());
+    }
 
     #[test]
     fn creation_receipt_authenticates_the_credential_id() {

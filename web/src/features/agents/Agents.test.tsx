@@ -3,6 +3,10 @@ import type { Schemas } from '../../api/client';
 import { AgentAudit } from './AgentsPage';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
+import { http, HttpResponse } from 'msw';
+import { server } from '../../test/msw/server';
+import type { Credential } from '../runner/Credentials';
+import type { Connection } from '../runner/resources';
 import { AgentConfiguration } from './AgentConfiguration';
 import { Bindings } from './AgentBindings';
 import { ProposalList } from './Proposals';
@@ -43,8 +47,84 @@ test('explains the credential requirement on the egress allow-list', () => {
       operate={async () => {}}
     />,
   );
-  expect(screen.getByLabelText('Egress allow-list (JSON)')).toHaveAccessibleDescription(
+  expect(screen.getByLabelText('Set an explicit host allow-list')).toHaveAccessibleDescription(
     /exactly one released proxy credential/i,
+  );
+});
+
+test('publishes checked tools only after their named credential grant is selected', async () => {
+  const save = vi.fn(async () => {});
+  const credential: Credential = {
+    id: 'oauth_key',
+    name: 'Workspace credential',
+    type: 'mcp-oauth',
+    groups: 'all',
+    status: 'active',
+    label: 'read',
+    sharing: { projects: 'all' },
+    delivery: ['mcp'],
+    config: {},
+    secret_meta: {},
+  };
+  const connection: Connection = {
+    id: 'workspace',
+    name: 'Workspace',
+    url: 'https://workspace.example.test/mcp',
+    transport: 'streamable-http',
+    credential_id: credential.id,
+    sharing: { projects: 'all' },
+    pinned_snapshot_id: 'pin1',
+    tool_labels: { search: 'read' },
+    never_allowed: ['update_page'],
+  };
+  server.use(
+    http.get('*/v1/runners/:install/proxy/runner/v1/projects/project/mcp-tools', () =>
+      HttpResponse.json({
+        items: [
+          {
+            id: connection.id,
+            name: connection.name,
+            pinned_snapshot_id: 'pin1',
+            tools: [{ name: 'search', label: 'read' }],
+          },
+        ],
+      }),
+    ),
+  );
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <AgentConfiguration
+        agent={{ id: 'agent1', name: 'checker', description: '', status: 'active', group_id: 'g' }}
+        admin
+        canEdit
+        groups={[{ id: 'g', name: 'Primary' }]}
+        profiles={[{ id: 'p', name: 'Default model' }]}
+        status={{ status: 'online', install_id: 'runner', groups: [], runners: [] }}
+        connections={[connection]}
+        projectId="project"
+        credentials={[credential]}
+        save={save}
+        operate={async () => {}}
+      />
+    </QueryClientProvider>,
+  );
+  fireEvent.change(screen.getByLabelText('Default model profile'), { target: { value: 'p' } });
+  fireEvent.click(await screen.findByRole('checkbox', { name: 'Workspace' }));
+  expect(screen.queryByRole('checkbox', { name: /update_page/ })).toBeNull();
+  fireEvent.click(screen.getByRole('checkbox', { name: /search/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save configuration' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Select each required credential');
+  expect(save).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('checkbox', { name: /Workspace credential/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save configuration' }));
+  await waitFor(() =>
+    expect(save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        profiles: ['p'],
+        mcp: [{ server_id: 'workspace', tool: 'search' }],
+        credentials: [{ credential_id: 'oauth_key', delivery: 'mcp' }],
+      }),
+    ),
   );
 });
 

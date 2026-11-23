@@ -168,6 +168,8 @@ describe('ExecutionTable', () => {
   const executions = [
     {
       id: 'exe_1',
+      url: '/v1/executions/exe_1',
+      web_url: '/x/exe_1',
       schema_revision: 1,
       title: 'Production Deploy',
       status: 'running' as const,
@@ -187,6 +189,8 @@ describe('ExecutionTable', () => {
     },
     {
       id: 'exe_2',
+      url: '/v1/executions/exe_2',
+      web_url: '/x/exe_2',
       schema_revision: 1,
       title: 'Failed Staging Run',
       status: 'failed' as const,

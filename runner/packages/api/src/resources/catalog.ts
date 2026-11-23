@@ -1,3 +1,4 @@
+import { oauthUrl } from '@runbook/runner-shared/oauth-binding';
 import { groupActivity } from './activity.ts';
 import { createHash, randomUUID } from 'node:crypto';
 import type pg from 'pg';
@@ -7,19 +8,22 @@ import { LABELS, type UserAssertionClaims } from '@runbook/runner-shared/contrac
 import { CREDENTIAL_TYPES } from '@runbook/runner-shared/credential-types';
 import { withTransaction } from '@runbook/runner-shared/db';
 import { HttpError } from '@runbook/runner-shared/http';
+import { createLogger } from '@runbook/runner-shared/log';
 import { findSecretShapedValues } from '@runbook/runner-shared/secret-shape';
 import { authorize } from '../authorize.ts';
 import type { PublicRequest } from '../server.ts';
 import { createProposal } from './proposals.ts';
+import { budgetThreshold } from './environments.ts';
 import { sharedWith, validateEgress } from './agents.ts';
+import { pinnedTools, toolDrift, toolSummaries } from './catalog-tools.ts';
 
 const catalogs = {
-  groups: { table: 'groups', id: 'group_id', fields: ['name', 'projects', 'concurrency', 'cost_per_day_usd', 'cost_per_month_usd', 'sandbox', 'compute_rate'] },
+  groups: { table: 'groups', id: 'group_id', fields: ['name', 'projects', 'concurrency', 'cost_per_day_usd', 'cost_per_month_usd', 'alert_threshold_percent', 'sandbox', 'compute_rate'] },
   providers: { table: 'providers', id: 'id', fields: ['name', 'type', 'auth', 'credential_id', 'endpoint', 'region', 'models', 'sharing'] },
   profiles: { table: 'profiles', id: 'id', fields: ['name', 'provider_id', 'model', 'options', 'sharing'] },
   'mcp-servers': { table: 'mcp_servers', id: 'id', fields: ['name', 'url', 'transport', 'credential_id', 'tool_labels', 'never_allowed', 'sharing'] },
   policy: { table: 'policy', id: 'id', fields: ['org_concurrency', 'org_cost_per_day_usd', 'org_cost_per_month_usd', 'agent_concurrency',
-    'agent_max_cost_usd', 'default_egress', 'credential_max_age_days', 'time_zone', 'project_limits', 'run_max_cost_usd'] },
+    'agent_max_cost_usd', 'default_egress', 'credential_max_age_days', 'time_zone', 'project_limits', 'run_max_cost_usd', 'alert_threshold_percent'] },
 } as const;
 
 const jsonColumns = new Set(['projects', 'sandbox', 'compute_rate', 'models', 'sharing', 'options', 'tool_labels', 'never_allowed',
@@ -92,15 +96,22 @@ function hash(value: unknown): Buffer {
   return createHash('sha256').update(canonicalJson(value)).digest();
 }
 
+function validateToolAccess(change: Row) {
+  if ('tool_labels' in change && Object.entries(record(change.tool_labels))
+    .some(([tool, label]) => !name(tool) || !LABELS.some((candidate) => candidate === label))) invalid();
+  if ('never_allowed' in change && (!Array.isArray(change.never_allowed) || !change.never_allowed.every(name))) invalid();
+}
+
 async function validate(client: pg.PoolClient, catalog: Catalog, change: Row, current: Row, orgId: string) {
   const row = { ...current, ...change };
   if (catalog !== 'policy' && !name(row.name)) invalid();
   if ('sharing' in change) sharing(change.sharing);
   for (const [key, value] of Object.entries(change)) {
     if (['concurrency', 'org_concurrency', 'agent_concurrency', 'credential_max_age_days'].includes(key) &&
-        !count(value) && !(value === null && (key === 'concurrency' || key === 'credential_max_age_days'))) invalid();
+        !count(value) && !(value === null && (['concurrency', 'org_concurrency', 'credential_max_age_days'].includes(key)))) invalid();
+    if (key === 'alert_threshold_percent' && value !== null && !budgetThreshold(value)) invalid();
     if (key.endsWith('_usd') && !cost(value) &&
-        !(value === null && !['org_cost_per_day_usd', 'agent_max_cost_usd'].includes(key))) invalid();
+        !(value === null && key !== 'agent_max_cost_usd')) invalid();
   }
   if (catalog === 'groups') {
     if ('projects' in change && !identifiers(change.projects)) invalid();
@@ -115,7 +126,9 @@ async function validate(client: pg.PoolClient, catalog: Catalog, change: Row, cu
       for (const [project, limits] of Object.entries(record(change.project_limits))) {
         if (!identifier(project)) invalid();
         for (const [key, value] of Object.entries(record(limits))) {
-          if (!(key === 'concurrency' && count(value)) && !(key === 'cost_per_day_usd' && cost(value))) invalid();
+          if (key === 'concurrency' ? value !== null && !count(value)
+            : key === 'alert_threshold_percent' ? value !== null && !budgetThreshold(value)
+              : !['cost_per_day_usd', 'cost_per_month_usd'].includes(key) || (value !== null && !cost(value))) invalid();
         }
       }
     }
@@ -152,41 +165,91 @@ async function validate(client: pg.PoolClient, catalog: Catalog, change: Row, cu
     );
     if (!found.rowCount) invalid();
   } else {
-    const endpoint = url(row.url);
+    let endpoint: string;
+    if (row.credential_id == null) {
+      endpoint = url(row.url);
+    } else {
+      if (!identifier(row.credential_id)) invalid();
+      const { rows: [credential] } = await client.query<{ type: string; bound_url: string }>(
+        `SELECT type, binding->>'url' AS bound_url FROM credentials WHERE id = $1 AND org_id = $2
+          AND type IN ('mcp-bearer', 'mcp-oauth') AND status <> 'revoked'`, [row.credential_id, orgId],
+      );
+      if (!credential) invalid();
+      try {
+        endpoint = credential.type === 'mcp-oauth' ? oauthUrl(row.url, 'MCP URL') : url(row.url);
+      } catch {
+        invalid();
+      }
+      if (credential.bound_url !== endpoint) invalid();
+    }
     if ('url' in change) change.url = endpoint;
     if (row.transport !== 'streamable-http' && row.transport !== 'sse') invalid();
-    if ('tool_labels' in change && Object.entries(record(change.tool_labels))
-      .some(([tool, label]) => !name(tool) || !LABELS.some((candidate) => candidate === label))) invalid();
-    if ('never_allowed' in change && (!Array.isArray(change.never_allowed) || !change.never_allowed.every(name))) invalid();
-    if (row.credential_id != null) {
-      if (!identifier(row.credential_id)) invalid();
-      const found = await client.query(
-        `SELECT 1 FROM credentials WHERE id = $1 AND org_id = $2 AND type = 'mcp-bearer' AND status <> 'revoked'
-         AND binding->>'url' = $3`, [row.credential_id, orgId, endpoint],
-      );
-      if (!found.rowCount) invalid();
-    }
+    validateToolAccess(change);
   }
 }
 
+const MAX_MCP_TOOLS = 500;
+// Accommodate large provider schemas while leaving room under core's 4 MiB response limit.
+const MAX_MCP_SNAPSHOT_BYTES = 1024 * 1024;
+const log = createLogger('api');
+
+function isObject(value: unknown): value is Row {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function validateToolList(payload: unknown, serverId: string) {
+  function reject(reason: string): never {
+    // Indexes identify offending tools without echoing untrusted names or schemas.
+    log.warn('MCP discovery validation failed', { server_id: serverId, reason });
+    throw new HttpError(422, 'catalog.invalid_tool_list', reason);
+  }
+
+  if (!isObject(payload) || !Array.isArray(payload.tools)) reject('MCP discovery response must contain a tools array');
+  const tools: unknown[] = payload.tools;
+  if (tools.length > MAX_MCP_TOOLS) reject(`MCP tool list exceeds the ${MAX_MCP_TOOLS}-tool limit (${tools.length})`);
+  const json = JSON.stringify(tools);
+  const bytes = Buffer.byteLength(json);
+  if (bytes > MAX_MCP_SNAPSHOT_BYTES) reject(`MCP tool list exceeds the ${MAX_MCP_SNAPSHOT_BYTES}-byte limit (${bytes} bytes)`);
+
+  const names = new Map<string, number>();
+  for (const [index, tool] of tools.entries()) {
+    const position = index + 1;
+    if (!isObject(tool)) reject(`MCP tool #${position} must be an object`);
+    if (typeof tool.name !== 'string' || !name(tool.name)) reject(`MCP tool #${position} name must be nonblank and at most 128 characters`);
+    const previous = names.get(tool.name);
+    if (previous !== undefined) reject(`MCP tool #${position} duplicates the name of tool #${previous}`);
+    names.set(tool.name, position);
+    if (!isObject(tool.inputSchema) || tool.inputSchema.type !== 'object') {
+      reject(`MCP tool #${position} inputSchema must be a JSON Schema object with type "object"`);
+    }
+  }
+  return { tools, json };
+}
+
 export function catalogResources(pool: pg.Pool, config: Config, sync: () => Promise<void>) {
-  async function discover(source: McpSource) {
+  async function discover(source: McpSource, serverId: string, assertion: PublicRequest['assertion']) {
+    const oauth = source.credential_id && (await pool.query(
+      "SELECT id FROM credentials WHERE type = 'mcp-oauth' AND id = $1", [source.credential_id],
+    )).rowCount;
+    if (oauth && !assertion) denied();
+    const path = oauth ? `/internal/mcp/${serverId}/oauth-discover` : '/internal/mcp/discover';
+    let payload: unknown;
     try {
-      const response = await fetch(`${config.urls.vault}/internal/mcp/discover`, {
-        method: 'POST', headers: { authorization: `Bearer ${config.outboundTokens.vault}`, 'content-type': 'application/json' },
-        body: JSON.stringify(source), redirect: 'error', signal: AbortSignal.timeout(25_000),
+      const response = await fetch(config.urls.vault + path, {
+        method: 'POST', headers: { authorization: `Bearer ${config.outboundTokens.vault}`, 'content-type': 'application/json',
+          ...(oauth && { 'runbook-assertion': assertion!.token }) },
+        body: oauth ? new Uint8Array(assertion!.rawBody) : JSON.stringify(source),
+        redirect: 'error', signal: AbortSignal.timeout(25_000),
       });
       if (!response.ok) throw new Error();
-      const { tools } = await response.json() as { tools?: unknown };
-      if (!Array.isArray(tools) || tools.length > 500 || Buffer.byteLength(JSON.stringify(tools)) > 128 * 1024 ||
-          tools.some((tool) => !tool || !name(tool.name) || tool.inputSchema?.type !== 'object') ||
-          new Set(tools.map((tool) => tool.name)).size !== tools.length) throw new Error();
-      return tools as unknown[];
+      payload = await response.json();
     } catch {
       throw new HttpError(502, 'catalog.discovery_unavailable', 'MCP tool discovery unavailable');
     }
+    return validateToolList(payload, serverId);
   }
-  return async ({ method, claims, body }: PublicRequest, catalog: Catalog, id?: string, operation?: string, transaction?: pg.PoolClient) => {
+  return async (request: PublicRequest, catalog: Catalog, id?: string, operation?: string, transaction?: pg.PoolClient) => {
+    const { method, claims, body } = request;
     const authorization = authorize(claims, method === 'GET' ? 'read' : 'widen', { kind: 'org' });
     if (authorization === 'deny') denied();
     const schema = catalogs[catalog];
@@ -239,6 +302,20 @@ export function catalogResources(pool: pg.Pool, config: Config, sync: () => Prom
         const shared = projects.filter((project) => sharedWith(row.sharing, project));
         return shared.length ? [{ ...row, sharing: { projects: shared } }] : [];
       });
+      if (catalog === 'mcp-servers') {
+        if (id && operation) {
+          const row = visible[0];
+          if (!row) absent();
+          if (operation === 'tools') return { body: await pinnedTools(pool, id, row.pinned_snapshot_id) };
+          if (operation === 'drift') return { body: await toolDrift(pool, id, row.pinned_snapshot_id, hash(mcpSource(row))) };
+        }
+        if (visible.length > 0) {
+          const summaries = await toolSummaries(pool, visible.map((row) => ({
+            id: String(row.id), sourceHash: hash(mcpSource(row)),
+          })));
+          for (const row of visible) Object.assign(row, summaries.get(String(row.id)));
+        }
+      }
       return id ? { status: visible.length ? 200 : 404, body: visible[0] } : { body: { items: visible } };
     }
 
@@ -252,7 +329,7 @@ export function catalogResources(pool: pg.Pool, config: Config, sync: () => Prom
       const { rows: [row] } = await pool.query<Row>(`${select} WHERE ${byId}`, [id]);
       if (!row) absent();
       const source = mcpSource(row);
-      const tools = await discover(source);
+      const { tools, json } = await discover(source, id, request.assertion);
       const toolHash = hash(tools);
       const snapshotId = randomUUID();
       await withTransaction(pool, async (client) => {
@@ -262,7 +339,7 @@ export function catalogResources(pool: pg.Pool, config: Config, sync: () => Prom
         }
         await client.query(
           `INSERT INTO mcp_tool_snapshots(id, server_id, hash, tools, pinned_by, source_hash) VALUES ($1,$2,$3,$4,$5,$6)`,
-          [snapshotId, id, toolHash, JSON.stringify(tools), claims.user_id, hash(source)],
+          [snapshotId, id, toolHash, json, claims.user_id, hash(source)],
         );
         await audit(client, 'discovered', id);
       });
@@ -271,14 +348,21 @@ export function catalogResources(pool: pg.Pool, config: Config, sync: () => Prom
 
     const write = async (client: pg.PoolClient) => {
       if (id && operation === 'pin') {
-        const snapshotId = record(body).snapshot_id;
-        if (!identifier(snapshotId)) invalid();
+        const input = record(body);
+        const snapshotId = input.snapshot_id;
+        validateToolAccess(input);
+        if (!identifier(snapshotId) || findSecretShapedValues({
+          tool_labels: input.tool_labels, never_allowed: input.never_allowed,
+        }).length) invalid();
         const { rows: [current] } = await client.query<Row>(`${select} WHERE ${byId} FOR UPDATE`, [id]);
         if (!current) absent();
         const pinned = await client.query(
-          `UPDATE mcp_servers SET pinned_snapshot_id = $2, updated_at = now() WHERE id = $1 AND EXISTS (
+          `UPDATE mcp_servers SET pinned_snapshot_id = $2, updated_at = now(),
+             tool_labels = coalesce($4::jsonb, tool_labels), never_allowed = coalesce($5::jsonb, never_allowed)
+           WHERE id = $1 AND EXISTS (
              SELECT 1 FROM mcp_tool_snapshots WHERE id = $2 AND server_id = $1 AND source_hash = $3)
-           RETURNING *`, [id, snapshotId, hash(mcpSource(current))],
+           RETURNING *`, [id, snapshotId, hash(mcpSource(current)),
+             JSON.stringify(input.tool_labels) ?? null, JSON.stringify(input.never_allowed) ?? null],
         );
         if (!pinned.rowCount) throw new HttpError(409, 'catalog.invalid_snapshot', 'snapshot unavailable for this server');
         await audit(client, 'pinned', id);

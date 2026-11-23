@@ -13,7 +13,7 @@ ARG RUST_VERSION=1.99.1
 
 # The core's redactor compiled to WebAssembly (crates/runbook-redact-wasm,
 # R1-F3): the same artifact as `npm run wasm:build`.
-FROM rust:${RUST_VERSION}-slim-bookworm AS wasm
+FROM --platform=$BUILDPLATFORM rust:${RUST_VERSION}-slim-bookworm AS wasm
 ARG RUST_VERSION
 ARG RUNBOOK_CACHE_ID=default
 ENV RUSTUP_TOOLCHAIN=${RUST_VERSION} \

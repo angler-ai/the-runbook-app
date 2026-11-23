@@ -32,7 +32,7 @@ pub const ASSERTION_HEADER: &str = "runbook-assertion";
 /// The most a proxied response may hold.
 pub const MAX_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 /// How long the core waits for the runner.
-pub const TIMEOUT_MS: u64 = 30_000;
+pub const TIMEOUT_MS: u64 = 20_000;
 
 /// `/v1/runners/{ri}/proxy/{*path}`.
 pub fn recognizes(path: &str) -> bool {
@@ -61,6 +61,8 @@ pub struct RunnerRoute {
     /// The route may answer with an event stream.
     #[serde(default, rename = "sse", skip_serializing_if = "std::ops::Not::not")]
     pub stream: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub core_only: bool,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RunnerRoutes {
@@ -99,7 +101,7 @@ fn plain_match(template: &str, path: &str) -> bool {
             }
         })
 }
-fn plain_segment(segment: &str) -> bool {
+pub(crate) fn plain_segment(segment: &str) -> bool {
     !segment.is_empty()
         && segment != "."
         && segment != ".."
@@ -139,7 +141,7 @@ fn error(status: u16, code: &str, r: &Request) -> Response {
 }
 
 pub async fn handle<B: Backends>(backends: &B, r: Request) -> Response {
-    match proxy(backends, &r).await {
+    match proxy(backends, &r, false).await {
         Ok(response) => response,
         Err((status, code)) => error(status, code, &r),
     }
@@ -147,7 +149,59 @@ pub async fn handle<B: Backends>(backends: &B, r: Request) -> Response {
 
 type Error = (u16, &'static str);
 
-async fn proxy<B: Backends>(backends: &B, r: &Request) -> Result<Response, Error> {
+// Agent proposals are authorized without applying their changes. The approval
+// route and direct environment writes always require an interactive session.
+fn runner_browser_write(method: &str, path: &str, body: &Value, agent: bool) -> bool {
+    if method == "GET" {
+        return false;
+    }
+    if path.starts_with("/runner/v1/environments")
+        || path == "/runner/v1/environment-registries"
+        || path == "/runner/v1/proposals/{proposal_id}/approve"
+    {
+        return true;
+    }
+    if agent {
+        return false;
+    }
+    (path == "/runner/v1/policy"
+        && [
+            "org_concurrency",
+            "org_cost_per_day_usd",
+            "org_cost_per_month_usd",
+            "agent_concurrency",
+            "agent_max_cost_usd",
+            "project_limits",
+            "run_max_cost_usd",
+            "time_zone",
+            "alert_threshold_percent",
+        ]
+        .iter()
+        .any(|field| body.get(field).is_some()))
+        || (path.starts_with("/runner/v1/groups")
+            && (method == "DELETE"
+                || [
+                    "concurrency",
+                    "cost_per_day_usd",
+                    "cost_per_month_usd",
+                    "alert_threshold_percent",
+                    "compute_rate",
+                ]
+                .iter()
+                .any(|field| body.get(field).is_some())))
+        || (path.starts_with("/runner/v1/projects/{project_id}/agents")
+            && (path == "/runner/v1/projects/{project_id}/agents" && method == "POST"
+                || method == "PATCH"
+                    && ["limits", "environment_id"]
+                        .iter()
+                        .any(|field| body.get(field).is_some())))
+}
+
+pub(crate) async fn proxy<B: Backends>(
+    backends: &B,
+    r: &Request,
+    oauth_callback: bool,
+) -> Result<Response, Error> {
     let (install, target) = parse(&r.path).ok_or((404, "resource.not_found"))?;
     let install: RunnerInstallId = install.parse().map_err(|_| (404, "resource.not_found"))?;
     let runner_path = format!("/{target}");
@@ -160,6 +214,14 @@ async fn proxy<B: Backends>(backends: &B, r: &Request) -> Result<Response, Error
         return Err((403, "auth.csrf"));
     }
     let route = route_for(&r.method, &runner_path).ok_or((404, "runner.route_unknown"))?;
+    if route.core_only != oauth_callback {
+        return Err((404, "runner.route_unknown"));
+    }
+    let oauth_start =
+        r.method == "POST" && route.path == "/runner/v1/credentials/{credential_id}/connect";
+    let oauth_account_confirmation = r.method == "POST"
+        && route.path == "/runner/v1/credentials/{credential_id}/oauth-confirm"
+        && envelope.body.get("confirm_account").is_some();
     // The route's own scope is required here (scopes never imply each
     // other); the runner still decides per action and per project.
     if !Scope::RUNNER.contains(&route.scope) || !caller.scopes.contains(&route.scope) {
@@ -179,6 +241,64 @@ async fn proxy<B: Backends>(backends: &B, r: &Request) -> Result<Response, Error
             AuthError::Forbidden => (403, "auth.forbidden"),
             _ => (401, "auth.invalid_credential"),
         })?;
+    let protected_write = runner_browser_write(
+        &r.method,
+        &route.path,
+        &envelope.body,
+        actor.actor == ActorKind::Agent,
+    );
+    let browser_session = match &r.credential {
+        Some(crate::Credential::Session(session))
+            if session.scopes.is_none() && actor.actor == ActorKind::Human =>
+        {
+            Some(body_hash(session.session_id.as_bytes()))
+        }
+        _ => None,
+    };
+    if protected_write && browser_session.is_none() {
+        return Err((403, "auth.forbidden"));
+    }
+    let oauth_session = if oauth_start || oauth_callback || oauth_account_confirmation {
+        let Some(crate::Credential::Session(session)) = &r.credential else {
+            return Err((403, "auth.forbidden"));
+        };
+        let role = snapshot
+            .users
+            .get(&actor.user_id)
+            .filter(|user| user.active)
+            .map(|user| user.role);
+        if session.scopes.is_some()
+            || !matches!(
+                role,
+                Some(
+                    runbook_core::directory::OrgRole::Owner
+                        | runbook_core::directory::OrgRole::Admin
+                )
+            )
+        {
+            return Err((403, "auth.forbidden"));
+        }
+        let role = role.ok_or((403, "auth.forbidden"))?;
+        if crate::mfa::partial(session, snapshot.security, role, now) {
+            return Ok(crate::mfa::step_up(&r.request_id, snapshot.security));
+        }
+        let fresh = crate::mfa::fresh(session, snapshot.security, now);
+        if oauth_start && !fresh {
+            return Ok(crate::mfa::step_up(&r.request_id, snapshot.security));
+        }
+        if envelope.query.is_some() {
+            return Err((400, "request.invalid_query"));
+        }
+        if oauth_start
+            && let Some(user) = envelope.body.get("initiating_user")
+            && user.as_str() != Some(&actor.user_id.to_string())
+        {
+            return Err((403, "auth.forbidden"));
+        }
+        Some((body_hash(session.session_id.as_bytes()), fresh))
+    } else {
+        None
+    };
     let store = backends.runners();
     let record = store
         .install_of(&caller.org_id)
@@ -228,6 +348,12 @@ async fn proxy<B: Backends>(backends: &B, r: &Request) -> Result<Response, Error
         _ => ("human", None),
     };
     let claims = UserAssertionClaims {
+        session_hash: if protected_write {
+            browser_session
+        } else {
+            oauth_session.as_ref().map(|(hash, _)| hash.clone())
+        },
+        fresh_mfa: oauth_session.as_ref().map(|(_, fresh)| *fresh),
         iss: backends.origin(),
         aud: format!("runner:{install}"),
         jti: jti.iter().map(|b| format!("{b:02x}")).collect(),
@@ -275,6 +401,21 @@ async fn proxy<B: Backends>(backends: &B, r: &Request) -> Result<Response, Error
             "runner.url_forbidden" => (502, "runner.url_forbidden"),
             _ => (502, "runner.unreachable"),
         })?;
+    if oauth_start && (200..300).contains(&answer.status) {
+        let id = target
+            .split('/')
+            .nth(3)
+            .ok_or((502, "runner.bad_response"))?;
+        return crate::runner_oauth::start_response(
+            answer,
+            id,
+            &record,
+            &claims,
+            &envelope.body,
+            backends.wall_clock_ms(),
+            &r.request_id,
+        );
+    }
     runner_response(answer, route, &r.request_id)
 }
 
@@ -330,6 +471,56 @@ pub fn envelope(csrf: Option<&str>, query: Option<&str>, body: Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn browser_write_gate_covers_environments_and_budget_mutations() {
+        let cases = [
+            ("POST", "/runner/v1/environments", Value::Null),
+            ("PUT", "/runner/v1/environment-registries", Value::Null),
+            (
+                "PUT",
+                "/runner/v1/policy",
+                serde_json::json!({"project_limits": {}}),
+            ),
+            (
+                "PATCH",
+                "/runner/v1/groups/{group_id}",
+                serde_json::json!({"cost_per_day_usd": 0}),
+            ),
+            (
+                "PATCH",
+                "/runner/v1/projects/{project_id}/agents/{agent_id}",
+                serde_json::json!({"limits": {}}),
+            ),
+            (
+                "POST",
+                "/runner/v1/proposals/{proposal_id}/approve",
+                Value::Null,
+            ),
+        ];
+        for (method, path, body) in cases {
+            assert!(
+                routes()
+                    .routes
+                    .iter()
+                    .any(|route| route.method == method && route.path == path && route.sensitive)
+            );
+            assert!(runner_browser_write(method, path, &body, false));
+            assert!(!runner_browser_write("GET", path, &body, false));
+        }
+        assert!(!runner_browser_write(
+            "PUT",
+            "/runner/v1/policy",
+            &Value::Null,
+            true
+        ));
+        assert!(runner_browser_write(
+            "POST",
+            "/runner/v1/proposals/{proposal_id}/approve",
+            &Value::Null,
+            true
+        ));
+    }
 
     #[test]
     fn runner_refusals_cannot_request_core_mfa() {

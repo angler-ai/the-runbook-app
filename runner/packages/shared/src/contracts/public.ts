@@ -18,6 +18,7 @@ export interface PublicRoute {
   mfa_reason: string;
   /** The response may be `text/event-stream` (only the transcript route). */
   sse?: true;
+  core_only?: true;
 }
 
 type MfaPolicy = Pick<PublicRoute, 'sensitive' | 'mfa_reason'>;
@@ -52,6 +53,8 @@ const RESOURCES: readonly Resource[] = [
     item: [
       ['POST', '/discover', freshMfa('Contacts the configured upstream MCP server')],
       ['POST', '/pin', freshMfa('Changes the trusted upstream tool snapshot')],
+      ['GET', '/tools', READ],
+      ['GET', '/drift', READ],
     ],
   },
   {
@@ -61,6 +64,10 @@ const RESOURCES: readonly Resource[] = [
       ['POST', '/secrets/{field}', freshMfa('Changes a runner secret')],
       ['POST', '/test', freshMfa('Exercises a runner credential')],
       ['POST', '/revoke', freshMfa('Revokes a runner credential')],
+      ['POST', '/oauth-discover', freshMfa('Discovers the OAuth issuer and endpoints')],
+      ['POST', '/oauth-confirm', freshMfa('Confirms the OAuth endpoints and registers a client')],
+      ['POST', '/connect', freshMfa('Starts an OAuth authorization under a full human session')],
+      ['POST', '/disconnect', freshMfa('Disconnects an OAuth credential')],
     ],
   },
   {
@@ -121,10 +128,19 @@ function expand(resource: Resource): PublicRoute[] {
 /** Every route of the runner's public API, in a stable order. */
 export const PUBLIC_ROUTES: readonly PublicRoute[] = [
   ...RESOURCES.slice(0, 5).flatMap(expand),
+  { ...route('POST', '/oauth/callback/{credential_id}', { sensitive: false, mfa_reason: 'Completes a browser authorization after step-up at connect' }), core_only: true },
   route('GET', '/ingest-key', READ),
   route('GET', '/policy', READ),
   route('PUT', '/policy', freshMfa('Changes runner policy')),
   ...RESOURCES.slice(5).flatMap(expand),
+  ...expand({
+    base: '/environments', id: 'environment_id', writeMfa: freshMfa('Changes sandbox environment configuration'),
+    item: [['POST', '/resolve-digest', freshMfa('Resolves and pins a sandbox image digest')]],
+  }),
+  route('GET', '/environment-registries', READ),
+  route('PUT', '/environment-registries', freshMfa('Changes allowed sandbox image registries')),
+  route('GET', '/projects/{project_id}/mcp-tools', READ),
+  route('GET', '/budgets', READ),
   route('GET', '/usage', READ),
   route('GET', '/transcripts/{step_run_id}', READ, true),
   route('GET', '/audit', READ),

@@ -1,5 +1,6 @@
 import { expect, it, vi } from 'vitest';
-import { reapSandboxes } from '../src/reaper.ts';
+import type { Config } from '@runbook/runner-shared/config';
+import { gatewayListenerAlive, reapSandboxes } from '../src/reaper.ts';
 import type { RunningSandbox } from '../src/server.ts';
 
 it('reaper_destroys_sandbox_without_grant', async () => {
@@ -22,4 +23,18 @@ it('preserves a still-signed lease when the vault check is transiently unavailab
   expect(destroy).not.toHaveBeenCalled();
   await reapSandboxes([running], verify, destroy, 20_000);
   expect(destroy).toHaveBeenCalledExactlyOnceWith(running);
+});
+
+it('reaps a still-leased sandbox when its restarted gateway has no listener', async () => {
+  const running = { capability: 'current-capability', claims: { exp: 20 }, sandbox: { id: 'rb-sandbox' } } as RunningSandbox;
+  const config = { urls: { gateway: 'http://gateway' }, outboundTokens: { gateway: 'controller-token' } } as Config;
+  const destroy = vi.fn(async () => undefined);
+  const fetcher = vi.fn<typeof fetch>().mockRejectedValueOnce(new Error('restart')).mockResolvedValueOnce(new Response(null, { status: 410 }));
+  const verify = (entry: RunningSandbox) => gatewayListenerAlive(config, entry, fetcher);
+  await reapSandboxes([running], verify, destroy, 10_000);
+  expect(destroy).not.toHaveBeenCalled();
+  await reapSandboxes([running], verify, destroy, 15_000);
+  expect(destroy).toHaveBeenCalledExactlyOnceWith(running);
+  expect(fetcher).toHaveBeenLastCalledWith('http://gateway/internal/sandboxes/rb-sandbox/check',
+    expect.objectContaining({ method: 'POST', body: JSON.stringify({ capability: running.capability }) }));
 });

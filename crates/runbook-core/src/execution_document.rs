@@ -139,6 +139,33 @@ pub fn apply_amendment_facts(state: &ExecutionState, view: &mut ExecutionView) {
     if let Some(parent) = parent_of(state) {
         view.parent = Some(parent);
     }
+    view.overdue_steps = if matches!(
+        state.status,
+        ExecutionStatus::Running | ExecutionStatus::Paused
+    ) {
+        runbook_order(state)
+            .into_iter()
+            .filter_map(|step| {
+                use runbook_model::StepStatus as S;
+                let due_at_ms = step.overdue_since_ms?;
+                if matches!(
+                    step.status,
+                    S::Succeeded | S::Failed | S::Skipped | S::Cancelled | S::TimedOut | S::Expired
+                ) {
+                    return None;
+                }
+                Some(runbook_model::OverdueStepView {
+                    path: step.step_id.clone(),
+                    title: runbook_engine::step_title(state, step)
+                        .unwrap_or_else(|| step.node_id.clone()),
+                    due_at_ms,
+                    step_run_id: step.id.clone(),
+                })
+            })
+            .collect()
+    } else {
+        vec![]
+    };
     view.amended = state.steps.iter().any(|step| step.amended);
     view.amendments = state
         .steps
@@ -595,7 +622,40 @@ fn approval_view(state: &ExecutionState, step: &StepState, id: &StepRunId) -> Op
     let NodeKind::Approval(definition) = &state.node(&step.step_id)?.kind else {
         return None;
     };
+    let excluded = runbook_engine::excluded_completers(state, step);
+    let requested = approval
+        .requested
+        .as_ref()
+        .map(|r| r.recipients.as_slice())
+        .unwrap_or_default();
+    let escalated = approval
+        .escalation_notice_recipients
+        .as_deref()
+        .unwrap_or_default();
+    let all_excluded = !(requested.is_empty() && escalated.is_empty())
+        && requested.iter().chain(escalated).all(|recipient| {
+            matches!(recipient, runbook_model::RecipientRef::User(id) if excluded.contains(id))
+        });
     Some(ApprovalView {
+        excluded_completers: excluded.into_iter().collect(),
+        blocked_reason: if !matches!(
+            step.status,
+            runbook_model::StepStatus::Waiting | runbook_model::StepStatus::Expired
+        ) {
+            None
+        } else if runbook_engine::independent_review_missing_report(state, step) {
+            Some("approval.review_missing_report".into())
+        } else if all_excluded {
+            Some("approval.no_independent_approver".into())
+        } else if runbook_engine::independent_review_unknown_service(state, step) {
+            Some("approval.unknown_service_contributor".into())
+        } else {
+            approval
+                .automatic_withheld
+                .as_ref()
+                .filter(|reason| reason.as_str() == "approval.independent_review_required")
+                .cloned()
+        },
         schema_revision: SCHEMA_REVISION,
         step_run_id: id.clone(),
         status: step.status,

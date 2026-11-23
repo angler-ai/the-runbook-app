@@ -1,3 +1,16 @@
+import {
+  Activity,
+  CheckCircle2,
+  Circle,
+  Coins,
+  Layers3,
+  Server,
+  TriangleAlert,
+} from 'lucide-react';
+import { StatusPill } from '../../ui/status/StatusPill';
+import type { BudgetOverview, Connection } from './resources';
+import type { Credential } from './Credentials';
+import { textLink } from './runnerForms';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, type Schemas } from '../../api/client';
 import { Button } from '../../ui/primitives/button';
@@ -11,7 +24,7 @@ import {
   type Row,
   type RunnerStatus,
 } from './api';
-import { docs, panel, Rows, VaultIdentityFingerprint } from './presentation';
+import { docs, panel, sentenceCase, VaultIdentityFingerprint } from './presentation';
 
 export function Checklist({
   online,
@@ -34,7 +47,7 @@ export function Checklist({
     {
       done: profiles?.some(({ verified_at }) => Boolean(verified_at)),
       label: 'A model profile works',
-      href: '?tab=providers',
+      href: '/runner/models',
     },
     { done: hasProject, label: 'A project is allowed', href: '#runner-projects' },
     {
@@ -50,13 +63,21 @@ export function Checklist({
   ];
   return (
     <section className={panel}>
-      <h2 className="mb-2 font-semibold">Setup checklist</h2>
-      <ul className="grid gap-2 text-sm">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="font-semibold">Setup checklist</h2>
+        <span className="font-mono text-xs text-fg-muted">
+          {items.filter((item) => item.done).length} of {items.length} complete
+        </span>
+      </div>
+      <ul className="grid divide-y divide-border text-sm">
         {items.map(({ done, label, href }) => (
-          <li key={label} className="flex items-center gap-3">
-            <span className={done ? 'text-success' : 'text-fg-muted'}>
-              {done ? 'Done' : 'To do'}
-            </span>
+          <li key={label} className="flex items-center gap-3 py-2">
+            {done ? (
+              <CheckCircle2 className="size-4 text-success" aria-label="Done" />
+            ) : (
+              <Circle className="size-4 text-fg-muted" aria-label="To do" />
+            )}
+            <span className="sr-only">{done ? 'Done' : 'To do'}</span>
             <a className="text-accent underline" href={href}>
               {label}
             </a>
@@ -64,36 +85,6 @@ export function Checklist({
         ))}
       </ul>
     </section>
-  );
-}
-
-export function Capacity({ groups, runners }: Pick<RunnerStatus, 'groups' | 'runners'>) {
-  const showGroup = groups.length > 1;
-  const showRunner = runners.length > 1;
-  return (
-    <Rows
-      label="Runner capacity"
-      columns={[
-        ...(showGroup ? ['Group'] : []),
-        ...(showRunner ? ['Runner'] : []),
-        'Health',
-        'Running / capacity',
-        'Projects',
-      ]}
-      rows={groups.flatMap((group) => {
-        const workers = runners.filter((runner) => runner.group_id === group.id);
-        return (workers.length ? workers : [undefined]).map((runner) => ({
-          id: runner?.id ?? group.id,
-          cells: [
-            ...(showGroup ? [group.name] : []),
-            ...(showRunner ? [runner?.name ?? '—'] : []),
-            runner?.status ?? 'No runners',
-            runner ? `${runner.running} / ${runner.capacity}` : '—',
-            group.projects.join(', ') || 'None',
-          ],
-        }));
-      })}
-    />
   );
 }
 
@@ -110,6 +101,32 @@ export function Overview({
 }) {
   const client = useQueryClient();
   const policy = useRunnerQuery<Row>(status, '/policy');
+  const budgets = useRunnerQuery<BudgetOverview>(status, '/budgets');
+  const credentials = useRunnerQuery<Items<Credential>>(status, '/credentials');
+  const connections = useRunnerQuery<Items<Connection>>(status, '/mcp-servers');
+  const daily = budgets.data?.items.find((item) => item.scope === 'org' && item.period === 'day');
+  const running = status.runners.reduce((total, runner) => total + runner.running, 0);
+  const queued = status.queued_steps;
+  const warnings = [
+    ...(credentials.data?.items.flatMap((item) =>
+      item.status === 'reconnect_required' || item.oauth_status?.expiry_warning
+        ? [
+            {
+              name: item.name,
+              href: '/runner/credentials',
+              reason: item.status === 'reconnect_required' ? 'Reconnect required' : 'Expires soon',
+            },
+          ]
+        : [],
+    ) ?? []),
+    ...(connections.data?.items
+      .filter((item) => item.drift)
+      .map((item) => ({
+        name: item.name,
+        href: `/runner/connections/${item.id}?tab=tools`,
+        reason: 'Tools changed since pin',
+      })) ?? []),
+  ];
   const groups = useRunnerQuery<
     Items<{
       group_id: string;
@@ -171,54 +188,98 @@ export function Overview({
   const idle = sum('idle_ms');
   return (
     <div className="grid gap-4">
-      <section className={panel}>
-        <h2 className="font-semibold">Control plane</h2>
-        <p className="mt-1 text-sm capitalize">
-          {status.status}
-          {status.version ? ` · v${status.version}` : ''}
-        </p>
-        <VaultIdentityFingerprint publicKey={status.vault_identity_key} />
-        {status.last_heartbeat_at && (
-          <p className="text-sm text-fg-muted">
-            Last heartbeat {new Date(status.last_heartbeat_at).toLocaleString()}
+      <div className="grid gap-3 sm:grid-cols-3">
+        <section className={panel}>
+          <h2 className="flex items-center gap-2 text-sm text-fg-muted">
+            <Server className="size-4" aria-hidden /> Runner health
+          </h2>
+          <div className="mt-3">
+            <StatusPill
+              status={status.status === 'online' ? 'succeeded' : 'waiting'}
+              label={status.status === 'online' ? 'Online' : 'Offline'}
+            />
+          </div>
+          <p className="mt-2 text-xs text-fg-muted">
+            {[status.version && `v${status.version}`, installType && sentenceCase(installType)]
+              .filter(Boolean)
+              .join(' · ') || 'Version unavailable'}
           </p>
-        )}
-        <p className="mt-2 text-sm">
-          Today {usage.data ? dollars(model + compute) : '—'}
-          {policy.data?.org_cost_per_day_usd != null
-            ? ` of ${dollars(Number(policy.data.org_cost_per_day_usd))}`
-            : ''}
-        </p>
-        {usage.data && (
-          <p className="text-sm text-fg-muted">
-            Model {dollars(model)} · Compute {dollars(compute)}
+        </section>
+        <section className={panel}>
+          <h2 className="flex items-center gap-2 text-sm text-fg-muted">
+            <Coins className="size-4" aria-hidden /> Today’s spend
+          </h2>
+          <p className="mt-2 font-mono text-xl tabular-nums">
+            {daily ? dollars(daily.spend) : usage.data ? dollars(model + compute) : '—'}
           </p>
-        )}
-        {installType && <p className="mt-2 text-sm">Install type {installType}</p>}
-        <p className="mt-2 text-sm text-fg-muted">
-          Docker is a single trust domain. Anyone with access to the Docker host can reach
-          everything on it.
-        </p>
-      </section>
-      <Capacity groups={status.groups} runners={status.runners} />
-      <section className={panel}>
-        <h2 className="font-semibold">Efficiency</h2>
-        <p className="mt-1 text-sm text-fg-muted">
-          Sandboxes busy{' '}
-          {busy != null && idle != null && busy + idle > 0
-            ? `${Math.round((100 * busy) / (busy + idle))}%`
-            : '—'}{' '}
-          · Idle stops {sum('idle_stops') ?? '—'}
-        </p>
-      </section>
-      <Checklist
-        online={status.status === 'online'}
-        profiles={profiles.data?.items}
-        hasProject={Boolean(firstProject)}
-        project={firstProject?.slug}
-        hasAgent={Boolean(agents.data?.items.length)}
-        hasStep={Boolean(usage.data?.items.length)}
-      />
+          <a href="/runner/budgets" className={textLink + ' text-xs'}>
+            {daily
+              ? `of ${dollars(daily.cap)} daily cap`
+              : policy.data?.org_cost_per_day_usd != null
+                ? `of ${dollars(Number(policy.data.org_cost_per_day_usd))} daily cap`
+                : 'View budgets'}
+          </a>
+        </section>
+        <section className={panel}>
+          <h2 className="flex items-center gap-2 text-sm text-fg-muted">
+            <Layers3 className="size-4" aria-hidden /> Running steps
+          </h2>
+          <p className="mt-2 font-mono text-xl tabular-nums">{running}</p>
+          <p className="text-xs text-fg-muted">
+            {queued == null ? 'Queue count unavailable' : `${queued} queued`}
+          </p>
+        </section>
+      </div>
+      {warnings.length > 0 && (
+        <section className={panel}>
+          <h2 className="flex items-center gap-2 font-semibold">
+            <TriangleAlert className="size-4 text-warn" aria-hidden /> Needs attention
+          </h2>
+          <ul className="mt-3 grid gap-2 text-sm">
+            {warnings.map((item) => (
+              <li key={item.href + item.name} className="flex flex-wrap gap-x-3">
+                <a className={textLink} href={item.href}>
+                  {item.name}
+                </a>
+                <span className="text-fg-muted">{item.reason}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]">
+        <div className="grid min-w-0 gap-4">
+          <section className={panel}>
+            <h2 className="flex items-center gap-2 font-semibold">
+              <Activity className="size-4 text-fg-muted" aria-hidden /> Control plane
+            </h2>
+            {status.last_heartbeat_at && (
+              <p className="mt-2 text-sm text-fg-muted">
+                Last heartbeat {new Date(status.last_heartbeat_at).toLocaleString()}
+              </p>
+            )}
+            <VaultIdentityFingerprint publicKey={status.vault_identity_key} />
+          </section>
+          <section className={panel}>
+            <h2 className="font-semibold">Efficiency</h2>
+            <p className="mt-1 text-sm text-fg-muted">
+              Sandboxes busy{' '}
+              {busy != null && idle != null && busy + idle > 0
+                ? `${Math.round((100 * busy) / (busy + idle))}%`
+                : '—'}{' '}
+              · Idle stops {sum('idle_stops') ?? '—'}
+            </p>
+          </section>
+        </div>
+        <Checklist
+          online={status.status === 'online'}
+          profiles={profiles.data?.items}
+          hasProject={Boolean(firstProject)}
+          project={firstProject?.slug}
+          hasAgent={Boolean(agents.data?.items.length)}
+          hasStep={Boolean(usage.data?.items.length)}
+        />
+      </div>
       <section id="runner-projects" className={panel}>
         <h2 className="font-semibold">Allowed projects</h2>
         {status.groups.map((group) => (

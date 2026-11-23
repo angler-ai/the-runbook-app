@@ -189,6 +189,7 @@ fn agent() -> ActorRef {
         session_id: "s1".into(),
         name: "prop-agent".into(),
         model: None,
+        service_attribution: None,
     }
 }
 fn directory() -> runbook_spec::CompileContext {

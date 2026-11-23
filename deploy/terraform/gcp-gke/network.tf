@@ -1,8 +1,9 @@
 resource "kubernetes_network_policy_v1" "allow_load_balancer" {
-  count = var.network_policies ? 1 : 0
+  count = var.network_policies && var.ingress_enabled ? 1 : 0
 
   metadata {
-    name      = "allow-load-balancer"
+    labels    = local.additional_labels
+    name      = "${var.name_prefix}allow-load-balancer"
     namespace = kubernetes_namespace.runbook.metadata[0].name
   }
 
@@ -34,7 +35,8 @@ resource "kubernetes_network_policy_v1" "deny_ingress" {
   count = var.network_policies ? 1 : 0
 
   metadata {
-    name      = "default-deny-ingress"
+    labels    = local.additional_labels
+    name      = "${var.name_prefix}default-deny-ingress"
     namespace = kubernetes_namespace.runbook.metadata[0].name
   }
 
@@ -50,7 +52,8 @@ resource "kubernetes_network_policy_v1" "runbook_egress" {
   count = var.network_policies && var.restrict_egress ? 1 : 0
 
   metadata {
-    name      = "runbook-egress"
+    labels    = local.additional_labels
+    name      = "${var.name_prefix}runbook-egress"
     namespace = kubernetes_namespace.runbook.metadata[0].name
   }
 

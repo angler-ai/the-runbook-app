@@ -12,6 +12,34 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, fmt};
 
+/// Verify a vault statement whose UTF-8 fields are individually length-prefixed.
+pub fn verify_vault_statement(public: &str, signature: &str, fields: &[&str]) -> bool {
+    let Ok(public) = URL_SAFE_NO_PAD.decode(public) else {
+        return false;
+    };
+    let Ok(public) = <[u8; 32]>::try_from(public) else {
+        return false;
+    };
+    let Ok(key) = ed25519_dalek::VerifyingKey::from_bytes(&public) else {
+        return false;
+    };
+    let Ok(signature) = URL_SAFE_NO_PAD.decode(signature) else {
+        return false;
+    };
+    let Ok(signature) = ed25519_dalek::Signature::from_slice(&signature) else {
+        return false;
+    };
+    let mut statement = Vec::new();
+    for field in fields {
+        let Ok(length) = u32::try_from(field.len()) else {
+            return false;
+        };
+        statement.extend(length.to_be_bytes());
+        statement.extend(field.as_bytes());
+    }
+    key.verify_strict(&statement, &signature).is_ok()
+}
+
 /// JWT `typ` of a release or capability grant.
 pub const GRANT_TYP: &str = "rb-grant+jwt";
 /// JWT `typ` of a user assertion forwarded through the runner proxy.
@@ -363,6 +391,10 @@ pub struct GrantClaims {
 /// (`typ: rb-user+jwt`, 60 s, single use, bound to method, path and body).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UserAssertionClaims {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fresh_mfa: Option<bool>,
     pub iss: String,
     /// `runner:<install id>`.
     pub aud: String,

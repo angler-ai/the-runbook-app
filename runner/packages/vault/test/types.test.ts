@@ -20,7 +20,9 @@ describe('credential types', () => {
   it('match their shared manifests', () => {
     for (const manifest of Object.values(CREDENTIAL_TYPES)) {
       const impl = typeImpl(manifest.type);
-      expect(impl.secretFields).toEqual(manifest.secretFields.map((f) => f.name));
+      expect(impl.secretFields.filter((field) => field !== 'oauth_pending')).toEqual([
+        ...manifest.secretFields.map((f) => f.name), ...(manifest.providerManagedFields ?? []),
+      ]);
       expect(impl.deliveries).toEqual(manifest.deliveries);
     }
   });

@@ -440,6 +440,17 @@ impl RunnerStore for PostgresRunners {
                 last_heartbeat_at: row.get(7),
             });
         }
+        let queued_steps: i64 = c
+            .query_one(
+                "SELECT count(*) FROM runbook.runner_ready_steps r \
+                 JOIN runbook.runner_agents a ON a.org_id = r.org_id AND a.agent_id = r.agent_id \
+                 JOIN runbook.runner_group_projects gp ON gp.group_id = a.group_id AND gp.project_id = r.project_id \
+                 WHERE a.install_id = $1 AND r.org_id = $2 AND a.project_id = r.project_id AND r.decision IS NULL",
+                &[&install.id.as_str(), &org.as_str()],
+            )
+            .await
+            .map_err(store)?
+            .get(0);
         Ok(RunnerStatusView {
             install_id: Some(install.id),
             status: install_status(install.last_heartbeat_at_ms, now_ms),
@@ -448,6 +459,7 @@ impl RunnerStore for PostgresRunners {
             vault_identity_key: install.vault_identity_key,
             groups,
             runners,
+            queued_steps: Some(queued_steps as u64),
             last_heartbeat_at: install.last_heartbeat_at_ms,
         })
     }

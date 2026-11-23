@@ -131,6 +131,10 @@ impl Trace {
                     directory_revision: 1,
                 },
             },
+            Command::MarkStepOverdue { step_id, due_at_ms } => Event::StepOverdue {
+                step_id: step_id.clone(),
+                due_at_ms: *due_at_ms,
+            },
             Command::RemindStep {
                 step_run_id,
                 due_at_ms,

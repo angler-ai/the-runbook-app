@@ -281,6 +281,8 @@ pub struct Node {
     pub on_failure: FailurePolicy,
     pub timeout: Option<Duration>,
     pub kind: NodeKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub due_after: Option<Duration>,
     /// LANG9: free-form labels (`audience: customer`). The engine ignores
     /// them; the API returns them with the step. Omitted when empty, so a
     /// step without labels keeps its stored bytes.
@@ -744,6 +746,8 @@ pub struct Approval {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub approves: Option<Vec<String>>,
     pub approvers: Vec<Recipient>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exclude_completers_of: Vec<String>,
     pub min: u32,
     pub timeout: Option<Duration>,
     pub on_timeout: ApprovalTimeout,

@@ -69,7 +69,7 @@ RUN --mount=type=cache,id=runbook-npm-cache,target=/root/.npm,sharing=locked \
 # The UI imports the API contract and its examples from the repository root.
 COPY api /src/api
 COPY schemas /src/schemas
-COPY runner/packages/shared/src/credential-manifest.ts /src/runner/packages/shared/src/
+COPY runner/packages/shared/src/credential-manifest.ts runner/packages/shared/src/oauth-binding.ts /src/runner/packages/shared/src/
 COPY runner/packages/shared/src/contracts/core.ts /src/runner/packages/shared/src/contracts/
 COPY auth/src/return-to.ts /src/auth/src/
 COPY web ./

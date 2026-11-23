@@ -13,6 +13,8 @@ export function waitingText(reason: string, detail?: string | null): string {
   if (reason === 'agent_paused') return 'Waiting: the agent is paused';
   if (reason === 'agent_outside_ceiling') return 'Waiting: the agent no longer allows this step';
   if (reason === 'runner_offline') return 'Waiting: the runner is offline';
+  if (reason === 'limit:environment')
+    return 'Waiting: an environment budget or concurrency cap is reached';
   if (reason.startsWith('limit:')) return `Waiting: the ${reason.slice(6)} limit is reached`;
   return `Waiting: ${reason}`;
 }

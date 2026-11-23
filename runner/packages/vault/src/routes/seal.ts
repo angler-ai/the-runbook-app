@@ -3,6 +3,8 @@
 // destination, at its current version, recently and only once, then store
 // it under a fresh data key. Answers with metadata only.
 import { createHash } from 'node:crypto';
+import { canonicalJson } from '@runbook/runner-shared/binding';
+import { isCredentialPlaceholder, secretManagerReference } from '@runbook/runner-shared/credential-source';
 import { JWT_SKEW_SECONDS } from '@runbook/runner-shared/contracts/core';
 import type { SealRequest, SealResponse } from '@runbook/runner-shared/contracts/internal';
 import { withTransaction } from '@runbook/runner-shared/db';
@@ -63,13 +65,29 @@ export async function handleSeal(
       if (!credential.label_initialized) {
         throw new VaultError(409, 'credential.policy_required', 'save the credential label before sealing');
       }
+      const oauth = credential.type === 'mcp-oauth';
+      const config = credential.config as { registration_mode?: string; token_endpoint_auth_method?: string; issuer?: string };
+      if (oauth && (blob.field !== 'client_secret' || config?.registration_mode !== 'pre-registered' ||
+          !config.issuer || config.token_endpoint_auth_method === 'none')) {
+        throw new VaultError(400, 'credential.provider_managed', 'OAuth token fields are managed by the vault');
+      }
       const fields = typeImpl(credential.type).secretFields;
       if (!fields.includes(blob.field)) {
         throw new VaultError(400, 'credential.not_secret_field', 'not a secret field of this credential type');
       }
-      const { hash } = vault.secrets.binding(credential);
+      const { binding, hash } = vault.secrets.binding(credential);
       if (toBase64Url(hash) !== blob.binding_hash) {
         throw new VaultError(409, 'seal.binding_mismatch', 'the credential destination changed since this value was sealed');
+      }
+      const reference = binding.secret_source;
+      if (reference) {
+        if (plaintext.toString('utf8') !== canonicalJson(reference)) {
+          throw new VaultError(400, 'seal.reference_mismatch', 'seal the canonical Secret Manager reference to confirm it');
+        }
+        vault.secrets.assertReferenceAllowed(secretManagerReference(reference), credential.type, binding);
+      }
+      if (isCredentialPlaceholder(plaintext.toString('utf8'))) {
+        throw new VaultError(400, 'seal.placeholder', 'a sandbox placeholder cannot be used as a credential');
       }
       await client.query('DELETE FROM seal_replay WHERE seen_at < $1', [new Date(now.getTime() - REPLAY_WINDOW_MS)]);
       const fresh = await client.query(
@@ -86,14 +104,15 @@ export async function handleSeal(
       });
       await client.query(
         `UPDATE credentials SET secret_meta = jsonb_set(secret_meta, ARRAY[$2], $3),
-           status = CASE WHEN NOT EXISTS (
+           status = CASE WHEN $6 THEN status WHEN NOT EXISTS (
              SELECT 1 FROM unnest($4::text[]) AS required(field)
              WHERE required.field <> $2 AND secret_meta->required.field->'sealed_for_binding' IS DISTINCT FROM 'true'::jsonb
            ) THEN 'active' ELSE 'needs_secret' END, updated_at = $5 WHERE id = $1`,
         [credential.id, blob.field, JSON.stringify({
           version: version.version, fingerprint: version.fingerprint, sealed_for_binding: true,
           created_at: now.toISOString(), created_by: actor.id,
-        }), fields, now],
+          ...(reference !== undefined && { source: 'gcp-secret-manager' }),
+        }), fields, now, oauth],
       );
       await audit(client, {
         actor,
@@ -102,7 +121,8 @@ export async function handleSeal(
         resource_id: blob.credential_id,
         group_id: null,
         runner_id: null,
-        detail: { field: blob.field, version: version.version, fingerprint: version.fingerprint, ingest_key_id: blob.ingest_key_id },
+        detail: { field: blob.field, version: version.version, fingerprint: version.fingerprint,
+          ingest_key_id: blob.ingest_key_id, ...(reference !== undefined && { source: 'gcp-secret-manager' }) },
       });
       return version;
     });

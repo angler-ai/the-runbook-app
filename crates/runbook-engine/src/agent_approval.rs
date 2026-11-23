@@ -36,10 +36,15 @@ impl AgentDecision {
             session_id: self.session_id.clone(),
             name: self.agent_name.clone(),
             model: self.model.clone(),
+            service_attribution: None,
         }
     }
 }
-fn check(state: &ExecutionState, fact: &AgentDecision) -> Result<usize, EngineError> {
+fn check(
+    state: &ExecutionState,
+    fact: &AgentDecision,
+    legacy_replay: bool,
+) -> Result<usize, EngineError> {
     crate::authorize_at_deadline(state, fact.at_ms)?;
     if !crate::deadline::open(state) {
         return Err(EngineError::new("execution.not_running"));
@@ -71,7 +76,7 @@ fn check(state: &ExecutionState, fact: &AgentDecision) -> Result<usize, EngineEr
         || record.decision.is_some()
         || record.agent_decision.is_some()
         || record.automatic_decision.is_some()
-        || crate::approval::decision(state, step)?.is_some()
+        || (!legacy_replay && crate::approval::decision(state, step)?.is_some())
     {
         return Err(EngineError::new("approval.not_open"));
     }
@@ -93,7 +98,8 @@ pub fn apply_agent_decision(
     state: &ExecutionState,
     fact: &AgentDecision,
 ) -> Result<Vec<Event>, EngineError> {
-    let index = check(state, fact)?;
+    let index = check(state, fact, false)?;
+    crate::approval::check_independent_agent(state, &state.steps[index], &fact.principal)?;
     if state.steps[index]
         .approval
         .as_ref()
@@ -118,20 +124,41 @@ pub(crate) fn apply(
     at_ms: i64,
     actor: &ActorRef,
 ) -> Result<usize, EngineError> {
-    if actor != &fact.actor() {
+    if !actor.same_claim_actor(&fact.actor()) {
         return Err(EngineError::new("approval.actor_mismatch"));
     }
     if at_ms != fact.at_ms {
         return Err(EngineError::new("approval.time_mismatch"));
     }
-    let index = check(state, fact)?;
+    let legacy_replay = state.engine_version < crate::version::INDEPENDENT_APPROVALS;
+    let index = check(state, fact, legacy_replay)?;
+    if !legacy_replay {
+        let step = &state.steps[index];
+        crate::approval::check_independent_agent(state, step, &fact.principal)?;
+        if let ActorRef::Agent {
+            service_attribution: Some(attribution),
+            ..
+        } = actor
+            && !crate::approval::definition(state, step)?
+                .exclude_completers_of
+                .is_empty()
+        {
+            if attribution.creator.is_none() {
+                return Err(EngineError::new("approval.unknown_service_contributor"));
+            }
+            let excluded = crate::approval::excluded_completers(state, step);
+            if attribution.users().any(|user| excluded.contains(user)) {
+                return Err(EngineError::new("approval.excluded_completer"));
+            }
+        }
+    }
     let step = &mut state.steps[index];
     step.approval
         .as_mut()
         .ok_or(EngineError::invariant("approval state disappeared"))?
         .agent_decision = Some(fact.clone());
     step.status = StepStatus::Succeeded;
-    step.actor = Some(fact.actor());
+    step.actor = Some(actor.clone());
     step.finished_at_ms = Some(at_ms);
     step.outputs = [
         ("decision".into(), serde_json::json!(fact.option)),

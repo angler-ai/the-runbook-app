@@ -200,6 +200,7 @@ fn replay_retains_supplied_time_actor_and_outputs() {
         session_id: "session-one".into(),
         name: "test-agent".into(),
         model: Some("sol".into()),
+        service_attribution: None,
     };
     let outputs: Data = [("message".into(), serde_json::json!("done"))].into();
     let trace = run_case(

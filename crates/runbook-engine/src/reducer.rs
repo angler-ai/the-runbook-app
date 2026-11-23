@@ -56,6 +56,7 @@ pub fn apply(
             | Event::ExecutionDeadlineElapsed { .. }
             | Event::TaskDeadlineElapsed { .. }
             | Event::ApprovalEscalated { .. }
+            | Event::StepOverdue { .. }
             | Event::StepReminded { .. }
             | Event::StepEscalated { .. }
             | Event::ApprovalExpired { .. }
@@ -214,6 +215,9 @@ pub fn apply(
             let index = crate::deadline::escalate(&mut next, snapshot, envelope.at_ms)?;
             crate::data::note_step_revision(&mut next, index, envelope.seq);
         }
+        Event::StepOverdue { step_id, due_at_ms } => {
+            crate::followup::mark_overdue(&mut next, step_id, *due_at_ms, envelope.at_ms)?;
+        }
         Event::StepReminded {
             step_run_id,
             due_at_ms,
@@ -349,6 +353,8 @@ pub fn apply(
             if !crate::deadline::open(state) {
                 return Err(EngineError::new("execution.not_running"));
             }
+            let index = state.step_index(step_run_id)?;
+            crate::approval::note_contributor(&mut next.steps[index], &envelope.actor);
             crate::assignment::take_over(
                 &mut next,
                 step_run_id,
@@ -738,6 +744,7 @@ pub fn apply(
         }
         Event::ChecklistUpdated { step_run_id, ticks } => {
             let index = crate::checklist::validate(state, step_run_id, ticks)?;
+            crate::approval::note_contributor(&mut next.steps[index], &envelope.actor);
             next.steps[index].checklist = ticks.clone();
         }
         Event::ExecutionStarted {
@@ -892,6 +899,7 @@ pub fn apply(
                 return Err(EngineError::new("step.not_claimable"));
             }
             next.steps[index].status = StepStatus::Claimed;
+            crate::approval::note_contributor(&mut next.steps[index], &envelope.actor);
             next.steps[index].actor = Some(envelope.actor.clone());
             let runner = &mut next.steps[index].runner;
             runner.waiting_reason = None;
@@ -955,6 +963,7 @@ pub fn apply(
             next.steps[index].outputs = amendment.to.outputs.clone();
             next.steps[index].summary = amendment.to.summary.clone();
             next.steps[index].amended = true;
+            crate::approval::note_contributor(&mut next.steps[index], &envelope.actor);
             crate::data::note_step_revision(&mut next, index, envelope.seq);
             next.steps[index].amendments.push((**amendment).clone());
             crate::amendments::mark_stale(&mut next, step_run_id);
@@ -991,6 +1000,7 @@ pub fn apply(
                 ReportStatus::Failed | ReportStatus::Blocked => StepStatus::Failed,
             };
             let step = &mut next.steps[index];
+            crate::approval::note_contributor(step, &envelope.actor);
             step.status = status;
             step.attempt_history
                 .push(std::rc::Rc::new(crate::AttemptRecord {

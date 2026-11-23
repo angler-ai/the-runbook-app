@@ -16,9 +16,11 @@
   },
   "dependencies": {
     "@runbook/runner-shared": "0.1.1",
-    "dockerode": "5.0.1"
+    "dockerode": "5.0.1",
+    "ws": "8.23.0"
   },
   "devDependencies": {
-    "@types/dockerode": "4.0.2"
+    "@types/dockerode": "4.0.2",
+    "@types/ws": "8.18.2"
   }
 }

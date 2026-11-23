@@ -1,40 +1,40 @@
 resource "kubernetes_namespace" "runbook" {
   metadata {
-    name = "runbook"
-    labels = {
+    name = local.core_namespace_name
+    labels = merge(var.labels, {
       "app.kubernetes.io/name"       = "runbook"
       "app.kubernetes.io/managed-by" = "terraform"
-    }
+    })
   }
 }
 
 resource "kubernetes_service_account" "runbook_ksa" {
   metadata {
-    name      = "runbook-ksa"
+    name      = local.core_ksa_name
     namespace = kubernetes_namespace.runbook.metadata[0].name
     annotations = {
       "iam.gke.io/gcp-service-account" = google_service_account.runbook_gsa.email
     }
-    labels = {
+    labels = merge(var.labels, {
       "app.kubernetes.io/name"       = "runbook"
       "app.kubernetes.io/managed-by" = "terraform"
-    }
+    })
   }
 }
 
 resource "kubernetes_config_map" "runbook_config" {
   metadata {
-    name      = "runbook-config"
+    name      = "${var.name_prefix}runbook-config"
     namespace = kubernetes_namespace.runbook.metadata[0].name
-    labels = {
+    labels = merge(var.labels, {
       "app.kubernetes.io/name"       = "runbook"
       "app.kubernetes.io/managed-by" = "terraform"
-    }
+    })
   }
 
   data = merge(
     {
-      RUNBOOK_ORIGIN                  = "https://${var.app_domain}"
+      RUNBOOK_ORIGIN                  = local.core_origin
       RUNBOOK_USERCONTENT_ORIGIN      = var.usercontent_domain != "" ? "https://${var.usercontent_domain}" : ""
       RUNBOOK_AUTH_METHODS            = var.auth_methods
       RUNBOOK_AUTH_ALLOWED_DOMAINS    = var.auth_allowed_domains
@@ -46,12 +46,18 @@ resource "kubernetes_config_map" "runbook_config" {
       RUNBOOK_DATABASE_POOL_SIZE      = tostring(var.database_pool_size)
       RUNBOOK_AUTH_DATABASE_POOL_SIZE = tostring(var.auth_database_pool_size)
       RUNBOOK_SHUTDOWN_TIMEOUT_SECS   = tostring(var.shutdown_timeout_secs)
+      RUNBOOK_BLOB_STORE              = var.blob_store
+    },
+    var.ingress_enabled ? {
       # Google's front ends, and the load balancer's own address: it appends
       # itself to X-Forwarded-For after the client, so without it every
       # client would look like the load balancer and share its limits.
-      RUNBOOK_TRUSTED_PROXIES = "35.191.0.0/16,130.211.0.0/16,${google_compute_global_address.ingress_ip.address}"
-      RUNBOOK_BLOB_STORE      = var.blob_store
-    },
+      RUNBOOK_TRUSTED_PROXIES = "35.191.0.0/16,130.211.0.0/16,${google_compute_global_address.ingress_ip[0].address}"
+    } : {},
+    var.runner_enabled ? {
+      RUNBOOK_RUNNER_PRIVATE_NETWORKS = "true"
+      RUNBOOK_RUNNER_PRIVATE_URL      = local.runner_api_url
+    } : {},
     var.blob_store == "gcs" ? {
       RUNBOOK_BLOB_BUCKET = google_storage_bucket.blobs[0].name
       RUNBOOK_BLOB_PREFIX = var.blob_prefix
@@ -69,12 +75,12 @@ resource "kubernetes_deployment" "runbook" {
   depends_on = [kubernetes_manifest.migration_job]
 
   metadata {
-    name      = "runbook"
+    name      = "${var.name_prefix}runbook"
     namespace = kubernetes_namespace.runbook.metadata[0].name
-    labels = {
+    labels = merge(var.labels, {
       "app.kubernetes.io/name"       = "runbook"
       "app.kubernetes.io/managed-by" = "terraform"
-    }
+    })
   }
 
   spec {
@@ -88,9 +94,9 @@ resource "kubernetes_deployment" "runbook" {
 
     template {
       metadata {
-        labels = {
+        labels = merge(var.labels, {
           "app.kubernetes.io/name" = "runbook"
-        }
+        })
         # Pods read the ConfigMap and the Secret only at start: a change to
         # either rolls the Deployment (a rotated Slack, SMTP or Google secret
         # takes effect on apply). Hashes only; no values.
@@ -276,7 +282,8 @@ resource "kubernetes_deployment" "runbook" {
 
 resource "kubernetes_pod_disruption_budget_v1" "runbook_pdb" {
   metadata {
-    name      = "runbook-pdb"
+    labels    = local.additional_labels
+    name      = "${var.name_prefix}runbook-pdb"
     namespace = kubernetes_namespace.runbook.metadata[0].name
   }
 
@@ -293,16 +300,16 @@ resource "kubernetes_pod_disruption_budget_v1" "runbook_pdb" {
 
 resource "kubernetes_service_v1" "runbook_service" {
   metadata {
-    name      = "runbook"
+    name      = local.core_service_name
     namespace = kubernetes_namespace.runbook.metadata[0].name
-    labels = {
+    labels = merge(var.labels, {
       "app.kubernetes.io/name"       = "runbook"
       "app.kubernetes.io/managed-by" = "terraform"
-    }
-    annotations = {
-      "cloud.google.com/backend-config" = jsonencode({ "default" = "runbook-backendconfig" })
+    })
+    annotations = var.ingress_enabled ? {
+      "cloud.google.com/backend-config" = jsonencode({ "default" = "${var.name_prefix}runbook-backendconfig" })
       "cloud.google.com/neg"            = jsonencode({ "ingress" = true })
-    }
+    } : { "cloud.google.com/neg" = jsonencode({ ingress = false }) }
   }
 
   spec {

@@ -153,6 +153,9 @@ pub struct RunnerStatusView {
     pub vault_identity_key: Option<String>,
     pub groups: Vec<RunnerGroupView>,
     pub runners: Vec<RunnerView>,
+    /// Ready runner steps awaiting a claim across the installation's groups.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queued_steps: Option<u64>,
     /// Epoch milliseconds.
     pub last_heartbeat_at: Option<i64>,
 }
@@ -330,6 +333,9 @@ pub const RUNNER_EVENT_KINDS: &[&str] = &[
     "runner.probe_succeeded",
     "runner.secret_in_response",
     "runner.binding_mismatch",
+    "credential.reconnect_required",
+    "credential.oauth_expiring",
+    "credential.oauth_refresh_failing",
     "runner.release_denied",
 ];
 /// `POST /v1/runner-installs/{ri}/events`.
@@ -608,6 +614,13 @@ pub const RUNNER_ROUTES: &[PublicRoute] = &[
         Some("GrantRevokedRequest"),
         None,
         204,
+    ),
+    route(
+        "GET",
+        "/v1/runner/oauth/callback/{credential_id}",
+        None,
+        None,
+        303,
     ),
     route("GET", RUNNER_PROXY_PATH, None, None, 200),
     route("POST", RUNNER_PROXY_PATH, None, None, 200),

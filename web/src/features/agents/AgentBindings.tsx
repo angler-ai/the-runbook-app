@@ -1,25 +1,31 @@
 import { useState, type ReactNode } from 'react';
 import { Button } from '../../ui/primitives/button';
-import { fieldClasses } from '../../ui/primitives/input';
 import { runnerError } from '../runner/api';
-import { Field, panel, Rows } from '../runner/presentation';
+import type { Credential } from '../runner/Credentials';
+import { panel, Rows } from '../runner/presentation';
+import { Problem } from '../runner/runnerForms';
+
+type Binding = { credential_id: string; delivery: string };
 
 export function Bindings({
   kind,
   rows,
   editable,
   initial,
+  choices = [],
   save,
 }: {
   kind: 'tools' | 'credentials';
   rows: { id: string; cells: ReactNode[] }[];
   editable: boolean;
   initial: unknown[];
-  save?: (value: unknown[]) => Promise<void>;
+  choices?: Credential[];
+  save?: (value: Binding[]) => Promise<void>;
 }) {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [pending, setPending] = useState(false);
+  const [selected, setSelected] = useState(initial as Binding[]);
   return (
     <div className="grid gap-3">
       <Rows
@@ -37,14 +43,11 @@ export function Bindings({
           onSubmit={async (event) => {
             event.preventDefault();
             if (pending || !save) return;
-            const fields = new FormData(event.currentTarget);
             setPending(true);
             setError('');
             setMessage('');
             try {
-              const value: unknown = JSON.parse(String(fields.get('bindings')));
-              if (!Array.isArray(value)) throw new Error('Bindings must be a list');
-              await save(value);
+              await save(selected);
               setMessage('Changes saved.');
             } catch (problem) {
               setError(runnerError(problem));
@@ -53,30 +56,49 @@ export function Bindings({
             }
           }}
         >
-          <fieldset disabled={pending} className="grid justify-items-start gap-3">
-            <Field
-              label={
-                kind === 'tools'
-                  ? 'Tool bindings (server_id and tool)'
-                  : 'Credential bindings (credential_id and delivery)'
-              }
-            >
-              <textarea
-                className={fieldClasses + ' min-h-28 py-2 font-mono'}
-                name="bindings"
-                defaultValue={JSON.stringify(initial, null, 2)}
-              />
-            </Field>
-            <Button type="submit">Save {kind}</Button>
+          <fieldset disabled={pending} className="grid gap-3">
+            <legend className="mb-2 font-medium">Shared credentials</legend>
+            {choices.length ? (
+              choices.map((credential) => (
+                <div key={credential.id} className="grid gap-2 rounded-md border border-border p-3">
+                  <p className="font-medium">{credential.name}</p>
+                  {credential.delivery.map((delivery) => (
+                    <label key={delivery} className="flex gap-2 text-sm capitalize">
+                      <input
+                        type="checkbox"
+                        className="accent-accent"
+                        checked={selected.some(
+                          (item) =>
+                            item.credential_id === credential.id && item.delivery === delivery,
+                        )}
+                        onChange={(event) =>
+                          setSelected(
+                            event.target.checked
+                              ? [...selected, { credential_id: credential.id, delivery }]
+                              : selected.filter(
+                                  (item) =>
+                                    item.credential_id !== credential.id ||
+                                    item.delivery !== delivery,
+                                ),
+                          )
+                        }
+                      />
+                      {delivery} delivery
+                    </label>
+                  ))}
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-fg-muted">No credentials are shared with this project.</p>
+            )}
+            <Button type="submit" className="w-fit">
+              Save credentials
+            </Button>
           </fieldset>
         </form>
       )}
       {message && <p role="status">{message}</p>}
-      {error && (
-        <p role="alert" className="text-danger">
-          {error}
-        </p>
-      )}
+      <Problem>{error}</Problem>
     </div>
   );
 }

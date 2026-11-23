@@ -8,6 +8,7 @@ import { findSecretShapedValues } from '@runbook/runner-shared/secret-shape';
 import { authorize } from '../authorize.ts';
 import type { PublicRequest } from '../server.ts';
 import { loadCeiling, saveAgentVersionInTransaction, validateEgress, type AgentConfig } from './agents.ts';
+import { applyEnvironment } from './environment-agent.ts';
 import { createProposal } from './proposals.ts';
 
 interface StoredAgent {
@@ -120,7 +121,7 @@ export function agentResources(pool: pg.Pool, sync: () => Promise<void>, directo
     const input = body as Record<string, unknown>;
     const keys = Object.keys(input);
     if (keys.some((key) => !['name', 'description', 'group_id', 'status', 'instructions', 'skills',
-      'profiles', 'credentials', 'limits', 'egress', 'mcp', 'sandbox'].includes(key)) || findSecretShapedValues(input).length) invalid();
+      'profiles', 'credentials', 'limits', 'egress', 'mcp', 'sandbox', 'environment_id'].includes(key)) || findSecretShapedValues(input).length) invalid();
     const editableFields = claims.principal === 'human' ? ['description', 'instructions', 'skills'] : ['description'];
     const action = id && keys.every((key) => editableFields.includes(key)) ? 'edit' : 'widen';
     const access = authorize(claims, action, resource);
@@ -130,6 +131,9 @@ export function agentResources(pool: pg.Pool, sync: () => Promise<void>, directo
         kind: 'agent.change', targetType: 'agent', targetId: id ?? null, diff: { ...input, project_id: projectId },
       }) };
     }
+
+    const changesBudget = !id || 'limits' in input || 'environment_id' in input;
+    if (changesBudget && (claims.principal !== 'human' || !claims.session_hash)) denied();
 
     const write = async (client: pg.PoolClient) => {
       const { rows: [current] } = id ? await client.query<StoredAgent>(
@@ -149,13 +153,14 @@ export function agentResources(pool: pg.Pool, sync: () => Promise<void>, directo
         const allowed = await client.query('SELECT 1 FROM groups WHERE group_id = $1 AND projects ? $2', [group, projectId]);
         if (!allowed.rowCount) denied();
       }
+      if ('limits' in input && (!input.limits || typeof input.limits !== 'object' || Array.isArray(input.limits))) invalid();
       const config = {
         profiles: input.profiles ?? current?.config?.profiles ?? [],
         credentials: input.credentials ?? current?.config?.credentials ?? [],
         limits: input.limits ?? current?.config?.limits ?? { max_cost_usd: 1, max_tokens: 16_384, timeout_s: 600 },
         egress: input.egress ?? current?.config?.egress ?? [],
         mcp: input.mcp ?? current?.config?.mcp ?? [],
-        sandbox: input.sandbox ?? current?.config?.sandbox,
+        sandbox: input.sandbox === null ? undefined : input.sandbox ?? current?.config?.sandbox,
         instructions: input.instructions ?? current?.config?.instructions ?? '',
         skills: input.skills ?? current?.config?.skills ?? [],
       } as AgentConfig & { instructions: string; skills: string[] };
@@ -167,6 +172,7 @@ export function agentResources(pool: pg.Pool, sync: () => Promise<void>, directo
             typeof entry.credential_id !== 'string' || !DELIVERIES.includes(entry.delivery)) ||
           !config.limits || typeof config.limits !== 'object' ||
           !Array.isArray(config.mcp) || config.mcp.some((entry) => !entry || typeof entry.server_id !== 'string' || typeof entry.tool !== 'string')) invalid();
+      await applyEnvironment(client, claims.org_id, input, current?.config, config, action !== 'widen');
       config.egress = validateEgress(config.egress);
       let ceiling = current?.ceiling;
       if (action === 'widen' || !ceiling) {

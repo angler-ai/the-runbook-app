@@ -1,6 +1,9 @@
 # Reserved global static IPv4 address for GKE Ingress
 resource "google_compute_global_address" "ingress_ip" {
-  name        = "runbook-ingress-ip"
+  count = var.ingress_enabled ? 1 : 0
+
+  name        = "${var.name_prefix}runbook-ingress-ip"
+  labels      = local.additional_labels
   description = "Static external IP address for The Runbook GKE Ingress"
   project     = var.project_id
 
@@ -9,22 +12,26 @@ resource "google_compute_global_address" "ingress_ip" {
 
 # GKE BackendConfig for health check and optional Cloud Armor
 resource "kubernetes_manifest" "backend_config" {
+  count = var.ingress_enabled ? 1 : 0
+
   manifest = {
     apiVersion = "cloud.google.com/v1"
     kind       = "BackendConfig"
     metadata = {
-      name      = "runbook-backendconfig"
+      name      = "${var.name_prefix}runbook-backendconfig"
       namespace = kubernetes_namespace.runbook.metadata[0].name
-      labels = {
+      labels = merge(var.labels, {
         "app.kubernetes.io/name"       = "runbook"
         "app.kubernetes.io/managed-by" = "terraform"
-      }
+      })
     }
     spec = merge(
       {
         customResponseHeaders = {
           headers = ["Strict-Transport-Security: max-age=${var.hsts_max_age}${var.hsts_include_subdomains ? "; includeSubDomains" : ""}"]
         }
+        # The OAuth callback carries authorization data in the request URL.
+        logging = { enable = false }
         healthCheck = {
           checkIntervalSec   = 10
           timeoutSec         = 3
@@ -46,16 +53,18 @@ resource "kubernetes_manifest" "backend_config" {
 
 # GKE FrontendConfig for HTTP to HTTPS redirect
 resource "kubernetes_manifest" "frontend_config" {
+  count = var.ingress_enabled ? 1 : 0
+
   manifest = {
     apiVersion = "networking.gke.io/v1beta1"
     kind       = "FrontendConfig"
     metadata = {
-      name      = "runbook-frontendconfig"
+      name      = "${var.name_prefix}runbook-frontendconfig"
       namespace = kubernetes_namespace.runbook.metadata[0].name
-      labels = {
+      labels = merge(var.labels, {
         "app.kubernetes.io/name"       = "runbook"
         "app.kubernetes.io/managed-by" = "terraform"
-      }
+      })
     }
     spec = merge(
       {
@@ -71,16 +80,18 @@ resource "kubernetes_manifest" "frontend_config" {
 
 # Google-managed TLS certificate for app and user-content hostnames
 resource "kubernetes_manifest" "managed_certificate" {
+  count = var.ingress_enabled ? 1 : 0
+
   manifest = {
     apiVersion = "networking.gke.io/v1"
     kind       = "ManagedCertificate"
     metadata = {
-      name      = "runbook-managed-cert"
+      name      = "${var.name_prefix}runbook-managed-cert"
       namespace = kubernetes_namespace.runbook.metadata[0].name
-      labels = {
+      labels = merge(var.labels, {
         "app.kubernetes.io/name"       = "runbook"
         "app.kubernetes.io/managed-by" = "terraform"
-      }
+      })
     }
     spec = {
       domains = concat([var.app_domain], var.usercontent_domain != "" ? [var.usercontent_domain] : [])
@@ -90,18 +101,20 @@ resource "kubernetes_manifest" "managed_certificate" {
 
 # GKE Ingress routing to the Runbook Service
 resource "kubernetes_ingress_v1" "runbook_ingress" {
+  count = var.ingress_enabled ? 1 : 0
+
   metadata {
-    name      = "runbook-ingress"
+    name      = "${var.name_prefix}runbook-ingress"
     namespace = kubernetes_namespace.runbook.metadata[0].name
-    labels = {
+    labels = merge(var.labels, {
       "app.kubernetes.io/name"       = "runbook"
       "app.kubernetes.io/managed-by" = "terraform"
-    }
+    })
     annotations = {
       "kubernetes.io/ingress.class"                 = "gce"
-      "kubernetes.io/ingress.global-static-ip-name" = google_compute_global_address.ingress_ip.name
-      "networking.gke.io/managed-certificates"      = "runbook-managed-cert"
-      "networking.gke.io/v1beta1.FrontendConfig"    = "runbook-frontendconfig"
+      "kubernetes.io/ingress.global-static-ip-name" = google_compute_global_address.ingress_ip[0].name
+      "networking.gke.io/managed-certificates"      = "${var.name_prefix}runbook-managed-cert"
+      "networking.gke.io/v1beta1.FrontendConfig"    = "${var.name_prefix}runbook-frontendconfig"
     }
   }
 
@@ -151,4 +164,29 @@ resource "kubernetes_ingress_v1" "runbook_ingress" {
     kubernetes_manifest.frontend_config,
     kubernetes_manifest.managed_certificate
   ]
+}
+
+moved {
+  from = google_compute_global_address.ingress_ip
+  to   = google_compute_global_address.ingress_ip[0]
+}
+
+moved {
+  from = kubernetes_manifest.backend_config
+  to   = kubernetes_manifest.backend_config[0]
+}
+
+moved {
+  from = kubernetes_manifest.frontend_config
+  to   = kubernetes_manifest.frontend_config[0]
+}
+
+moved {
+  from = kubernetes_manifest.managed_certificate
+  to   = kubernetes_manifest.managed_certificate[0]
+}
+
+moved {
+  from = kubernetes_ingress_v1.runbook_ingress
+  to   = kubernetes_ingress_v1.runbook_ingress[0]
 }

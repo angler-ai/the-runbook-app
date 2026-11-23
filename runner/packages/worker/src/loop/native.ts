@@ -6,7 +6,7 @@ import { geminiCapabilities, geminiThinking } from '@runbook/runner-shared/gemin
 import { clipUtf8 } from '../evidence.ts';
 import { whileActive } from '../lease.ts';
 import { compileOutputSchema, failed, type AgentLoop, type AgentResult } from './loop.ts';
-import { deadline, StepStopped } from './limits.ts';
+import { deadline, OAuthBlocked, StepStopped } from './limits.ts';
 import { nativeTurn } from './native-turn.ts';
 import { presentResult, renderResult, resultError, storeResult, TOOL_BYTES, TURN_BYTES } from './native-results.ts';
 
@@ -456,7 +456,7 @@ export async function runNativeAgent(options: NativeLoop): Promise<NativeResult>
         } catch (error) {
           hardSignal.throwIfAborted();
           if (signal.aborted) return issue('tool_timeout', 'Outcome unknown: check before retrying.');
-          if (error instanceof StepStopped && error.reason === 'sandbox_gone') throw error;
+          if (error instanceof OAuthBlocked || (error instanceof StepStopped && error.reason === 'sandbox_gone')) throw error;
           return issue(timer.signal.aborted ? 'tool_timeout' : 'tool_failed', timer.signal.aborted ?
             'Outcome unknown: check before retrying.' : error instanceof Error ? error.message : undefined);
         } finally {
@@ -531,6 +531,7 @@ export async function runNativeAgent(options: NativeLoop): Promise<NativeResult>
     }
   } catch (error) {
     options.signal.throwIfAborted();
+    if (error instanceof OAuthBlocked) throw error;
     if (error instanceof StepStopped) return failed(error.reason);
     return failed('model_failed');
   } finally {

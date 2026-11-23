@@ -74,6 +74,16 @@ export class VaultIdentity {
     ]), this.privateKey).toString('base64url');
   }
 
+  oauthStart(fields: string[]): string {
+    return sign(null, lengthPrefixed(['runbook-runner/oauth-start/v1', ...fields]),
+      this.privateKey).toString('base64url');
+  }
+
+  oauthAccount(fields: string[]): string {
+    return sign(null, lengthPrefixed(['runbook-runner/oauth-account/v1', ...fields]),
+      this.privateKey).toString('base64url');
+  }
+
   attest(key: IngestKeyResponse, org: string, install: string): IngestKeyResponse {
     const statement = lengthPrefixed([
       'runbook-runner/ingest-key/v1', org, install, key.ingest_key_id, key.public_key, key.expires_at,

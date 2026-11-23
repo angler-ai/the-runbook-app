@@ -61,6 +61,8 @@ function briefFor(ready: { sr: string; actor?: 'human' | 'agent' }[]): Schemas['
   return {
     schema_revision: 1,
     execution_id: EXE,
+    url: `/v1/executions/${EXE}`,
+    web_url: `/x/${EXE}`,
     completed_steps: [],
     decisions: [],
     comments: [],

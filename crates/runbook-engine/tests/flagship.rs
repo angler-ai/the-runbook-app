@@ -45,7 +45,9 @@ fn flagship_traces_match_checked_in_contract() {
     });
     let loop_view = step_view(recovered.step("stabilize"));
     let state = &manual.state;
-    let completed = json!({"schema_revision":1,"id":state.id,"runbook_version_id":"rbv_00000000000000000000000001","runbook_version":1,"title":state.title,"status":state.status,"phase":"completed","result":state.result,"pending_terminal_status":null,"inputs":state.inputs,"fields":state.fields,"tags":state.tags,"steps":state.steps.iter().filter(|s|s.id.is_some()).map(step_view).collect::<Vec<_>>(),"amended":false,"amendments":[],"stale_step_ids":[],"rerun_of":null,"resume_brief":null});
+    let url = runbook_model::execution_api_url("https://runbooks.example.com", &state.id);
+    let web_url = runbook_model::execution_web_url(&url, &state.id);
+    let completed = json!({"schema_revision":1,"id":state.id,"url":url,"web_url":web_url,"runbook_version_id":"rbv_00000000000000000000000001","runbook_version":1,"title":state.title,"status":state.status,"phase":"completed","result":state.result,"pending_terminal_status":null,"inputs":state.inputs,"fields":state.fields,"tags":state.tags,"steps":state.steps.iter().filter(|s|s.id.is_some()).map(step_view).collect::<Vec<_>>(),"amended":false,"amendments":[],"stale_step_ids":[],"rerun_of":null,"resume_brief":null});
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     for (path, expected) in [
         ("conformance/execution/post-deploy.json", fixture),

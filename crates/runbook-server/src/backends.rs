@@ -49,6 +49,7 @@ pub struct PostgresBackends {
     pub(crate) signer: crate::signing::ServerSigner,
     /// R0-2: the runner settings.
     pub(crate) runner: crate::config::RunnerConfig,
+    runner_fetch_slots: Arc<tokio::sync::Semaphore>,
 }
 
 impl PostgresBackends {
@@ -72,6 +73,7 @@ impl PostgresBackends {
             slack: server.slack.clone(),
             signer: crate::signing::ServerSigner::new(&server.database, &server.webhooks),
             runner: server.runner.clone(),
+            runner_fetch_slots: Arc::new(tokio::sync::Semaphore::new(2)),
         }
     }
 }
@@ -198,8 +200,21 @@ impl Backends for PostgresBackends {
         request: runbook_api::runner_proxy::RunnerHttpRequest,
     ) -> Result<runbook_api::runner_proxy::RunnerHttpResponse, &'static str> {
         let config = self.runner.clone();
-        tokio::task::spawn_blocking(move || crate::runner_proxy::fetch(&config, request))
+        // A system DNS lookup may outlive a request timeout. Its blocking
+        // task keeps the slot until it exits, bounding stranded lookups.
+        let slot = self
+            .runner_fetch_slots
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| "runner.unreachable")?;
+        let fetch = tokio::task::spawn_blocking(move || {
+            let _slot = slot;
+            crate::runner_proxy::fetch(&config, request)
+        });
+        let deadline = std::time::Duration::from_millis(runbook_api::runner_proxy::TIMEOUT_MS);
+        tokio::time::timeout(deadline, fetch)
             .await
+            .map_err(|_| "runner.timeout")?
             .unwrap_or(Err("runner.unreachable"))
     }
     fn archives(&self) -> crate::daily_archives::PostgresArchiveBackend {

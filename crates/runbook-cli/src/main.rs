@@ -774,6 +774,9 @@ fn handle_run_get(client: &ApiClient, args: RunGetArgs) -> Result<i32, String> {
         for line in runbook_cli::cliutil::call_links(&resp) {
             println!("  {line}");
         }
+        for line in runbook_cli::cliutil::runner_budget_lines(&resp) {
+            println!("  {line}");
+        }
         let now_ms = chrono::Utc::now().timestamp_millis();
         for line in runbook_cli::cliutil::approval_agent_lines(&resp, now_ms) {
             println!("  {line}");

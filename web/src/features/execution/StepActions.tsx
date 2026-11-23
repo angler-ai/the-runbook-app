@@ -551,11 +551,23 @@ export function StepActions({
             // In the panel, next to the buttons it explains (walkthrough #7).
             // The panel itself says when the approval is closed.
             notice={
-              isApprovalOpen(approval) && hasVoted(approval, me)
-                ? 'You have voted on this approval.'
-                : isApprovalOpen(approval) && !eligible
-                  ? 'You are not eligible to decide this approval.'
-                  : null
+              !isApprovalOpen(approval)
+                ? null
+                : approval.blocked_reason === 'approval.review_missing_report'
+                  ? 'Work in this approval’s review scope timed out. A project admin can supply the missing result.'
+                  : approval.blocked_reason === 'approval.unknown_service_contributor'
+                    ? 'A service token contributor could not be identified. A named approver without project admin rights must review.'
+                    : approval.blocked_reason === 'approval.no_independent_approver'
+                      ? 'All listed approvers contributed to the reviewed work, directly or through an agent or service token.'
+                      : me?.user && approval.excluded_completers?.includes(me.user.id)
+                        ? 'You contributed to work this approval reviews, directly or through an agent or service token.'
+                        : hasVoted(approval, me)
+                          ? 'You have voted on this approval.'
+                          : !eligible
+                            ? 'You are not eligible to decide this approval.'
+                            : approval.blocked_reason === 'approval.independent_review_required'
+                              ? 'The automatic decision was withheld. This gate requires independent review.'
+                              : null
             }
           />
         </div>

@@ -432,3 +432,33 @@ fn steps_without_follow_up_store_nothing_new() {
     let stored = serde_json::to_string(c.ir()).unwrap();
     assert!(!stored.contains("\"followup\":"), "{stored}");
 }
+
+#[test]
+fn independent_approval_references_must_dominate_and_be_human_capable() {
+    let gate =
+        "{id: gate, approval: {prompt: Review?, options: [yes], exclude_completers_of: [work]}}";
+    for steps in [
+        format!("{gate}, {{id: work, actor: human}}"),
+        format!("{{id: work, actor: agent}}, {gate}"),
+        format!("{{id: other, actor: human}}, {gate}"),
+        format!("{{id: work, actor: human, if: 'false'}}, {gate}"),
+        format!("{{id: parallel_work, parallel: [{{id: work, actor: human}}, {gate}]}}"),
+    ] {
+        let source = format!("metadata: {{id: independent}}\nspec: {{steps: [{steps}]}}");
+        let diagnostics = normalize(&parse(&source).unwrap()).unwrap_err();
+        assert_eq!(
+            diagnostics[0].code, "spec.invalid_excluded_completer",
+            "{steps}"
+        );
+        assert!(diagnostics[0].path.ends_with("/exclude_completers_of/0"));
+    }
+}
+
+#[test]
+fn independent_approval_cannot_decide_on_timeout() {
+    let (code, path) = first_error(
+        "metadata: {id: independent}\nspec: {steps: [{id: work, actor: human}, {id: gate, approval: {prompt: Review?, options: [{id: keep, auto: true}], timeout: 1m, on_timeout: {decide: keep}, exclude_completers_of: [work]}}]}",
+    );
+    assert_eq!(code, "spec.independent_review_required");
+    assert_eq!(path, "/spec/steps/1/approval/on_timeout");
+}

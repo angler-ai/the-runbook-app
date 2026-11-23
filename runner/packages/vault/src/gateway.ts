@@ -15,7 +15,7 @@ export class GatewayClient {
     this.o = options;
   }
 
-  private async call(method: string, path: string, body?: unknown): Promise<Response> {
+  private async call(method: string, path: string, body?: unknown, timeout = 15_000): Promise<Response> {
     const doFetch = this.o.fetch ?? fetch;
     try {
       return await doFetch(this.o.baseUrl + path, {
@@ -26,17 +26,27 @@ export class GatewayClient {
         },
         body: body === undefined ? null : JSON.stringify(body),
         redirect: 'error',
-        signal: AbortSignal.timeout(15_000),
+        signal: AbortSignal.timeout(timeout),
       });
     } catch {
       throw new VaultError(502, 'release.gateway_unavailable', 'the gateway could not be reached');
     }
   }
 
-  async push(material: MaterialPush): Promise<void> {
+  async epoch(): Promise<string | undefined> {
+    const res = await this.call('GET', '/internal/material/epoch', undefined, 2_000);
+    await res.body?.cancel();
+    // A rolling upgrade can still encounter the old gateway until it is replaced.
+    if (res.status === 404) return;
+    if (!res.ok) throw new VaultError(502, 'release.gateway_unavailable', 'the gateway could not be reached');
+    return res.headers.get('runbook-gateway-epoch') ?? undefined;
+  }
+
+  async push(material: MaterialPush): Promise<string | undefined> {
     const res = await this.call('POST', '/internal/material', material);
     await res.arrayBuffer();
     if (!res.ok) throw new VaultError(502, 'release.gateway_unavailable', 'the gateway refused the material');
+    return res.headers.get('runbook-gateway-epoch') ?? undefined;
   }
 
   async endClaim(claim: ClaimFence): Promise<void> {
@@ -50,6 +60,23 @@ export class GatewayClient {
     const res = await this.call('DELETE', `/internal/material/credentials/${encodeURIComponent(credentialId)}`);
     await res.arrayBuffer();
     if (!res.ok) throw new VaultError(502, 'release.gateway_unavailable', 'the gateway refused credential revocation');
+  }
+
+  async fenceOAuth(credentialId: string, generation: number): Promise<void> {
+    const res = await this.call('POST', `/internal/material/credentials/${encodeURIComponent(credentialId)}/oauth-fence`, { generation });
+    await res.arrayBuffer();
+    if (!res.ok) throw new VaultError(502, 'release.gateway_unavailable', 'the gateway refused the OAuth fence');
+  }
+
+  async lastOAuthUse(credentialId: string, generation: number, version: number): Promise<number | undefined> {
+    const res = await this.call('POST', `/internal/material/credentials/${encodeURIComponent(credentialId)}/oauth-use`,
+      { generation, token_version: version }, 2_000);
+    if (!res.ok) {
+      await res.body?.cancel();
+      return;
+    }
+    const value = (await res.json() as { last_success_ms?: unknown } | null)?.last_success_ms;
+    if (typeof value === 'number' && Number.isSafeInteger(value)) return value;
   }
 
   async remove(releaseId: string): Promise<void> {

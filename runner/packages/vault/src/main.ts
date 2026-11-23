@@ -6,6 +6,7 @@ import { loadConfig, loadInstallId, required } from '@runbook/runner-shared/conf
 import { openPool } from '@runbook/runner-shared/db';
 import { createLogger } from '@runbook/runner-shared/log';
 import { createKek } from './kek/index.ts';
+import { SecretManager, secretManagerResources } from './secret-manager.ts';
 import { createVaultServer } from './server.ts';
 import { Vault } from './vault.ts';
 
@@ -17,18 +18,23 @@ export async function main(): Promise<void> {
 
   const config = loadConfig('vault');
   const log = createLogger('vault');
+  const secretManager = new SecretManager(secretManagerResources(process.env.RUNNER_SECRET_MANAGER_RESOURCES));
   const kek = await createKek(required(config.kek, 'RUNNER_KEK_PROVIDER'));
   const pool = openPool('vault', required(config.databaseUrl, 'RUNNER_DATABASE_URL'));
+  const issuer = required(config.coreUrl, 'CORE_URL');
+  const baseUrl = config.vaultCoreUrl ?? issuer;
   const vault = await Vault.create({
     pool,
     kek,
     orgId: required(config.orgId, 'RUNNER_ORG_ID'),
+    secretManager,
     log,
     assertion: {
-      coreUrl: required(config.coreUrl, 'CORE_URL'),
+      coreUrl: issuer,
+      jwksBaseUrl: baseUrl,
       installId: loadInstallId(),
     },
-    core: { baseUrl: required(config.coreUrl, 'CORE_URL'), releaseToken: required(config.coreToken, 'CORE_RELEASE_TOKEN') },
+    core: { baseUrl, issuer, releaseToken: required(config.coreToken, 'CORE_RELEASE_TOKEN') },
     gateway: {
       baseUrl: required(config.urls.gateway, 'GATEWAY_URL'),
       token: required(config.outboundTokens.gateway, 'RUNNER_TOKEN_VAULT_GATEWAY'),

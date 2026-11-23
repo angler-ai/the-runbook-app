@@ -689,6 +689,7 @@ async fn execution<B: Backends>(
             MemoryScope::Project => None,
         };
         let identity = crate::actor_store::Identity {
+            service_attribution: None,
             key: format!("execution:{}", verified.principal.family_id),
             human: None,
             credential_ref: verified.record.token_id.to_string(),
@@ -736,6 +737,7 @@ async fn execution<B: Backends>(
     let request: SaveMemoryRequest = parse_body(&r.body)?;
     issuer_writes_memory(backends, &store, &verified).await?;
     let identity = crate::actor_store::Identity {
+        service_attribution: None,
         key: format!("execution:{}", verified.principal.family_id),
         human: None,
         credential_ref: verified.record.token_id.to_string(),

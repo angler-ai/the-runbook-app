@@ -42,6 +42,8 @@ fn rejection(code: &'static str, fields: Vec<FieldError>) -> ApiError {
         "auth.forbidden"
         | "auth.scope_missing"
         | "approval.not_eligible"
+        | "approval.excluded_completer"
+        | "approval.unknown_service_contributor"
         | "claim.not_assignee"
         | "amendment.admin_required"
         | "amendment.human_required"
@@ -51,6 +53,7 @@ fn rejection(code: &'static str, fields: Vec<FieldError>) -> ApiError {
         "request.idempotency_key_reused"
         | "claim.stale_generation"
         | "claim.conflict"
+        | "approval.review_missing_report"
         | "approval.conflict"
         | "approval.agent_not_ready"
         | "execution.conflict"
@@ -193,6 +196,7 @@ pub struct Identity {
     pub key: String,
     pub human: Option<UserId>,
     pub credential_ref: String,
+    pub service_attribution: Option<Box<ServiceTokenAttribution>>,
 }
 impl Identity {
     fn from_principal(p: &Principal, credential_ref: String) -> Self {
@@ -203,9 +207,28 @@ impl Identity {
                 _ => None,
             },
             credential_ref,
+            service_attribution: None,
         }
     }
 }
+pub(crate) async fn service_attribution<B: Backends>(
+    backends: &B,
+    org: &OrganizationId,
+    principal: &Principal,
+) -> Result<Option<Box<ServiceTokenAttribution>>, ApiError> {
+    let Principal::Service { token_id, .. } = principal else {
+        return Ok(None);
+    };
+    let metadata = backends
+        .token_metadata(org, token_id)
+        .await
+        .map_err(|_| ApiError::new(503, "storage.unavailable"))?;
+    Ok(Some(Box::new(ServiceTokenAttribution {
+        creator: metadata.created_by,
+        owner: metadata.owner,
+    })))
+}
+
 pub(crate) fn declared_principal(
     identity: &Identity,
     session_id: Option<&str>,
@@ -232,6 +255,7 @@ pub(crate) fn declared_principal(
             session_id: session.into(),
             name: name.into(),
             model: declaration.model.clone(),
+            service_attribution: identity.service_attribution.clone(),
         }
     };
     Ok(ActorPrincipal {
@@ -421,16 +445,10 @@ impl<B: Backends> ActorBackend for StoreActorBackend<B> {
                 return Ok(saved);
             }
         }
-        execute_ready::<B>(
-            &store,
-            work,
-            Identity::from_principal(&verified, current.id.to_string()),
-            target,
-            request,
-            new_id,
-            replay,
-        )
-        .await
+        let mut identity = Identity::from_principal(&verified, current.id.to_string());
+        identity.service_attribution =
+            service_attribution(&self.backends, &target.scope.org_id, &verified).await?;
+        execute_ready::<B>(&store, work, identity, target, request, new_id, replay).await
     }
 }
 #[allow(clippy::too_many_arguments)]
@@ -492,7 +510,14 @@ pub async fn execute_ready<B: Backends>(
             if &request.step_run_id != step(&target)? {
                 return Err(ApiError::new(422, "request.step_mismatch"));
             }
-            let actor = claim_principal(&work, &identity, step(&target)?)?;
+            let mut actor = claim_principal(&work, &identity, step(&target)?)?;
+            if let ActorRef::Agent {
+                service_attribution,
+                ..
+            } = &mut actor.actor
+            {
+                *service_attribution = identity.service_attribution.clone();
+            }
             // UP1: `evd_` evidence entries name finalized uploads (D49).
             runbook_core::uploads::report_with_uploads(
                 store,
@@ -506,7 +531,14 @@ pub async fn execute_ready<B: Backends>(
             Ok(Value::Null)
         }
         ActorRequest::Checklist(request) => {
-            let actor = claim_principal(&work, &identity, step(&target)?)?;
+            let mut actor = claim_principal(&work, &identity, step(&target)?)?;
+            if let ActorRef::Agent {
+                service_attribution,
+                ..
+            } = &mut actor.actor
+            {
+                *service_attribution = identity.service_attribution.clone();
+            }
             claims::update_checklist(work, &actor, step(&target)?, &request, replay.as_ref())
                 .await
                 .map_err(actor_error)?;
@@ -615,6 +647,7 @@ pub fn control_principal(identity: &Identity) -> ActorPrincipal {
             session_id: identity.credential_ref.clone(),
             name: identity.key.clone(),
             model: None,
+            service_attribution: identity.service_attribution.clone(),
         }
     };
     ActorPrincipal {

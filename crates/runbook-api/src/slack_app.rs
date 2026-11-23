@@ -224,6 +224,9 @@ async fn decide<B: Backends>(
         (_, code) if code.starts_with("approval.not_open") || code == "step.not_waiting" => {
             Err("This approval is already decided.".into())
         }
+        (_, "approval.excluded_completer") => {
+            Err("You completed a step this approval must review independently.".into())
+        }
         (_, "approval.not_eligible") | (403, _) => {
             Err("You are not an approver for this step.".into())
         }

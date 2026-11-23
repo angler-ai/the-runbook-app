@@ -12,11 +12,13 @@ export class InternalError extends Error {
   readonly status: number;
   readonly level: string | undefined;
   readonly code: string | undefined;
-  constructor(status: number, level?: string, code?: string) {
+  readonly budgetDetail: string | undefined;
+  constructor(status: number, level?: string, code?: string, budgetDetail?: string) {
     super('runner request failed');
     this.status = status;
     this.level = level;
     this.code = code;
+    this.budgetDetail = budgetDetail;
   }
 }
 
@@ -42,12 +44,18 @@ export function workerClients(config: Config, fetcher = fetch) {
     });
     if (response.status === 204 || (ignoreMissing && response.status === 404)) return undefined as T;
     if (!response.ok) {
-      const result = await response.json().catch(() => null) as { level?: unknown; error?: { code?: unknown } } | null;
+      const result = await response.json().catch(() => null) as { level?: unknown; budget?: { detail?: unknown }; error?: { code?: unknown } } | null;
       const level = result?.level;
       const code = result?.error?.code;
+      const detail = result?.budget?.detail;
+      const budgetDetail = process === 'sandbox-ctl' && response.status === 402 &&
+        typeof detail === 'string' && detail.length <= 240 && [...detail].every((char) => {
+          const code = char.charCodeAt(0);
+          return code >= 32 && (code < 127 || code > 159);
+        }) ? detail : undefined;
       throw new InternalError(response.status,
         typeof level === 'string' && /^[a-z][a-z0-9_:.-]{0,30}$/.test(level) ? level : undefined,
-        typeof code === 'string' && /^[a-z][a-z0-9_.-]{0,63}$/.test(code) ? code : undefined);
+        typeof code === 'string' && /^[a-z][a-z0-9_.-]{0,63}$/.test(code) ? code : undefined, budgetDetail);
     }
     return await response.json() as T;
   }

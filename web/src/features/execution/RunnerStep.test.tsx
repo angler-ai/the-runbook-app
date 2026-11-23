@@ -51,6 +51,24 @@ describe('a runner step on the run page', () => {
     expect(waitingText('limit:group')).toBe('Waiting: the group limit is reached');
   });
 
+  it('displays the environment budget name and cap while a step waits', () => {
+    render(
+      <RunnerStep
+        step={step({
+          runner: {
+            agent_id: 'agent',
+            agent_name: 'quality-check',
+            waiting_reason: 'limit:environment',
+            waiting_detail: 'Environment Warehouse analytics: daily budget $20.00 reached',
+          },
+        })}
+      />,
+    );
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Waiting: Environment Warehouse analytics: daily budget $20.00 reached',
+    );
+  });
+
   it('hides the waiting reason once the step is claimed', () => {
     render(
       <RunnerStep

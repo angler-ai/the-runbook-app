@@ -12,6 +12,8 @@ export function sandboxRoute(config: Config, verifier: Pick<CapabilityVerifier, 
   const listeners = new Map<string, { listener: Awaited<ReturnType<typeof sandboxListener>>; capability: string }>();
   const creating = new Set<string>();
   let closing = false;
+  const kubernetes = process.env.RUNNER_SANDBOX_BACKEND === 'kubernetes';
+  const ports = new Set<number>();
 
   async function authenticate(body: unknown, routeId?: string) {
     const input = body as { capability?: unknown; sandbox_id?: unknown; listen_host?: unknown } | undefined;
@@ -65,11 +67,32 @@ export function sandboxRoute(config: Config, verifier: Pick<CapabilityVerifier, 
           throw new Error();
         }
         const entry = { capability };
-        const listener = await sandboxListener({
+        const options = {
           claims, store, layers: [], policy: () => policy(entry.capability),
           listenHost: typeof listenHost === 'string' ? listenHost : config.listen.host,
-          publicHost: typeof listenHost === 'string' ? listenHost : publicHost, onClose: () => listeners.delete(id),
-        });
+          publicHost: typeof listenHost === 'string' ? listenHost : publicHost,
+          onClose: () => { listeners.delete(id); },
+        };
+        let listener: Awaited<ReturnType<typeof sandboxListener>> | undefined;
+        if (!kubernetes) listener = await sandboxListener(options);
+        else {
+          if (listenHost !== undefined || !isIPv4(publicHost)) throw new Error();
+          for (let port = 20000; port <= 29999; port++) {
+            if (ports.has(port)) continue;
+            ports.add(port);
+            try {
+              listener = await sandboxListener({ ...options, port, onClose: () => {
+                ports.delete(port);
+                options.onClose();
+              } });
+              break;
+            } catch (error) {
+              ports.delete(port);
+              if ((error as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw error;
+            }
+          }
+        }
+        if (!listener) throw new Error();
         if (closing || claims.exp * 1000 <= Date.now()) {
           listener.close();
           throw new Error();
@@ -85,6 +108,12 @@ export function sandboxRoute(config: Config, verifier: Pick<CapabilityVerifier, 
   };
 
   const routes: Route[] = [route, {
+    method: 'POST', path: '/internal/sandboxes/{sandbox_id}/check', callers: ['sandbox-ctl'],
+    async handle({ body, params }) {
+      const { id } = await authenticate(body, params.sandbox_id);
+      return { status: listeners.has(id) ? 204 : 410 };
+    },
+  }, {
     method: 'POST', path: '/internal/sandboxes/{sandbox_id}/renew', callers: ['sandbox-ctl'],
     async handle({ body, params }) {
       const { id, claims, capability } = await authenticate(body, params.sandbox_id);

@@ -100,9 +100,12 @@ export function useRefreshSecurity() {
     ]);
 }
 
-export function useAddPasskey() {
+export function useAddPasskey(stepUp = true) {
   const refresh = useRefreshSecurity();
-  return useMutation({ mutationFn: registerPasskey, onSuccess: refresh });
+  return useMutation({
+    mutationFn: (name: string) => registerPasskey(name, stepUp),
+    onSuccess: refresh,
+  });
 }
 
 export function useRenamePasskey() {

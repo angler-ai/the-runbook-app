@@ -5,7 +5,7 @@ locals {
     "servicenetworking.googleapis.com",
     "compute.googleapis.com",
     "storage.googleapis.com",
-  ], var.runner_enabled ? ["cloudkms.googleapis.com", "aiplatform.googleapis.com"] : []))
+  ], var.runner_enabled ? ["cloudasset.googleapis.com", "cloudkms.googleapis.com", "aiplatform.googleapis.com", "secretmanager.googleapis.com", "dns.googleapis.com", "iamcredentials.googleapis.com", "sts.googleapis.com"] : []))
 }
 
 resource "google_project_service" "apis" {

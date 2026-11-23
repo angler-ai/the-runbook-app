@@ -33,16 +33,52 @@ type CredentialRow = {
 };
 
 export function credentialResources(pool: pg.Pool, dependencies: Config, sync = async () => {}) {
-  async function vault<T>(path: string, payload?: unknown, assertion?: NonNullable<PublicRequest['assertion']>): Promise<T> {
+  async function vault<T>(path: string, payload?: unknown, assertion?: NonNullable<PublicRequest['assertion']>, timeout = 10_000): Promise<T> {
     const response = await fetch(`${dependencies.urls.vault}${path}`, {
       method: assertion || payload !== undefined ? 'POST' : 'GET',
       headers: { authorization: `Bearer ${dependencies.outboundTokens.vault}`, 'content-type': 'application/json',
         ...(assertion && { 'runbook-assertion': assertion.token }) },
       ...(assertion ? { body: new Uint8Array(assertion.rawBody) } :
         payload === undefined ? {} : { body: JSON.stringify(payload) }),
-      redirect: 'error', signal: AbortSignal.timeout(10_000),
+      redirect: 'error', signal: AbortSignal.timeout(timeout),
     });
     if (!response.ok) {
+      if (path.startsWith('/internal/oauth/')) {
+        const failure = await response.json().catch(() => null) as { error?: { code?: string } } | null;
+        const messages: Record<string, string> = {
+          'oauth.account_unavailable': 'The provider did not identify the account for confirmation.',
+          'oauth.registration_refused': 'The provider declined client registration. Try confirming again.',
+          'oauth.invalid_metadata': 'The provider did not advertise valid OAuth metadata with S256 support.',
+          'oauth.destination_denied': 'The OAuth endpoint is not reachable under egress policy.',
+          'oauth.binding_mismatch': 'The OAuth binding changed. Review the endpoints again.',
+          'oauth.operation_conflict': 'This OAuth operation is no longer current.',
+          'oauth.reconnect_required': 'Reconnect the MCP credential.',
+        };
+        const code = failure?.error?.code;
+        if (code && Object.hasOwn(messages, code)) throw new HttpError(response.status, code, messages[code]!);
+        const status = [400, 401, 403, 404, 409, 410, 422].includes(response.status) ? response.status : 502;
+        throw new HttpError(status, 'credential.vault_unavailable', 'OAuth operation refused');
+      }
+      if (response.status === 403 && (path.startsWith('/internal/seal/') || path.startsWith('/internal/test/'))) {
+        const failure = await response.json().catch(() => null) as { error?: { code?: string } } | null;
+        if (failure?.error?.code === 'secret_manager.destination_not_allowed') {
+          throw new HttpError(403, 'secret_manager.destination_not_allowed',
+            'This destination is outside the deployment policy for the Secret Manager reference.');
+        }
+        if (failure?.error?.code === 'secret_manager.not_allowed') {
+          throw new HttpError(403, 'secret_manager.not_allowed',
+            'This resource, version, or credential type is outside the deployment policy for Secret Manager.');
+        }
+      }
+      if (response.status === 400 && path.startsWith('/internal/seal/')) {
+        const failure = await response.json().catch(() => null) as { error?: { code?: string } } | null;
+        if (failure?.error?.code === 'seal.reference_mismatch') {
+          throw new HttpError(400, 'seal.reference_mismatch', 'Seal the current Secret Manager reference to confirm it.');
+        }
+        if (failure?.error?.code === 'seal.placeholder') {
+          throw new HttpError(400, 'seal.placeholder', 'A sandbox placeholder cannot be used as a credential.');
+        }
+      }
       if (response.status === 409) {
         const failure = await response.json().catch(() => null) as { error?: { code?: string } } | null;
         if (failure?.error?.code === 'credential.revoked') {
@@ -165,6 +201,15 @@ export function credentialResources(pool: pg.Pool, dependencies: Config, sync = 
     return { status: identifier ? 200 : 201, body: row };
   };
   return Object.assign(handle, {
+    async oauth(request: PublicRequest, id: string, operation: string) {
+      const { assertion, claims } = request;
+      if (!assertion || claims.principal !== 'human' || !claims.scopes.includes('runner:admin') ||
+          (claims.org_role !== 'admin' && claims.org_role !== 'owner')) {
+        throw new HttpError(403, 'auth.denied', 'OAuth operation refused');
+      }
+      const body = await vault<{ pending_purge?: boolean }>(`/internal/oauth/${id}/${operation}`, undefined, assertion, 27_000);
+      return { status: operation === 'disconnect' && body.pending_purge ? 202 : 200, body };
+    },
     async approve(request: PublicRequest, id: string) {
       if (authorize(request.claims, 'approve', { kind: 'org' }) !== 'allow') {
         throw new HttpError(403, 'auth.denied', 'runner resource unavailable');

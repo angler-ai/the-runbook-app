@@ -19,6 +19,30 @@ pub const JSON_BODY_BYTES: u64 = 2 * 1_048_576 + 65_536;
 /// `request.body_too_large` (CF12 review round 1).
 pub const AUTH_BODY_BYTES: u64 = 64 * 1024;
 
+/// Whether the request targets the runner's browser OAuth callback.
+pub fn is_runner_oauth_callback(path: &str) -> bool {
+    crate::runner_oauth::credential_id(path).is_some()
+}
+
+/// Keep callback failures out of the browser address bar, including failures
+/// in the host before the API router can terminate the OAuth callback.
+pub fn oauth_callback_failure(
+    method: &str,
+    path: &str,
+    id: &str,
+) -> Option<crate::problem::Response> {
+    if method != "GET" {
+        return None;
+    }
+    let credential_id = crate::runner_oauth::credential_id(path)?;
+    Some(crate::runner_oauth::redirect(
+        credential_id,
+        "failed",
+        false,
+        id,
+    ))
+}
+
 /// Request headers in arrival order. Names are compared case-insensitively
 /// (stored lowercase); values are raw bytes, as on the wire.
 #[derive(Clone, Debug, Default)]
@@ -224,6 +248,12 @@ pub fn decode(
         serde_json::from_slice(bytes)
             .map_err(|_| Response::error(422, "request.invalid_json", request_id))?
     };
+    let query = if let Some(id) = crate::runner_oauth::credential_id(path) {
+        body = crate::runner_oauth::callback_body(id, query, headers);
+        None
+    } else {
+        query
+    };
     // R0-5: the runner proxy keeps its CSRF header and raw query.
     if crate::runner_proxy::recognizes(path) {
         body = crate::runner_proxy::envelope(
@@ -313,6 +343,21 @@ pub fn encode(response: crate::problem::Response) -> HttpResponse {
     if let Some(seconds) = response.retry_after {
         out = out.header("retry-after", seconds.to_string());
     }
+    if let Some(navigation) = response.navigation {
+        use crate::problem::Navigation;
+        match *navigation {
+            Navigation::Redirect(location) => return out.header("location", location),
+            Navigation::OAuth { redirect, cookie } => {
+                out = out.header("referrer-policy", "no-referrer");
+                if let Some(cookie) = cookie {
+                    out = out.header("set-cookie", cookie);
+                }
+                if let Some(location) = redirect {
+                    return out.header("location", location);
+                }
+            }
+        }
+    }
     // R0-5: a runner's response, as it came, never sniffed or run as a page.
     if let Some(proxied) = response.proxied {
         out = out
@@ -329,9 +374,6 @@ pub fn encode(response: crate::problem::Response) -> HttpResponse {
         return out;
     }
     // REP2: report downloads. The id-derived file name is already safe.
-    if let Some(location) = response.location {
-        return out.header("location", *location);
-    }
     if let Some(file) = response.attachment {
         out = out.header("content-type", file.content_type).header(
             "content-disposition",

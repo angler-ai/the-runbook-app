@@ -232,6 +232,7 @@ fn failed_report_near_the_deadline_hands_off_with_a_fresh_deadline() {
         session_id: "s1".into(),
         name: "ops".into(),
         model: None,
+        service_attribution: None,
     };
     let trace = run_document(
         &doc(
@@ -647,6 +648,7 @@ fn a_run_waiting_only_on_people_or_timers_reports_waiting() {
         session_id: "s1".into(),
         name: "ops".into(),
         model: None,
+        service_attribution: None,
     };
     let id = trace.step("auto").id.clone().unwrap();
     trace.append(
@@ -754,6 +756,7 @@ fn agent_decidable_approvals_and_agent_claims_are_running() {
             session_id: "s1".into(),
             name: "ops".into(),
             model: None,
+            service_attribution: None,
         },
         1,
     );

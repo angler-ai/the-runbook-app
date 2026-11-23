@@ -222,6 +222,9 @@ async function runOn(start, name) {
     const t = client(target, receiver);
     try {
       await scenario(t);
+      if (/synthetic-core-oauth-code|synthetic_CORE_OAUTH_STATE/.test(target.logs())) {
+        throw new Error('runner OAuth callback query leaked to the server log');
+      }
     } catch (error) {
       await mkdir(join(root, 'contract', '.out'), { recursive: true });
       await writeFile(join(root, 'contract', '.out', `${name}.partial.json`), JSON.stringify(t.records, null, 2));

@@ -3,6 +3,8 @@
 // process (api, worker, sandbox-ctl, vault, gateway), each deployed as its own
 // container with its own identity (design §5.3). `runner migrate` applies the
 // runner database migrations with the owner's URL (RUNNER_MIGRATE_DATABASE_URL).
+import { readFile } from 'node:fs/promises';
+
 const ROLES = {
   api: '@runbook/runner-api/main',
   worker: '@runbook/runner-worker/main',
@@ -23,6 +25,21 @@ if (target === undefined) {
 if (role !== 'migrate') process.env.RUNNER_ROLE ??= role;
 
 try {
+  if (process.env.RUNNER_SECRET_ENV_FILE) {
+    let secrets;
+    try {
+      secrets = JSON.parse(await readFile(process.env.RUNNER_SECRET_ENV_FILE, 'utf8'));
+      if (!secrets || Array.isArray(secrets) || typeof secrets !== 'object') throw new Error();
+      for (const [name, value] of Object.entries(secrets)) {
+        const vaultResourceList = role === 'vault' && name === 'RUNNER_SECRET_MANAGER_RESOURCES';
+        if ((!vaultResourceList && !/^(RUNNER_(TOKEN_[A-Z_]+|WORKER_(API_TOKENS|VAULT_TOKENS|GATEWAY_TOKENS|NOTIFIERS)|METRICS_TOKEN|CORE_WEBHOOK_SECRET)|CORE_(CLAIM|DIRECTORY|RELEASE)_TOKEN)$/.test(name)) ||
+            typeof value !== 'string' || Object.hasOwn(process.env, name)) throw new Error();
+        process.env[name] = value;
+      }
+    } catch {
+      throw new Error('invalid runner process secret mount');
+    }
+  }
   const { main } = await import(target);
   await main();
 } catch (error) {

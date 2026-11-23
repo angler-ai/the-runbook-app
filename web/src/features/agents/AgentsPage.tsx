@@ -19,6 +19,7 @@ import {
   type RunnerStatus,
 } from '../runner/api';
 import { destination, type Credential } from '../runner/Credentials';
+import { sharedWith, type Connection, type Environment } from '../runner/resources';
 import { OfflineBanner, projectAllowed, Rows } from '../runner/presentation';
 import {
   Activity,
@@ -170,6 +171,12 @@ function ProjectAgents({
   const path = `/projects/${project.id}/agents`;
   const listQuery = useRunnerQuery<Items<Agent>>(status, path);
   const [newAgent, setNewAgent] = useState(false);
+  const templateCredentials = useRunnerQuery<Items<Credential>>(
+    status,
+    '/credentials',
+    newAgent && admin,
+  );
+
   const [page, setPage] = useState(0);
   const profiles = useRunnerQuery<Items<Profile>>(status, '/profiles');
   const shared = (profiles.data?.items ?? []).filter(
@@ -177,6 +184,18 @@ function ProjectAgents({
       sharing?.projects === 'all' ||
       (Array.isArray(sharing?.projects) && sharing.projects.includes(project.id)),
   );
+  const environments = useRunnerQuery<Items<Environment>>(
+    status,
+    '/environments',
+    admin || Boolean(selectedId),
+  );
+  const connections = useRunnerQuery<Items<Connection>>(
+    status,
+    '/mcp-servers',
+    Boolean(selectedId),
+  );
+  const sharedConnections =
+    connections.data?.items.filter((item) => sharedWith(item.sharing, project.id)) ?? [];
   const agents = listQuery.data?.items ?? [];
   const visible = selectedId ? [] : agents.slice(page * 20, page * 20 + 20);
   const detail = useRunnerQuery<Agent>(status, `${path}/${selectedId ?? '-'}`, Boolean(selectedId));
@@ -225,6 +244,9 @@ function ProjectAgents({
               cost={cost?.get(selected.id) ?? (cost ? 0 : undefined)}
               groups={groups}
               profiles={shared}
+              environments={environments.data?.items ?? []}
+              connections={sharedConnections}
+              projectId={project.id}
               admin={admin}
               edit={edit && online}
               projectAdmin={projectAdmin}
@@ -256,6 +278,10 @@ function ProjectAgents({
             <TemplateForm
               groups={groups}
               profiles={shared}
+              environments={environments.data?.items ?? []}
+              credentials={(templateCredentials.data?.items ?? []).filter(
+                (item) => item.status !== 'revoked' && sharedWith(item.sharing, project.id),
+              )}
               disabled={!online}
               create={async (input) => {
                 const result = (await mutation.mutateAsync({
@@ -292,7 +318,9 @@ function ProjectAgents({
                   agent.status,
                   profile
                     ? `${profile.name} (${profile.model})`
-                    : (agent.config?.profiles?.[0] ?? '—'),
+                    : agent.config?.profiles?.length
+                      ? 'Unavailable profile'
+                      : '—',
                   activity?.running ?? '—',
                   rate(activity?.success_rate),
                   cost ? dollars(cost.get(agent.id) ?? 0) : '—',
@@ -353,6 +381,9 @@ function AgentDetail({
   cost,
   groups,
   profiles,
+  environments,
+  connections,
+  projectId,
   admin,
   edit,
   projectAdmin,
@@ -365,6 +396,9 @@ function AgentDetail({
   cost?: number;
   groups: { id: string; name: string }[];
   profiles: Profile[];
+  environments: Environment[];
+  connections: Connection[];
+  projectId: string;
   admin: boolean;
   edit: boolean;
   projectAdmin: boolean;
@@ -392,7 +426,8 @@ function AgentDetail({
   const credentials = useRunnerQuery<Items<Credential>>(
     status,
     '/credentials',
-    selectedTab === 'credentials',
+    selectedTab === 'credentials' ||
+      (selectedTab === 'configuration' && admin && status.status === 'online'),
   );
   const mutation = useRunnerMutation(status);
   const save = async (body: Row) => {
@@ -435,6 +470,13 @@ function AgentDetail({
           admin={admin}
           groups={groups}
           profiles={profiles}
+          environments={environments}
+          connections={connections}
+          projectId={projectId}
+          status={status}
+          credentials={(credentials.data?.items ?? []).filter(
+            (item) => item.status !== 'revoked' && sharedWith(item.sharing, projectId),
+          )}
           save={save}
           operate={async (action) => {
             await mutation.mutateAsync({
@@ -448,9 +490,8 @@ function AgentDetail({
         {readError(calls.error)}
         <Bindings
           kind="tools"
-          editable={manage}
+          editable={false}
           initial={agent.config?.mcp ?? []}
-          save={async (mcp) => save({ mcp })}
           rows={tools.map((tool) => {
             const matching = calls.data?.items.filter(
               (call) => call.tool === tool.name && call.server_id === tool.server_id,
@@ -458,7 +499,13 @@ function AgentDetail({
             return {
               id: `${tool.server_id}/${tool.name}`,
               cells: [
-                `${tool.name} (${tool.server_id})`,
+                <>
+                  <span className="font-medium">{tool.name}</span>
+                  <p className="text-xs text-fg-muted">
+                    {connections.find((item) => item.id === tool.server_id)?.name ??
+                      'Unavailable connection'}
+                  </p>
+                </>,
                 tool.label,
                 matching?.length ?? '—',
                 matching?.filter((call) => call.error).length ?? '—',
@@ -473,6 +520,9 @@ function AgentDetail({
           kind="credentials"
           editable={manage}
           initial={credentialBindings}
+          choices={(credentials.data?.items ?? []).filter(
+            (item) => item.status !== 'revoked' && sharedWith(item.sharing, projectId),
+          )}
           save={async (bindings) => save({ credentials: bindings })}
           rows={credentialBindings.map((binding) => {
             const record = credentials.data?.items.find(({ id }) => id === binding.credential_id);
@@ -482,7 +532,7 @@ function AgentDetail({
             return {
               id: `${binding.credential_id}/${binding.delivery}`,
               cells: [
-                name ?? binding.credential_id,
+                name ?? 'Unavailable credential',
                 binding.delivery,
                 record ? destination(record) : '—',
               ],

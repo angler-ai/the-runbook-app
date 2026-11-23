@@ -15,12 +15,19 @@ pub struct Response {
     pub attachment: Option<Box<Attachment>>,
     /// `Retry-After` in seconds (ARC3: a stale archive day).
     pub retry_after: Option<u16>,
-    /// A `302 Found` target (a person's Google photo, served from Google).
-    /// Boxed: rare, and `Response` is an error type.
-    pub location: Option<Box<String>>,
+    /// Redirect and browser OAuth headers. Boxed because responses are also errors.
+    pub navigation: Option<Box<Navigation>>,
     /// R0-5: a runner's answer passed through the proxy as it came, served
     /// with `nosniff` and `Content-Security-Policy: sandbox`.
     pub proxied: Option<Box<Proxied>>,
+}
+#[derive(Clone, Debug)]
+pub enum Navigation {
+    Redirect(String),
+    OAuth {
+        redirect: Option<String>,
+        cookie: Option<String>,
+    },
 }
 /// A proxied runner response body.
 #[derive(Clone, Debug)]
@@ -49,7 +56,7 @@ impl Response {
             markdown: None,
             attachment: None,
             retry_after: None,
-            location: None,
+            navigation: None,
             proxied: None,
         }
     }
@@ -95,7 +102,7 @@ impl Response {
             markdown: None,
             attachment: None,
             retry_after: None,
-            location: None,
+            navigation: None,
             proxied: None,
         }
     }

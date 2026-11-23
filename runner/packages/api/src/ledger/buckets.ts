@@ -2,19 +2,23 @@ import { createHash } from 'node:crypto';
 import type pg from 'pg';
 import { HttpError } from '@runbook/runner-shared/http';
 
-type Level = 'step' | 'run' | 'agent' | 'project' | 'group' | 'org';
-type Period = 'step' | 'run' | 'day' | 'month';
-type Cap = 'step' | 'run' | 'agent:day' | 'project:day' | 'group:day' | 'group:month' | 'org:day' | 'org:month';
+export type Level = 'environment' | 'step' | 'run' | 'agent' | 'project' | 'group' | 'org';
+export type Period = 'step' | 'run' | 'day' | 'month';
+type Cap = 'step' | 'run' | `${Exclude<Level, 'step' | 'run'>}:${'day' | 'month'}`;
 
 export interface BudgetContext {
   stepId: string;
   runId: string;
   agentId: string;
   projectId: string;
+  environmentId?: string;
+  names?: Partial<Record<Level, string>>;
+  alerts?: Partial<Record<Level, number | null | undefined>>;
   groupId: string;
   runnerId: string;
   orgId: string;
   timeZone: string;
+  pinnedCaps?: Partial<Record<Cap, number>>;
   caps: Partial<Record<Cap, number>>;
 }
 
@@ -26,14 +30,19 @@ export function budgetBuckets(context: BudgetContext, now: Date) {
   const month = `${value('year')}-${value('month')}`;
   const definitions: [Level, string, Period, Cap][] = [
     ['step', context.stepId, 'step', 'step'], ['run', context.runId, 'run', 'run'],
-    ['agent', context.agentId, 'day', 'agent:day'], ['project', context.projectId, 'day', 'project:day'],
+    ['agent', context.agentId, 'day', 'agent:day'], ['agent', context.agentId, 'month', 'agent:month'],
+    ['project', context.projectId, 'day', 'project:day'], ['project', context.projectId, 'month', 'project:month'],
+    ...(context.environmentId ? [
+      ['environment', context.environmentId, 'day', 'environment:day'],
+      ['environment', context.environmentId, 'month', 'environment:month'],
+    ] as [Level, string, Period, Cap][] : []),
     ['group', context.groupId, 'day', 'group:day'], ['group', context.groupId, 'month', 'group:month'],
     ['org', context.orgId, 'day', 'org:day'], ['org', context.orgId, 'month', 'org:month'],
   ];
   return definitions.map(([level, key, period, cap]) => {
     const start = period === 'day' ? `${month}-${value('day')}` : period === 'month' ? `${month}-01` : null;
     const id = createHash('sha256').update(JSON.stringify([level, key, period, start])).digest('hex');
-    return { id, level, key, period, start, cap: context.caps[cap] ?? null };
+    return { id, level, key, period, start, cap: context.caps[cap] ?? null, pinned: context.pinnedCaps?.[cap], threshold: context.alerts?.[level] ?? null };
   });
 }
 
@@ -45,7 +54,11 @@ export interface BucketRow {
   reserved_usd: string;
   spent_usd: string;
   cap_usd: string | null;
+  closed_cap_usd?: string | null;
+  overrun_usd?: string;
   alerts_sent: number[];
+  alert_threshold_percent?: number | null;
+  configured_alert_sent?: boolean;
 }
 
 export async function lockBuckets(client: pg.PoolClient, ids: string[]): Promise<BucketRow[]> {

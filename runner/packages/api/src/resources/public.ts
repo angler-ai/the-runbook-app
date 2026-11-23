@@ -8,9 +8,12 @@ import { agentResources, type SkillDirectory } from './agent-routes.ts';
 import { agentActivity } from './activity.ts';
 import { credentialResources } from './credentials.ts';
 import { catalogPresets, catalogResources, isCatalog } from './catalog.ts';
+import { projectToolConnections } from './catalog-tools.ts';
 import { proposalResources } from './proposals.ts';
 import { agentAudit, exportAudit } from './audit.ts';
 import { readTranscript } from './transcripts.ts';
+import { budgetsOverview } from '../ledger/overview.ts';
+import { environmentResources } from './environments.ts';
 import { readUsage, usageWindow } from './usage.ts';
 
 function denied(): never {
@@ -19,6 +22,7 @@ function denied(): never {
 
 export function publicResources(pool: pg.Pool, config: Config, sync: () => Promise<void>, directory?: SkillDirectory) {
   const agents = agentResources(pool, sync, directory);
+  const environments = environmentResources(pool);
   const catalog = catalogResources(pool, config, sync);
   const credentials = credentialResources(pool, config, sync);
   const proposals = proposalResources(pool, async (request, proposal, client) => {
@@ -41,6 +45,7 @@ export function publicResources(pool: pg.Pool, config: Config, sync: () => Promi
     const route = matchPublicRoute(method, url.pathname);
     if (!route) throw new HttpError(404, 'route.not_found', 'no such route');
     if (!claims.scopes.includes(route.scope)) denied();
+    if (method === 'GET' && url.pathname === '/runner/v1/budgets') return { body: await budgetsOverview(pool, claims) };
     if (method === 'GET' && url.pathname === '/runner/v1/usage') {
       const admin = claims.org_role === 'owner' || claims.org_role === 'admin';
       const window = usageWindow(url.searchParams.get('level') ?? 'project', url.searchParams.get('period') ?? 'day',
@@ -57,6 +62,12 @@ export function publicResources(pool: pg.Pool, config: Config, sync: () => Promi
     const resource = segments[3];
     if (method === 'GET' && !segments[4] && url.searchParams.get('presets') === 'true' &&
         (resource === 'credentials' || resource === 'mcp-servers')) return catalogPresets(resource, claims);
+    if (resource === 'environments' || resource === 'environment-registries') {
+      return environments(request, resource, segments[4], segments[5]);
+    }
+    if (method === 'GET' && resource === 'projects' && segments[5] === 'mcp-tools') {
+      return { body: await projectToolConnections(pool, claims, segments[4] ?? '') };
+    }
     if (isCatalog(resource)) return catalog(request, resource, segments[4], segments[5]);
     if (resource === 'proposals') {
       const id = segments[4];
@@ -65,6 +76,13 @@ export function publicResources(pool: pg.Pool, config: Config, sync: () => Promi
         if (proposal?.kind === 'credential.change') return credentials.approve(request, id);
       }
       return proposals(request, id, segments[5]);
+    }
+    if (method === 'POST' && resource === 'oauth' && segments[4] === 'callback' && segments[5]) {
+      return credentials.oauth(request, segments[5], 'callback');
+    }
+    if (method === 'POST' && resource === 'credentials' && segments[4] && segments[5] &&
+        ['oauth-discover', 'oauth-confirm', 'connect', 'disconnect'].includes(segments[5])) {
+      return credentials.oauth(request, segments[4], segments[5]);
     }
     if (segments[3] === 'credentials' || segments[3] === 'ingest-key') return credentials(request, segments);
     if (method === 'GET' && route.path === '/runner/v1/transcripts/{step_run_id}') {

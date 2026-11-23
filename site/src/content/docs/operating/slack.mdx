@@ -63,6 +63,18 @@ URL (`https://hooks.slack.com/…`). It's stored and never shown again.
 
 </Steps>
 
+### Run-start notifications
+
+In **Project settings → Slack notifications**, turn on **Notify when a run
+starts** and save. The setting is off by default and works with either an
+incoming webhook or a Slack app channel. A message includes the run title,
+who or what started it, and the run page link. Scheduled runs and webhook
+runs name their trigger. Runs started by `call` name the parent run.
+
+The project's Slack API exposes the preference as `notify_run_started`.
+Update it with `PUT /v1/projects/{p}/slack` and a body such as
+`{ "notify_run_started": true }` after configuring the destination.
+
 ### How a click becomes a decision
 
 - Each click is checked against Slack's signature, made with your signing

@@ -16,7 +16,9 @@
  * comparing). IDs are ULIDs, so lists ordered by ID or time keep the same
  * order on both builds; only a list whose order the contract leaves
  * undefined belongs here. */
-export const UNORDERED = new Set([]);
+// Undelivered notices with the same timestamp tie-break by event ID,
+// which is derived from each build's distinct execution ID.
+export const UNORDERED = new Set(['notifications_not_delivered']);
 
 // `\_`: the Markdown report escapes the underscore (LANG4: the parent
 // a child names).

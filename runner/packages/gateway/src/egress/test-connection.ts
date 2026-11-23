@@ -1,7 +1,8 @@
 import type { GatewayTestRequest, GatewayTestResponse, MaterialPush } from '@runbook/runner-shared/contracts/internal';
 import { HttpError, type Route } from '@runbook/runner-shared/http';
-import type { MaterialStore } from '../material.ts';
+import { materialValues, type MaterialStore } from '../material.ts';
 import { pinnedFetch } from './fetch.ts';
+import { connectUpstream, UpstreamAccessBlocked } from '../mcp/upstream.ts';
 import { injectHeader } from './inject.ts';
 
 function requestFor(release: MaterialPush, request: GatewayTestRequest['request']) {
@@ -41,12 +42,26 @@ export function testConnectionRoute(store: MaterialStore, send = pinnedFetch): R
       try {
         const request = input.request;
         const url = requestFor(release, request);
+        const oauth = release.material.mcp_oauth;
+        if (oauth) {
+          const upstream = await connectUpstream(url.href, 'streamable-http', async () => ({
+            headers: { authorization: `Bearer ${oauth.access_token}` },
+            oauth: { release_id: release.release_id, token_version: oauth.token_version },
+            signal: store.signal(release),
+          }), AbortSignal.timeout(10_000));
+          try {
+            await upstream.list();
+          } finally {
+            await upstream.close();
+          }
+          return { body: { outcome: 'response', status: 200 } satisfies GatewayTestResponse };
+        }
         const headers = new Headers();
         for (const name of ['accept', 'content-type', 'anthropic-version']) {
           const value = request.headers?.[name];
           if (typeof value === 'string') headers.set(name, value);
         }
-        const fields = Object.values(release.material.fields);
+        const fields = materialValues(release.material);
         if (fields.length !== 1 || !fields[0]) throw new Error('test material unavailable');
         injectHeader(headers, release.binding, fields[0]);
         const response = await send(url, {
@@ -57,6 +72,9 @@ export function testConnectionRoute(store: MaterialStore, send = pinnedFetch): R
         await response.body?.cancel();
         result = { outcome: 'response', status: response.status };
       } catch (error) {
+        if (error instanceof UpstreamAccessBlocked) {
+          return { body: { outcome: 'response', status: (error.data as { kind?: string })?.kind === 'insufficient_scope' ? 403 : 401 } };
+        }
         const code = (error as { cause?: { code?: unknown } }).cause?.code;
         const tls = typeof code === 'string' && /^(ERR_TLS_|CERT_|UNABLE_TO_VERIFY_|DEPTH_ZERO_)/.test(code);
         result = { outcome: tls ? 'tls' : 'unreachable' };

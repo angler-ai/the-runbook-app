@@ -58,6 +58,7 @@ fn agent() -> ActorPrincipal {
             session_id: "s1".into(),
             name: "bot".into(),
             model: None,
+            service_attribution: None,
         },
         credential_ref: "svc-1".into(),
     }
@@ -152,6 +153,9 @@ fn state(store: &MemoryExecutionStore, directory: &MemoryDirectory) -> Execution
 
 fn header(state: &ExecutionState) -> ExecutionView {
     ExecutionView {
+        overdue_steps: vec![],
+        url: String::new(),
+        web_url: String::new(),
         schema_revision: NonZeroU32::MIN,
         id: state.id.clone(),
         runbook_id: None,
@@ -315,6 +319,9 @@ fn summary_with_special_characters_is_escaped_and_stripped() {
 
     let doc = ExecutionDocumentView {
         header: ExecutionView {
+            overdue_steps: vec![],
+            url: String::new(),
+            web_url: String::new(),
             schema_revision: NonZeroU32::MIN,
             id: exe(),
             runbook_id: None,
@@ -380,6 +387,9 @@ fn summary_with_special_characters_is_escaped_and_stripped() {
 fn failures_and_skipped_counts_match() {
     let doc = ExecutionDocumentView {
         header: ExecutionView {
+            overdue_steps: vec![],
+            url: String::new(),
+            web_url: String::new(),
             schema_revision: NonZeroU32::MIN,
             id: exe(),
             runbook_id: None,
@@ -505,6 +515,9 @@ fn output_order_is_deterministic() {
 
     let doc = ExecutionDocumentView {
         header: ExecutionView {
+            overdue_steps: vec![],
+            url: String::new(),
+            web_url: String::new(),
             schema_revision: NonZeroU32::MIN,
             id: exe(),
             runbook_id: Some("rb_00000000000000000000000001".parse().unwrap()),
@@ -610,6 +623,8 @@ fn named_junit_names_people_and_reports_only_when_terminal() {
         options: vec![],
         eligible_recipients: vec![],
         escalation_recipients: vec![],
+        excluded_completers: vec![],
+        blocked_reason: None,
         escalated: false,
         quorum: NonZeroU32::MIN,
         decision_lease: None,

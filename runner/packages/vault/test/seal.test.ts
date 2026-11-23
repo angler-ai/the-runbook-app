@@ -50,6 +50,14 @@ describe.skipIf(!hasTestDatabase)('vault seal', () => {
     }
   }
 
+  it('refuses to seal a sandbox placeholder as a credential', async () => {
+    const blob = await seal('rb-placeholder-fixture');
+    const response = await h.call('POST', '/internal/seal', { blob });
+    expect(response.status).toBe(400);
+    expect(response.json.error.code).toBe('seal.placeholder');
+    expect(await h.vault.secrets.latestVersion(credential.id, 'key')).toBeUndefined();
+  });
+
   it('attests ingest keys with a persistent, KEK-sealed identity', async () => {
     const { VaultIdentity } = await import('../src/identity.ts');
     const { lengthPrefixed } = await import('@runbook/runner-shared/encoding');

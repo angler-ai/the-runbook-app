@@ -30,7 +30,7 @@ interface AgentVersionRow {
 }
 
 export async function checkRunnerPolicy(
-  pool: pg.Pool,
+  pool: pg.Pool | pg.PoolClient,
   capability: Pick<GrantClaims, 'project_id' | 'group_id' | 'agent_id' | 'agent_version' | 'connections' | 'destructive' | 'reach' | 'model_profile'>,
   credential: CredentialRow,
   delivery: Delivery,

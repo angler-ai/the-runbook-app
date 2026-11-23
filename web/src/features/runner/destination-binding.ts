@@ -1,4 +1,6 @@
-import { toBase64Url } from './encoding';
+import { oauthBinding } from '../../../../runner/packages/shared/src/oauth-binding.ts';
+import { secretManagerReference } from '../../../../runner/packages/shared/src/credential-source.ts';
+import { toBase64Url } from './encoding.ts';
 
 export interface DestinationConfig {
   type: string;
@@ -45,6 +47,10 @@ function endpoint(value: unknown, allowHttp = false): string {
 export function destinationBinding(input: DestinationConfig): Record<string, unknown> {
   const { type, config } = input;
   const groups = input.groups === 'all' ? 'all' : sortedUnique(input.groups);
+  const source =
+    config.secret_source === undefined
+      ? {}
+      : { secret_source: secretManagerReference(config.secret_source) };
   switch (type) {
     case 'api-key': {
       if (!Array.isArray(config.hosts) || !config.hosts.length) return invalid();
@@ -57,7 +63,14 @@ export function destinationBinding(input: DestinationConfig): Record<string, unk
       const method = test?.method ?? 'GET';
       const path = test?.path ?? '/';
       if (method !== 'GET' && method !== 'HEAD') return invalid();
-      return { hosts, header_name, header_format, test: { method, path: text(path) }, groups };
+      return {
+        hosts,
+        header_name,
+        header_format,
+        test: { method, path: text(path) },
+        groups,
+        ...source,
+      };
     }
     case 'model-provider': {
       const provider = text(config.provider);
@@ -68,10 +81,13 @@ export function destinationBinding(input: DestinationConfig): Record<string, unk
         endpoint: endpoint(config.endpoint, provider === 'openai-compatible'),
         ...headers,
         groups,
+        ...source,
       };
     }
     case 'mcp-bearer':
-      return { url: endpoint(config.url), ...bearer, groups };
+      return { url: endpoint(config.url), ...bearer, groups, ...source };
+    case 'mcp-oauth':
+      return oauthBinding(config, groups);
     default:
       return invalid();
   }
@@ -79,7 +95,7 @@ export function destinationBinding(input: DestinationConfig): Record<string, unk
 
 // RFC 8785 member order for binding objects. The supported binding data is
 // strings, arrays of strings and objects, so no numeric normalization is needed.
-function canonicalJson(value: unknown): string {
+export function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
   if (typeof value === 'object' && value !== null) {
     const object = value as Record<string, unknown>;

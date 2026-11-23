@@ -269,6 +269,13 @@ pub const MANIFEST: &[Route] = &[
     ),
     api(
         "GET",
+        "/v1/runner/oauth/callback/{credential_id}",
+        Area::Runners,
+        Kind::Public,
+        Mfa::Standard("Completes a browser authorization after step-up at connect"),
+    ),
+    api(
+        "GET",
         "/v1/runners/{ri}/proxy/{*path}",
         Area::Runners,
         Kind::Public,

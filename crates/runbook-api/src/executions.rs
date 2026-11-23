@@ -52,6 +52,7 @@ pub trait ExecutionBackend {
         &self,
         scope: &TenantScope,
         query: crate::search::SearchQuery,
+        origin: &str,
     ) -> impl Future<Output = Result<Value, ExecutionApiError>>;
 
     fn execution_project(
@@ -433,10 +434,7 @@ impl<D: DirectoryOperations, C: CredentialStore, B: ExecutionBackend> ExecutionS
             .parse()
             .map_err(|_| error(503, "server.invalid_id"))?;
         let invocation = StartInvocation {
-            url: format!(
-                "{}/v1/executions/{execution_id}",
-                self.origin.trim_end_matches('/')
-            ),
+            url: execution_api_url(&self.origin, &execution_id),
             execution_id,
             request: StartRequest {
                 runbook: published.runbook_id.to_string(),
@@ -486,10 +484,7 @@ impl<D: DirectoryOperations, C: CredentialStore, B: ExecutionBackend> ExecutionS
             .map_err(|_| error(503, "server.invalid_id"))?;
         let invocation = RerunInvocation {
             original,
-            url: format!(
-                "{}/v1/executions/{execution_id}",
-                self.origin.trim_end_matches('/')
-            ),
+            url: execution_api_url(&self.origin, &execution_id),
             execution_id,
             version: request.version,
             identity,
@@ -583,7 +578,7 @@ impl<D: DirectoryOperations, C: CredentialStore, B: ExecutionBackend> ExecutionS
             return Ok((
                 200,
                 self.backend
-                    .search(&tenant, crate::search::parse_query(&r.query)?)
+                    .search(&tenant, crate::search::parse_query(&r.query)?, &self.origin)
                     .await?,
             ));
         }
@@ -619,10 +614,7 @@ impl<D: DirectoryOperations, C: CredentialStore, B: ExecutionBackend> ExecutionS
             .parse()
             .map_err(|_| error(503, "server.invalid_id"))?;
         let invocation = StartInvocation {
-            url: format!(
-                "{}/v1/executions/{execution_id}",
-                self.origin.trim_end_matches('/')
-            ),
+            url: execution_api_url(&self.origin, &execution_id),
             execution_id,
             request,
             identity,

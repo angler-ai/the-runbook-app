@@ -32,7 +32,9 @@ export async function runnerVaultIdentity(org: string, install: string) {
   });
   if (result.data?.install_id !== install) throw new Error('Runner installation changed');
   if (!result.data.vault_identity_key) {
-    throw new VaultIdentityMissing('Ask an organization owner to register the vault identity before entering or rotating credentials.');
+    throw new VaultIdentityMissing(
+      'Ask an organization owner to register the vault identity before entering or rotating credentials.',
+    );
   }
   return result.data.vault_identity_key;
 }
@@ -111,17 +113,30 @@ export function useRunnerMutation(status: RunnerStatus | undefined) {
 export function runnerError(error: unknown) {
   if (error instanceof VaultIdentityMissing) return error.message;
   if (error instanceof ApiError) {
+    const reason = error.body.error as { code?: string; message?: string } | undefined;
+    const code = reason?.code ?? error.code;
+    if (code === 'runner.oauth_clock_skew')
+      return 'The vault’s signed authorization is outside the accepted time window. Check the vault and Runbook clocks.';
+    if (code.startsWith('oauth.') && reason?.message) return reason.message;
     if (error.status === 403) return 'You do not have access to this runner operation.';
-    if (error.status === 503) return 'Runner is unavailable. Try again when it is online.';
+    if (error.status === 404) return 'This runner resource is unavailable.';
+    if (error.status === 503 && code === 'runner.offline')
+      return 'Runner is unavailable. Try again when it is online.';
     if (error.status === 409) {
-      const runnerProblem = error.body.error as { code?: string } | undefined;
-      if (runnerProblem?.code === 'credential.revoked') {
+      if (code === 'credential.revoked')
         return 'The credential is revoked. Re-create it to use it again.';
-      }
-      return 'This resource changed. Refresh and try again.';
+      return reason?.message ?? 'This resource changed. Refresh and try again.';
     }
+    if (error.status < 500) {
+      if (error.errors.length)
+        return error.errors.map(({ path, message }) => `${path}: ${message}`).join(' ');
+      return reason?.message ?? 'The runner rejected this request.';
+    }
+    return `The runner could not complete this operation.${error.requestId ? ` Request ID: ${error.requestId}.` : ''}`;
   }
-  return 'The runner could not complete this operation. Check the inputs and try again.';
+  if (error instanceof TypeError)
+    return 'Could not reach the runner. Check your connection and try again.';
+  return error instanceof Error ? error.message : 'The runner returned an unexpected response.';
 }
 
 export type Items<T> = { items: T[] };

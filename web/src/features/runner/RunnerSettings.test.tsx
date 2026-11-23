@@ -3,7 +3,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { OfflineBanner, SetupCard, VaultIdentityFingerprint, projectAllowed } from './presentation';
-import { Checklist, Capacity } from './Overview';
+import { Checklist } from './Overview';
 
 afterEach(cleanup);
 const group = { id: 'rg_1', name: 'Primary', projects: ['p_1'] };
@@ -50,26 +50,12 @@ test('checklist_items_link_to_fixes', () => {
   render(<Checklist online hasProject={false} />);
   expect(screen.getByRole('link', { name: 'A model profile works' })).toHaveAttribute(
     'href',
-    '?tab=providers',
+    '/runner/models',
   );
   expect(screen.getByRole('link', { name: 'A project is allowed' })).toHaveAttribute(
     'href',
     '#runner-projects',
   );
-});
-
-test('group_and_runner_columns_appear_when_more_than_one', () => {
-  const view = render(<Capacity groups={[group]} runners={[runner]} />);
-  expect(screen.queryByRole('columnheader', { name: 'Group' })).toBeNull();
-  expect(screen.queryByRole('columnheader', { name: 'Runner' })).toBeNull();
-  view.rerender(
-    <Capacity
-      groups={[group, { ...group, id: 'rg_2' }]}
-      runners={[runner, { ...runner, id: 'rn_2' }]}
-    />,
-  );
-  expect(screen.getByRole('columnheader', { name: 'Group' })).toBeVisible();
-  expect(screen.getByRole('columnheader', { name: 'Runner' })).toBeVisible();
 });
 
 test('checklist requires a verified model profile', () => {

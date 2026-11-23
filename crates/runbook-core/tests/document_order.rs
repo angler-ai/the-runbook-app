@@ -35,6 +35,9 @@ fn state() -> ExecutionState {
 
 fn header(state: &ExecutionState) -> ExecutionView {
     ExecutionView {
+        overdue_steps: vec![],
+        url: String::new(),
+        web_url: String::new(),
         schema_revision: NonZeroU32::MIN,
         id: state.id.clone(),
         runbook_id: None,

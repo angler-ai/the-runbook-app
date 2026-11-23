@@ -201,6 +201,9 @@ impl Runtime {
             // LANG9: a reminder records itself; an escalation keeps its
             // targets (teams stay teams, as for approvals), stamped with the
             // directory revision it was resolved against.
+            Command::MarkStepOverdue { step_id, due_at_ms } => {
+                E::StepOverdue { step_id, due_at_ms }
+            }
             Command::RemindStep {
                 step_run_id,
                 due_at_ms,

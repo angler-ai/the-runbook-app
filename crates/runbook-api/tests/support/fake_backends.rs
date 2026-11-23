@@ -204,6 +204,7 @@ impl ExecutionBackend for FakeExecutions {
         &self,
         _: &TenantScope,
         _: runbook_api::search::SearchQuery,
+        _origin: &str,
     ) -> Result<Value, ExecutionApiError> {
         Err(fake("fake.executions"))
     }

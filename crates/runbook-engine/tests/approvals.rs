@@ -15,10 +15,21 @@ fn gate() -> Trace {
     )
 }
 fn vote(trace: &Trace, user: u32, token: &str, option: &str) -> ResolvedVote {
+    vote_at(trace, "gate", user, token, option)
+}
+fn reviewer(user: u32) -> ActorRef {
+    ActorRef::Human {
+        user_id: format!("usr_{user:026}").parse().unwrap(),
+    }
+}
+fn vote_for(trace: &Trace, path: &str, user: u32) -> ResolvedVote {
+    vote_at(trace, path, user, "pat_review", "keep")
+}
+fn vote_at(trace: &Trace, path: &str, user: u32, token: &str, option: &str) -> ResolvedVote {
     ResolvedVote {
         at_ms: trace.state.at_ms,
         base_sequence: trace.state.sequence,
-        step_run_id: trace.step("gate").id.clone().unwrap(),
+        step_run_id: trace.step(path).id.clone().unwrap(),
         actor: ActorRef::Human {
             user_id: format!("usr_{user:026}").parse().unwrap(),
         },
@@ -113,6 +124,7 @@ fn service_principal_vote_is_not_a_signature() {
         session_id: "session".into(),
         name: "agent".into(),
         model: None,
+        service_attribution: None,
     };
     submit(&mut trace, denied);
     assert_eq!(trace.error_codes, ["approval.not_eligible"]);
@@ -330,4 +342,574 @@ fn open_approval_waits_for_votes() {
         runbook_model::StepStatus::Waiting
     );
     assert!(trace.ready.is_empty());
+}
+
+#[test]
+fn a_task_completer_cannot_sign_even_as_a_team_approver() {
+    let mut directory = runbook_spec::CompileContext::default();
+    directory.teams.insert(
+        "oncall".into(),
+        "team_00000000000000000000000001".parse().unwrap(),
+    );
+    let mut trace = run_document(
+        "metadata: {id: test}\nspec: {steps: [{id: work, actor: human}, {id: gate, approval: {prompt: Proceed?, options: [keep], approvers: {teams: [oncall]}, exclude_completers_of: [work]}}]}",
+        &[],
+        directory,
+    );
+    trace.append(
+        Event::StepReported {
+            step_run_id: trace.step("work").id.clone().unwrap(),
+            report: WorkReport {
+                appended_logs: false,
+                status: runbook_model::ReportStatus::Succeeded,
+                verdict: None,
+                outputs: Default::default(),
+                summary: None,
+                evidence: vec![],
+                logs: vec![],
+                files: vec![],
+            },
+        },
+        ActorRef::Human {
+            user_id: "usr_00000000000000000000000001".parse().unwrap(),
+        },
+        0,
+    );
+    trace.settle();
+    let completer = vote(&trace, 1, "pat_first", "keep");
+    submit(&mut trace, completer);
+    assert_eq!(trace.error_codes, ["approval.excluded_completer"]);
+    assert_eq!(trace.count("ApprovalVoted"), 0);
+    let independent = vote(&trace, 2, "pat_second", "keep");
+    submit(&mut trace, independent);
+    assert_eq!(trace.count("ApprovalDecided"), 1);
+    assert_eq!(trace.state, trace.replay());
+}
+
+#[test]
+fn a_review_after_a_loop_excludes_every_iteration_contributor() {
+    let mut directory = runbook_spec::CompileContext::default();
+    directory.teams.insert(
+        "oncall".into(),
+        "team_00000000000000000000000001".parse().unwrap(),
+    );
+    let second = Input::Report {
+        step: "collect#2.work".into(),
+        status: runbook_model::ReportStatus::Succeeded,
+        verdict: None,
+        outputs: Default::default(),
+        actor: ActorRef::Human {
+            user_id: "usr_00000000000000000000000002".parse().unwrap(),
+        },
+        at_ms: None,
+    };
+    let source = r#"
+metadata: {id: independent}
+spec:
+  steps:
+    - id: collect
+      loop:
+        until: "${{ iteration == 2 }}"
+        max_iterations: 2
+        steps:
+          - id: work
+            actor: human
+    - id: gate
+      approval:
+        prompt: Review?
+        options: [keep]
+        approvers: {teams: [oncall]}
+        exclude_completers_of: [work]
+"#;
+    let trace = run_document(source, &[succeeded("collect#1.work"), second], directory);
+    let latest = vote(&trace, 2, "pat_bob", "keep");
+    assert_eq!(
+        apply_vote(&trace.state, &latest).unwrap_err().code(),
+        "approval.excluded_completer"
+    );
+    let earlier = vote(&trace, 1, "pat_alice", "keep");
+    assert_eq!(
+        apply_vote(&trace.state, &earlier).unwrap_err().code(),
+        "approval.excluded_completer"
+    );
+    assert_eq!(trace.state, trace.replay());
+}
+
+#[test]
+fn a_sponsored_report_excludes_the_sponsor_on_replay() {
+    let mut directory = runbook_spec::CompileContext::default();
+    directory.teams.insert(
+        "oncall".into(),
+        "team_00000000000000000000000001".parse().unwrap(),
+    );
+    let source = r#"
+metadata: {id: independent}
+spec:
+  steps:
+    - id: work
+      actor: any
+    - id: gate
+      approval:
+        prompt: Review?
+        options: [keep]
+        approvers: {teams: [oncall]}
+        exclude_completers_of: [work]
+"#;
+    let trace = run_document(
+        source,
+        &[Input::Report {
+            step: "work".into(),
+            status: runbook_model::ReportStatus::Succeeded,
+            verdict: None,
+            outputs: Default::default(),
+            at_ms: None,
+            actor: ActorRef::Agent {
+                principal_id: "agent:usr_00000000000000000000000001".into(),
+                session_id: "agent-session".into(),
+                name: "test".into(),
+                model: None,
+                service_attribution: None,
+            },
+        }],
+        directory,
+    );
+    let sponsor = vote(&trace, 1, "pat_sponsor", "keep");
+    assert_eq!(
+        apply_vote(&trace.replay(), &sponsor).unwrap_err().code(),
+        "approval.excluded_completer"
+    );
+}
+
+#[test]
+fn an_amending_admin_and_released_claim_owner_are_excluded() {
+    let mut directory = runbook_spec::CompileContext::default();
+    directory.teams.insert(
+        "oncall".into(),
+        "team_00000000000000000000000001".parse().unwrap(),
+    );
+    let source = r#"
+metadata: {id: independent}
+spec:
+  steps:
+    - id: work
+      actor: human
+    - id: gate
+      approval:
+        prompt: Review?
+        options: [keep]
+        approvers: {teams: [oncall]}
+        exclude_completers_of: [work]
+"#;
+    let mut trace = run_document(source, &[], directory);
+    let human = |n| ActorRef::Human {
+        user_id: format!("usr_{n:026}").parse().unwrap(),
+    };
+    let id = trace.step("work").id.clone().unwrap();
+    trace.append(
+        Event::StepClaimed {
+            step_run_id: id.clone(),
+            agent_version_id: None,
+            claim_id: None,
+        },
+        human(2),
+        0,
+    );
+    trace.append(
+        Event::StepClaimReleased {
+            step_run_id: id.clone(),
+            reason: None,
+        },
+        human(2),
+        0,
+    );
+    trace.append(
+        Event::StepReported {
+            step_run_id: id.clone(),
+            report: WorkReport {
+                status: runbook_model::ReportStatus::Succeeded,
+                verdict: None,
+                outputs: Default::default(),
+                summary: None,
+                evidence: vec![],
+                logs: vec![],
+                files: vec![],
+                appended_logs: false,
+            },
+        },
+        human(1),
+        0,
+    );
+    trace.settle();
+    let original = runbook_model::StepRecord {
+        status: runbook_model::StepStatus::Succeeded,
+        verdict: None,
+        summary: None,
+        outputs: Default::default(),
+    };
+    let amendment = validate_override(
+        &trace.state,
+        &id,
+        &runbook_model::StepRecord {
+            summary: Some("Amended".into()),
+            ..original
+        },
+        "Clarify result",
+        human(3),
+    )
+    .unwrap();
+    trace.append(
+        Event::StepOverridden {
+            step_run_id: id,
+            amendment: Box::new(amendment),
+        },
+        human(3),
+        0,
+    );
+    for user in [2, 3] {
+        assert_eq!(
+            apply_vote(&trace.state, &vote(&trace, user, "pat_review", "keep"))
+                .unwrap_err()
+                .code(),
+            "approval.excluded_completer"
+        );
+    }
+    assert_eq!(trace.state, trace.replay());
+}
+
+#[test]
+fn concurrent_foreach_reviews_exclude_only_their_own_contributors() {
+    let mut directory = runbook_spec::CompileContext::default();
+    directory.teams.insert(
+        "oncall".into(),
+        "team_00000000000000000000000001".parse().unwrap(),
+    );
+    let source = r#"
+metadata: {id: independent}
+spec:
+  inputs: {items: {type: list, items: {type: string}, default: [east, west]}}
+  steps:
+    - id: each
+      foreach:
+        items: "${{ inputs.items }}"
+        key: "${{ item }}"
+        max_items: 2
+        concurrency: 2
+        steps:
+          - {id: work, actor: human}
+          - id: gate
+            approval: {prompt: Review?, options: [keep], approvers: {teams: [oncall]}, exclude_completers_of: [work]}
+"#;
+    let trace = run_document(
+        source,
+        &[
+            succeeded("each[east].work"),
+            Input::Report {
+                step: "each[west].work".into(),
+                status: runbook_model::ReportStatus::Succeeded,
+                actor: ActorRef::Human {
+                    user_id: "usr_00000000000000000000000002".parse().unwrap(),
+                },
+                verdict: None,
+                outputs: Default::default(),
+                at_ms: None,
+            },
+        ],
+        directory,
+    );
+    for (path, own, peer) in [("each[east].gate", 1, 2), ("each[west].gate", 2, 1)] {
+        let mut own_vote = vote_for(&trace, path, own);
+        assert_eq!(
+            apply_vote(&trace.state, &own_vote).unwrap_err().code(),
+            "approval.excluded_completer"
+        );
+        own_vote.actor = reviewer(peer);
+        assert!(apply_vote(&trace.state, &own_vote).is_ok());
+    }
+    assert_eq!(trace.state, trace.replay());
+}
+
+#[test]
+fn timed_out_foreach_work_blocks_only_its_iteration_until_amended() {
+    let mut directory = runbook_spec::CompileContext::default();
+    directory.teams.insert(
+        "oncall".into(),
+        "team_00000000000000000000000001".parse().unwrap(),
+    );
+    let mut trace = run_document(
+        r#"
+metadata: {id: independent}
+spec:
+  inputs: {items: {type: list, items: {type: string}, default: [east, west]}}
+  steps:
+    - id: each
+      foreach:
+        items: "${{ inputs.items }}"
+        key: "${{ item }}"
+        max_items: 2
+        concurrency: 2
+        steps:
+          - {id: work, actor: human, timeout: 1m, on_failure: continue, outputs: {result: {type: string}}}
+          - id: gate
+            approval: {prompt: Review?, options: [keep], approvers: {teams: [oncall]}, exclude_completers_of: [work]}
+"#,
+        &[succeeded("each[east].work"), Input::Tick { at_ms: 60_000 }],
+        directory,
+    );
+    assert!(apply_vote(&trace.state, &vote_for(&trace, "each[east].gate", 2)).is_ok());
+    assert_eq!(
+        apply_vote(&trace.state, &vote_for(&trace, "each[west].gate", 2))
+            .unwrap_err()
+            .code(),
+        "approval.review_missing_report"
+    );
+    let step = trace.step("each[west].work");
+    let id = step.id.clone().unwrap();
+    let amendment = validate_override(
+        &trace.state,
+        &id,
+        &runbook_model::StepRecord {
+            status: step.status,
+            verdict: step.verdict,
+            summary: None,
+            outputs: [("result".into(), serde_json::json!("verified"))].into(),
+        },
+        "Verified the work independently",
+        reviewer(3),
+    )
+    .unwrap();
+    trace.append(
+        Event::StepOverridden {
+            step_run_id: id,
+            amendment: Box::new(amendment),
+        },
+        reviewer(3),
+        60_000,
+    );
+    assert!(apply_vote(&trace.state, &vote_for(&trace, "each[west].gate", 2)).is_ok());
+    assert_eq!(
+        apply_vote(&trace.state, &vote_for(&trace, "each[west].gate", 3))
+            .unwrap_err()
+            .code(),
+        "approval.excluded_completer"
+    );
+    assert_eq!(trace.state, trace.replay());
+}
+
+#[test]
+fn a_gate_after_foreach_excludes_contributors_from_every_iteration() {
+    let mut directory = runbook_spec::CompileContext::default();
+    directory.teams.insert(
+        "oncall".into(),
+        "team_00000000000000000000000001".parse().unwrap(),
+    );
+    let trace = run_document(
+        r#"
+metadata: {id: independent}
+spec:
+  inputs: {items: {type: list, items: {type: string}, default: [east, west]}}
+  steps:
+    - id: each
+      foreach:
+        items: "${{ inputs.items }}"
+        key: "${{ item }}"
+        max_items: 2
+        concurrency: 2
+        steps:
+          - {id: work, actor: human}
+    - id: gate
+      approval: {prompt: Review?, options: [keep], approvers: {teams: [oncall]}, exclude_completers_of: [work]}
+"#,
+        &[
+            succeeded("each[east].work"),
+            Input::Report {
+                step: "each[west].work".into(),
+                status: runbook_model::ReportStatus::Succeeded,
+                actor: reviewer(2),
+                verdict: None,
+                outputs: Default::default(),
+                at_ms: None,
+            },
+        ],
+        directory,
+    );
+    assert_eq!(
+        excluded_completers(&trace.state, trace.step("gate")).len(),
+        2
+    );
+    assert_eq!(trace.state, trace.replay());
+}
+
+#[test]
+fn an_agent_cannot_decide_after_its_sponsor_contributed() {
+    let mut directory = runbook_spec::CompileContext::default();
+    directory.teams.insert(
+        "oncall".into(),
+        "team_00000000000000000000000001".parse().unwrap(),
+    );
+    let trace = run_document(
+        "metadata: {id: independent}\nspec: {steps: [{id: work, actor: human}, {id: gate, approval: {prompt: Review?, options: [keep], approvers: {teams: [oncall]}, allow_agents: true, exclude_completers_of: [work]}}]}",
+        &[succeeded("work")],
+        directory,
+    );
+    let decision = AgentDecision {
+        audit_only_comment: true,
+        base_sequence: trace.state.sequence,
+        at_ms: trace.state.at_ms,
+        step_run_id: trace.step("gate").id.clone().unwrap(),
+        option: "keep".into(),
+        comment: None,
+        evidence: vec![],
+        principal: "agent:usr_00000000000000000000000001".into(),
+        agent_name: "reviewer".into(),
+        model: None,
+        session_id: "review".into(),
+    };
+    assert_eq!(
+        apply_agent_decision(&trace.state, &decision)
+            .unwrap_err()
+            .code(),
+        "approval.excluded_completer"
+    );
+}
+
+#[test]
+fn independent_review_waits_for_a_report_after_a_continued_task_timeout() {
+    let mut directory = runbook_spec::CompileContext::default();
+    directory.teams.insert(
+        "oncall".into(),
+        "team_00000000000000000000000001".parse().unwrap(),
+    );
+    let trace = run_document(
+        "metadata: {id: independent}\nspec: {steps: [{id: work, actor: human, timeout: 1m, on_failure: continue}, {id: gate, approval: {prompt: Review?, options: [keep], approvers: {teams: [oncall]}, exclude_completers_of: [work]}}]}",
+        &[Input::Tick { at_ms: 60_000 }],
+        directory,
+    );
+    assert_eq!(
+        apply_vote(&trace.state, &vote(&trace, 1, "pat_review", "keep"))
+            .unwrap_err()
+            .code(),
+        "approval.review_missing_report"
+    );
+}
+
+#[test]
+fn a_managed_agent_cannot_review_its_work_from_another_runner() {
+    let mut directory = runbook_spec::CompileContext::default();
+    directory.teams.insert(
+        "oncall".into(),
+        "team_00000000000000000000000001".parse().unwrap(),
+    );
+    let mut trace = run_document(
+        "metadata: {id: independent}\nspec: {steps: [{id: work, actor: any}, {id: gate, approval: {prompt: Review?, options: [keep], approvers: {teams: [oncall]}, allow_agents: true, exclude_completers_of: [work]}}]}",
+        &[],
+        directory,
+    );
+    let target = AgentTargetRef::Runner {
+        agent_id: "managed-agent".into(),
+    };
+    let work = trace.step("work").id.clone().unwrap();
+    trace.append(
+        Event::AgentTargetResolved {
+            step_id: "work".into(),
+            step_run_id: work.clone(),
+            target: target.clone(),
+        },
+        ActorRef::System,
+        0,
+    );
+    trace.append(
+        Event::StepReported {
+            step_run_id: work,
+            report: WorkReport {
+                status: runbook_model::ReportStatus::Succeeded,
+                verdict: None,
+                outputs: Default::default(),
+                summary: None,
+                evidence: vec![],
+                logs: vec![],
+                files: vec![],
+                appended_logs: false,
+            },
+        },
+        ActorRef::Agent {
+            principal_id: "runner:first".into(),
+            session_id: "first-claim".into(),
+            name: "worker".into(),
+            model: None,
+            service_attribution: None,
+        },
+        0,
+    );
+    trace.settle();
+    let gate = trace.step("gate").id.clone().unwrap();
+    trace.append(
+        Event::AgentTargetResolved {
+            step_id: "gate".into(),
+            step_run_id: gate.clone(),
+            target,
+        },
+        ActorRef::System,
+        0,
+    );
+    let decision = AgentDecision {
+        audit_only_comment: true,
+        base_sequence: trace.state.sequence,
+        at_ms: trace.state.at_ms,
+        step_run_id: gate,
+        option: "keep".into(),
+        comment: None,
+        evidence: vec![],
+        principal: "runner:second".into(),
+        agent_name: "worker".into(),
+        model: None,
+        session_id: "review".into(),
+    };
+    assert_eq!(
+        apply_agent_decision(&trace.replay(), &decision)
+            .unwrap_err()
+            .code(),
+        "approval.excluded_completer"
+    );
+}
+
+#[test]
+fn unknown_service_contributor_requires_an_explicitly_named_approver() {
+    let mut directory = runbook_spec::CompileContext::default();
+    directory.users.insert(
+        "reviewer".into(),
+        "usr_00000000000000000000000002".parse().unwrap(),
+    );
+    directory.teams.insert(
+        "oncall".into(),
+        "team_00000000000000000000000001".parse().unwrap(),
+    );
+    let trace = run_document(
+        "metadata: {id: independent}\nspec: {steps: [{id: work, actor: any}, {id: gate, approval: {prompt: Review?, options: [keep], approvers: {teams: [oncall], users: [reviewer]}, exclude_completers_of: [work]}}]}",
+        &[Input::Report {
+            step: "work".into(),
+            status: runbook_model::ReportStatus::Succeeded,
+            actor: ActorRef::Agent {
+                principal_id: "service:legacy".into(),
+                session_id: "service".into(),
+                name: "worker".into(),
+                model: None,
+                service_attribution: None,
+            },
+            verdict: None,
+            outputs: Default::default(),
+            at_ms: None,
+        }],
+        directory,
+    );
+    assert_eq!(
+        apply_vote(&trace.state, &vote_for(&trace, "gate", 1))
+            .unwrap_err()
+            .code(),
+        "approval.unknown_service_contributor"
+    );
+    let mut named = vote_for(&trace, "gate", 2);
+    named.eligibility.matched_recipients = vec![RecipientRef::User(
+        "usr_00000000000000000000000002".parse().unwrap(),
+    )];
+    assert!(apply_vote(&trace.state, &named).is_ok());
 }

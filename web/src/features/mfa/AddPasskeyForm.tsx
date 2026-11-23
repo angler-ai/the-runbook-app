@@ -34,14 +34,16 @@ export function suggestPasskeyName(userAgent = globalThis.navigator?.userAgent ?
 export function AddPasskeyForm({
   onAdded,
   onCancel,
+  inline = false,
 }: {
   onAdded(): void | Promise<void>;
   onCancel?(): void;
+  inline?: boolean;
 }) {
   const id = useId();
   const [name, setName] = useState(() => suggestPasskeyName());
   const [error, setError] = useState<string | null>(null);
-  const add = useAddPasskey();
+  const add = useAddPasskey(!inline);
 
   if (!passkeysSupported()) {
     return (

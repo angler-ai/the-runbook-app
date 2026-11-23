@@ -54,6 +54,7 @@ fn runner() -> ActorRef {
         session_id: "s1".into(),
         name: "checker".into(),
         model: None,
+        service_attribution: None,
     }
 }
 

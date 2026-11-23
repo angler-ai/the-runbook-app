@@ -18,6 +18,7 @@ export class FakeGateway {
   /** Simulate a network failure class for tests. */
   testOutcome: 'unreachable' | 'tls' | undefined;
   failPushes = false;
+  private epoch = 1;
   private readonly server: http.Server;
 
   constructor(token = 'fake-token-vault-to-gateway-000000000000') {
@@ -29,6 +30,11 @@ export class FakeGateway {
     await new Promise<void>((resolve) => this.server.listen(0, '127.0.0.1', resolve));
     this.url = `http://127.0.0.1:${(this.server.address() as AddressInfo).port}`;
     return this;
+  }
+
+  restart(): void {
+    this.epoch++;
+    this.material.clear();
   }
 
   async close(): Promise<void> {
@@ -46,6 +52,10 @@ export class FakeGateway {
       res.end(payload === undefined ? '' : JSON.stringify(payload));
     };
     if (req.headers.authorization !== `Bearer ${this.token}`) return send(401, { error: { code: 'auth' } });
+    if (path === '/internal/material/epoch' || path === '/internal/material') {
+      res.setHeader('runbook-gateway-epoch', String(this.epoch));
+    }
+    if (req.method === 'GET' && path === '/internal/material/epoch') return send(204);
     if (req.method === 'POST' && path === '/internal/material') {
       if (this.failPushes) return send(503, { error: { code: 'unavailable' } });
       const push = JSON.parse(text) as MaterialPush;

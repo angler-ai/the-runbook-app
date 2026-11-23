@@ -565,12 +565,25 @@ pub fn openapi() -> Value {
             operation["x-implementation"] = json!("implemented");
         }
         if path == "/v1/projects/{p}/slack" {
-            operation["summary"] = json!("Project Slack notifications (SLACK1 stage 1)");
+            operation["summary"] = json!("Project Slack notifications");
             operation["description"] = json!(
-                "Implemented. One Slack incoming-webhook URL per project: reads say only whether one is configured (the URL is a credential and is never returned), writes need project admin. Step assigned, approval needed, handoff/stall and run-failed events post a short message linking into the app. Best-effort beside email and webhooks."
+                "Configure an incoming webhook or Slack app channel for a project. The webhook credential is write-only. Run-start notifications are off by default and are best effort alongside email and webhooks."
             );
+            if method == "put" {
+                operation["description"] = json!(
+                    "Set an incoming webhook or Slack app channel. Omit both to update notify_run_started on an existing target. This preference defaults to false on first configuration and is retained when omitted."
+                );
+                operation["responses"]["409"] = problem_response(
+                    "Slack configuration conflict.",
+                    &["slack.app_not_configured", "slack.target_required"],
+                );
+            }
             operation["x-implementation"] = json!("implemented");
-            operation["x-required-scopes"] = json!(["project:admin"]);
+            operation["x-required-scopes"] = json!([if method == "get" {
+                "runbooks:read"
+            } else {
+                "project:admin"
+            }]);
         }
         if path == "/v1/me/email-preferences" {
             operation["summary"] = json!("Notification email preference (NOTIFY1)");

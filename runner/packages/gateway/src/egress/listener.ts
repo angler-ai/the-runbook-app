@@ -58,6 +58,7 @@ export async function sandboxListener(options: {
   policy?: () => Promise<EgressPolicy>;
   listenHost: string;
   publicHost: string;
+  port?: number;
   onClose?: () => void;
 }) {
   const { store } = options;
@@ -187,7 +188,10 @@ export async function sandboxListener(options: {
   };
   await new Promise<void>((resolve, reject) => {
     listener.once('error', reject);
-    listener.listen(0, options.listenHost, resolve);
+    listener.listen(options.port ?? 0, options.listenHost, () => {
+      listener.removeListener('error', reject);
+      resolve();
+    });
   });
   const scheduleExpiry = () => {
     clearTimeout(timer);

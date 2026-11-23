@@ -233,6 +233,12 @@ fn describe_r04(method: &str, path: &str) -> Describe {
 /// Routes added after R0-4.
 fn describe_r05(method: &str, path: &str) -> Describe {
     match path {
+        "/v1/runner/oauth/callback/{credential_id}" => Describe {
+            summary: "Consume the OAuth provider callback for a runner credential. Exchange requires the initiating browser session and nonce. Redirects to Runner settings without carrying the callback parameters into the redirect.",
+            principal: "public",
+            scopes: &[],
+            errors: &[],
+        },
         "/v1/runners/{ri}/proxy/{*path}" => Describe {
             summary: "Proxy to the organization's runner API: {path} (for example runner/v1/groups) must be one of the runner's public routes for this method. Needs the X-Runbook-CSRF: 1 header and a credential holding runner:read or runner:admin (sessions get them by org role). The core forwards the JSON body with a request-bound user assertion (Runbook-Assertion: an rb-user+jwt JWT, EdDSA, 60 seconds, single use, binding method, path and body hash, with the person's org and project roles and runner scopes) and never cookies; the runner authorizes the action. Responses are the runner's, JSON only (an event stream on the transcript route), with nosniff and Content-Security-Policy: sandbox. 503 runner.offline while the runner does not heartbeat.",
             principal: "person_or_agent",
@@ -244,6 +250,7 @@ fn describe_r05(method: &str, path: &str) -> Describe {
                     "502",
                     &[
                         "runner.bad_response",
+                        "runner.oauth_clock_skew",
                         "runner.unreachable",
                         "runner.url_forbidden",
                     ],
@@ -269,6 +276,11 @@ pub(super) fn register(paths: &mut Map<String, Value>) {
                 json!({"name":name,"in":"path","required":true,"schema":{"type":"string"}})
             })
             .collect();
+        if route.status == 303 && route.path.starts_with("/v1/runner/oauth/callback/") {
+            for name in ["code", "state", "iss", "error"] {
+                parameters.push(json!({"name":name,"in":"query","schema":{"type":"string"}}));
+            }
+        }
         if route.path.contains("/proxy/") {
             parameters.push(json!({"name":"X-Runbook-CSRF","in":"header","required":true,"schema":{"type":"string","const":"1"}}));
         }
@@ -320,6 +332,14 @@ pub(super) fn register(paths: &mut Map<String, Value>) {
             None if route.path.contains("/context/") => json!({
                 "description": "Claim-scoped context, bounded to 48 KiB.",
                 "content": {"application/json": {"schema": {"type": "object", "additionalProperties": true}}}
+            }),
+            None if route.status == 303 => json!({
+                "description":"Redirect to Runner settings",
+                "headers": {
+                    "Location": {"schema":{"type":"string"}},
+                    "Cache-Control": {"schema":{"type":"string","const":"no-store"}},
+                    "Referrer-Policy": {"schema":{"type":"string","const":"no-referrer"}}
+                }
             }),
             None if route.status == 204 => json!({"description":"No content"}),
             None => json!({"description":"The runner's response, passed through"}),

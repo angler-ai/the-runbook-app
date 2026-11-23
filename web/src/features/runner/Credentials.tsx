@@ -1,10 +1,11 @@
 import {
   CREDENTIAL_TYPES,
   type CredentialType,
-  type CredentialTypeManifest,
 } from '../../../../runner/packages/shared/src/credential-manifest';
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { OAUTH_EXTRA_PARAMETERS } from '../../../../runner/packages/shared/src/oauth-binding';
+import type { OAuthDiscoveryCandidate } from '../../../../runner/packages/shared/src/credential-source';
 import { Button } from '../../ui/primitives/button';
 import { Input, fieldClasses } from '../../ui/primitives/input';
 import {
@@ -17,8 +18,13 @@ import {
   type Row,
   type RunnerStatus,
 } from './api';
-import { destinationBinding } from './destination-binding';
-import { Field, list, panel, Rows, sharing } from './presentation';
+import { OAuthCredentialActions, oauthReturn } from './OAuthCredentialActions';
+import { canonicalJson, destinationBinding } from './destination-binding';
+import { Field, panel, Rows } from './presentation';
+import { ShareFields, readShare, requiredText, selectClasses } from './runnerForms';
+import { formDestination, validateSecret } from './credentialForm';
+import type { Project, Share } from './resources';
+import { StatusPill } from '../../ui/status/StatusPill';
 import { saveCredentialSecrets, verifyCredentialReceipt, type CredentialBinding } from './seal';
 
 export interface Credential extends CredentialBinding {
@@ -28,7 +34,25 @@ export interface Credential extends CredentialBinding {
   delivery: string[];
   label: string;
   label_initialized?: boolean;
-  sharing: { projects: string | string[] };
+  sharing: Share;
+  oauth_status?: {
+    purge_until?: string;
+    reconnect_reason?: string;
+    refresh_failure_since?: string;
+    pending_account?: string | null;
+    account_confirmation_signature?: string;
+    account_confirmation_expires_at_ms?: number;
+    account_confirmation?: string;
+    account_changed?: boolean;
+    connected_account?: string;
+    granted_scopes?: string[];
+    grant_expires_at?: string;
+    access_expires_at?: string;
+    expiry_warning?: boolean;
+    access_only?: boolean;
+    connect_result?: string;
+    discovery_candidate?: OAuthDiscoveryCandidate;
+  };
 }
 
 export function destination(credential: Credential) {
@@ -36,21 +60,6 @@ export function destination(credential: Credential) {
   return String(
     config.endpoint ?? config.url ?? (Array.isArray(config.hosts) ? config.hosts.join(', ') : '—'),
   );
-}
-
-function formDestination(fields: FormData, manifest: CredentialTypeManifest) {
-  const config: Row = {};
-  for (const field of manifest.configFields) {
-    const value = String(fields.get(field.name) ?? '').trim();
-    if (!value) continue;
-    config[field.name] = field.kind.endsWith('-list')
-      ? list(value)
-      : field.kind === 'object'
-        ? JSON.parse(value)
-        : value;
-  }
-  const rawGroups = String(fields.get('groups') ?? '').trim();
-  return { config, type: manifest.type, groups: rawGroups === 'all' ? 'all' : list(rawGroups) };
 }
 
 function bindingPreview(input?: Parameters<typeof destinationBinding>[0]) {
@@ -65,19 +74,35 @@ export function Credentials({
   status,
   org,
   editable,
+  projects = [],
+  selectedCredential,
 }: {
   status: RunnerStatus;
   org: string;
   editable: boolean;
+  projects?: Project[];
+  selectedCredential?: string;
 }) {
   const data = useRunnerQuery<Items<Credential>>(status, '/credentials');
   const client = useQueryClient();
   const mutation = useRunnerMutation(status);
-  const [selected, select] = useState<string | null>(null);
+  const [oauth] = useState(oauthReturn);
+  const [selected, select] = useState<string | null>(selectedCredential ?? oauth?.id ?? null);
   const [type, setType] = useState('');
+  const [sourceOverride, setSourceOverride] = useState<string>();
+  const [registrationOverride, setRegistrationOverride] = useState<string>();
+  const [groupsOverride, setGroupsOverride] = useState<boolean>();
   const [pending, setPending] = useState(false);
   const [preview, setPreview] = useState<Row | null>();
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState(
+    oauth?.result === 'connected'
+      ? 'OAuth connection passed.'
+      : oauth?.result === 'test-failed'
+        ? 'OAuth connected. The MCP connection test failed.'
+        : oauth?.result === 'failed'
+          ? 'OAuth authorization did not complete.'
+          : '',
+  );
   const [error, setError] = useState('');
   const [confirm, setConfirm] = useState<'revoke' | 'delete'>();
   const credential = data.data?.items.find(({ id }) => id === selected);
@@ -85,13 +110,38 @@ export function Credentials({
   const manifest = Object.hasOwn(CREDENTIAL_TYPES, chosenType)
     ? CREDENTIAL_TYPES[chosenType as CredentialType]
     : undefined;
+  const source =
+    sourceOverride ?? (credential?.config.secret_source ? 'gcp-secret-manager' : 'sealed');
+  const registration =
+    registrationOverride ?? String(credential?.config.registration_mode ?? 'dynamic');
+  const allGroups = groupsOverride ?? (!credential || credential.groups === 'all');
+  const sourceConfig = credential?.config.secret_source as
+    { resource?: string; version?: string } | undefined;
   const locked = !editable || status.status !== 'online' || pending || mutation.isPending;
   const displayedBinding = preview === undefined ? bindingPreview(credential) : preview;
+  const oauthConfigured = credential?.type === 'mcp-oauth' && Boolean(credential.config.issuer);
+  const secretFields =
+    manifest?.type === 'mcp-oauth' &&
+    (!oauthConfigured ||
+      credential?.config.registration_mode !== 'pre-registered' ||
+      credential.config.token_endpoint_auth_method === 'none')
+      ? []
+      : (manifest?.secretFields ?? []);
+  const credentialFields =
+    manifest?.configFields.filter((field) =>
+      oauthConfigured
+        ? ['scopes', 'extra_parameters'].includes(field.name)
+        : registration !== 'dynamic' ||
+          !['client_id', 'token_endpoint_auth_method'].includes(field.name),
+    ) ?? [];
   const secretEntry = editable && credential?.status !== 'revoked';
   function choose(id: string | null) {
     setPreview(undefined);
     select(id);
     setType('');
+    setSourceOverride(undefined);
+    setRegistrationOverride(undefined);
+    setGroupsOverride(undefined);
     setMessage('');
     setError('');
     setConfirm(undefined);
@@ -103,33 +153,52 @@ export function Credentials({
           {runnerError(data.error)}
         </p>
       )}
-      {editable && (
+      {editable && !selectedCredential && (
         <Button className="w-fit" disabled={locked} onClick={() => choose('new')}>
           Add credential
         </Button>
       )}
-      <Rows
-        label="Credentials"
-        columns={['Name', 'Type', 'Destination', 'Delivery', 'Projects', 'Status', 'Fingerprint']}
-        rows={(data.data?.items ?? []).map((row) => ({
-          id: row.id,
-          cells: [
-            <Button variant="link" size="sm" disabled={pending} onClick={() => choose(row.id)}>
-              {row.name}
-            </Button>,
-            row.type,
-            destination(row),
-            row.delivery.join(', '),
-            String(row.sharing.projects),
-            row.status.replaceAll('_', ' '),
-            Object.values(row.secret_meta)
-              .map(({ fingerprint }) => fingerprint)
-              .filter(Boolean)
-              .join(', ') || '—',
-          ],
-        }))}
-      />
-      {selected && (
+      {!selectedCredential && (
+        <Rows
+          label="Credentials"
+          stackOnMobile
+          columns={['Name', 'Type', 'Destination', 'Delivery', 'Projects', 'Status', 'Fingerprint']}
+          rows={(data.data?.items ?? []).map((row) => ({
+            id: row.id,
+            cells: [
+              <Button variant="link" size="sm" disabled={pending} onClick={() => choose(row.id)}>
+                {row.name}
+              </Button>,
+              row.type,
+              destination(row),
+              row.delivery.join(', '),
+              Array.isArray(row.sharing.projects)
+                ? projects
+                    .filter((project) => (row.sharing.projects as string[]).includes(project.id))
+                    .map((project) => project.title)
+                    .join(', ') || 'Selected projects'
+                : row.sharing.projects === 'all'
+                  ? 'All projects'
+                  : 'Private',
+              <StatusPill
+                status={row.status === 'active' ? 'succeeded' : 'waiting'}
+                label={row.status.replaceAll('_', ' ')}
+                className="capitalize"
+              />,
+              Object.values(row.secret_meta)
+                .map(({ fingerprint }) => fingerprint)
+                .filter(Boolean)
+                .join(', ') || '—',
+            ],
+          }))}
+        />
+      )}
+      {selectedCredential && data.data && !credential && (
+        <p role="status" className="text-sm text-fg-muted">
+          This host connection is unavailable.
+        </p>
+      )}
+      {selected && (!selectedCredential || credential) && (
         <section className={panel}>
           <h2 className="mb-3 font-semibold">{credential?.name ?? 'Add credential'}</h2>
           {selected === 'new' && (
@@ -156,12 +225,19 @@ export function Credentials({
             <form
               key={selected + manifest.type}
               className="mt-3"
+              noValidate
               onChange={(event) => {
                 if (event.target instanceof HTMLInputElement && event.target.type === 'password')
                   return;
                 try {
                   setPreview(
-                    bindingPreview(formDestination(new FormData(event.currentTarget), manifest)),
+                    bindingPreview(
+                      formDestination(
+                        new FormData(event.currentTarget),
+                        manifest,
+                        oauthConfigured ? credential?.config : undefined,
+                      ),
+                    ),
                   );
                 } catch {
                   setPreview(null);
@@ -177,20 +253,42 @@ export function Credentials({
                 setError('');
                 setMessage('');
                 try {
-                  const enteredDestination = formDestination(fields, manifest);
+                  const enteredDestination = formDestination(
+                    fields,
+                    manifest,
+                    oauthConfigured ? credential?.config : undefined,
+                  );
                   const label = String(fields.get('label'));
                   const input = {
-                    name: String(fields.get('name')),
+                    name: requiredText(fields, 'name', 'Credential name'),
                     ...enteredDestination,
-                    sharing: sharing(String(fields.get('sharing'))),
+                    sharing: readShare(fields, 'sharing', credential?.sharing, projects),
                     ...((!credential ||
                       credential.label_initialized === false ||
                       label !== credential.label) && { label }),
                   };
+                  const reference = enteredDestination.config.secret_source;
+                  const bindingChanged = Boolean(
+                    credential &&
+                    canonicalJson(destinationBinding(credential)) !==
+                      canonicalJson(destinationBinding(enteredDestination)),
+                  );
+                  const sourceChanged =
+                    canonicalJson(reference ?? null) !==
+                    canonicalJson(credential?.config.secret_source ?? null);
                   const values = Object.fromEntries(
-                    manifest.secretFields
-                      .map(({ name }) => [name, String(fields.get(`secret:${name}`) ?? '')])
-                      .filter(([, value]) => value),
+                    secretFields.flatMap((field) => {
+                      if (reference)
+                        return bindingChanged ||
+                          sourceChanged ||
+                          credential?.status === 'needs_secret'
+                          ? [[field.name, canonicalJson(reference)]]
+                          : [];
+                      const value = String(fields.get(`secret:${field.name}`) ?? '');
+                      if (value || !credential || sourceChanged)
+                        validateSecret(value, field.label, manifest.type === 'mcp-bearer');
+                      return value ? [[field.name, value]] : [];
+                    }),
                   );
                   const identityKey =
                     !credential || Object.keys(values).length
@@ -251,7 +349,70 @@ export function Credentials({
                 <Field label="Name">
                   <Input name="name" required defaultValue={credential?.name} />
                 </Field>
-                {manifest.configFields.map((field) => {
+                {credentialFields.map((field) => {
+                  if (field.name === 'extra_parameters') {
+                    const values = credential?.config.extra_parameters as
+                      Record<string, string> | undefined;
+                    return (
+                      <fieldset
+                        key={field.name}
+                        className="grid gap-2 rounded-md border border-border p-3 sm:grid-cols-3"
+                      >
+                        <legend className="px-1 text-sm font-medium">
+                          Authorization parameters (optional)
+                        </legend>
+                        {OAUTH_EXTRA_PARAMETERS.map((name) => (
+                          <Field
+                            key={name}
+                            label={
+                              {
+                                prompt: 'Prompt',
+                                access_type: 'Access type',
+                                login_hint: 'Login hint',
+                              }[name]
+                            }
+                          >
+                            <Input name={name} defaultValue={values?.[name]} />
+                          </Field>
+                        ))}
+                      </fieldset>
+                    );
+                  }
+                  if (field.name === 'test') {
+                    const value = credential?.config.test as
+                      { method?: string; path?: string } | undefined;
+                    return (
+                      <div className="grid gap-3 sm:grid-cols-2" key={field.name}>
+                        <Field label="Test method">
+                          <select
+                            className={selectClasses}
+                            name="test-method"
+                            defaultValue={value?.method ?? 'GET'}
+                          >
+                            <option>GET</option>
+                            <option>HEAD</option>
+                          </select>
+                        </Field>
+                        <Field label="Test path">
+                          <Input name="test-path" defaultValue={value?.path ?? '/'} />
+                        </Field>
+                      </div>
+                    );
+                  }
+                  if (field.name === 'registration_mode')
+                    return (
+                      <Field key={field.name} label={field.label}>
+                        <select
+                          className={selectClasses}
+                          name={field.name}
+                          value={registration}
+                          onChange={(event) => setRegistrationOverride(event.target.value)}
+                        >
+                          <option value="dynamic">Dynamic registration</option>
+                          <option value="pre-registered">Use an existing OAuth app</option>
+                        </select>
+                      </Field>
+                    );
                   const value = credential?.config[field.name];
                   const initial =
                     value == null
@@ -281,7 +442,7 @@ export function Credentials({
                             name={field.name}
                             defaultValue={initial}
                             required={field.required}
-                            type={field.kind === 'url' ? 'url' : 'text'}
+                            inputMode={field.kind === 'url' ? 'url' : undefined}
                           />
                         )}
                       </Field>
@@ -289,15 +450,43 @@ export function Credentials({
                     </div>
                   );
                 })}
-                <Field label="Bound runner groups (all or comma-separated group IDs)">
-                  <Input name="groups" defaultValue={String(credential?.groups ?? 'all')} />
-                </Field>
-                <Field label="Projects (none, all, or comma-separated project IDs)">
-                  <Input
-                    name="sharing"
-                    defaultValue={String(credential?.sharing.projects ?? 'none')}
-                  />
-                </Field>
+                {manifest.type === 'mcp-oauth' &&
+                  !oauthConfigured &&
+                  registration === 'dynamic' && (
+                    <p className="text-xs text-fg-muted">
+                      Client authentication is decided by registration for dynamic clients.
+                    </p>
+                  )}
+                <fieldset className="grid gap-2 rounded-md border border-border p-3">
+                  <legend className="px-1 text-sm font-medium">Bound runner groups</legend>
+                  <label className="flex gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      name="all-groups"
+                      checked={allGroups}
+                      onChange={(event) => setGroupsOverride(event.target.checked)}
+                      className="accent-accent"
+                    />
+                    All runner groups
+                  </label>
+                  {!allGroups &&
+                    status.groups.map((group) => (
+                      <label className="flex gap-2 text-sm" key={group.id}>
+                        <input
+                          type="checkbox"
+                          name="groups"
+                          value={group.id}
+                          className="accent-accent"
+                          defaultChecked={
+                            Array.isArray(credential?.groups) &&
+                            credential.groups.includes(group.id)
+                          }
+                        />
+                        {group.name}
+                      </label>
+                    ))}
+                </fieldset>
+                <ShareFields initial={credential?.sharing} projects={projects} />
                 <Field label="Label">
                   <select
                     className={fieldClasses + ' h-10'}
@@ -312,13 +501,77 @@ export function Credentials({
                 {secretEntry && displayedBinding && (
                   <section aria-label="Bound destination" className="grid gap-1">
                     <h3 className="text-sm font-medium">Bound destination</h3>
-                    <pre className="overflow-auto whitespace-pre-wrap text-xs text-fg-muted">
-                      {JSON.stringify(displayedBinding, null, 2)}
-                    </pre>
+                    <dl className="grid gap-2 rounded-md border border-border bg-bg p-3 text-sm">
+                      {Object.entries(displayedBinding)
+                        .filter(
+                          ([key, value]) =>
+                            value != null &&
+                            value !== '' &&
+                            !['groups', 'client_id', 'extra_parameters', 'iss_supported'].includes(
+                              key,
+                            ),
+                        )
+                        .map(([key, value]) => (
+                          <div className="min-w-0" key={key}>
+                            <dt className="text-xs text-fg-muted capitalize">
+                              {key.replaceAll('_', ' ')}
+                            </dt>
+                            <dd className="break-all">
+                              {value != null && typeof value === 'object' && !Array.isArray(value)
+                                ? Object.entries(value)
+                                    .map(
+                                      ([field, value]) =>
+                                        `${field.replaceAll('_', ' ')} ${String(value)}`,
+                                    )
+                                    .join(' · ')
+                                : Array.isArray(value)
+                                  ? value.join(', ') || 'None'
+                                  : String(value)}
+                            </dd>
+                          </div>
+                        ))}
+                    </dl>
                   </section>
                 )}
+                {secretEntry && manifest.secretSources && (
+                  <>
+                    <Field label="Secret source">
+                      <select
+                        name="secret-source"
+                        className={selectClasses}
+                        value={source}
+                        onChange={(event) => setSourceOverride(event.target.value)}
+                      >
+                        <option value="sealed">Enter a secret securely</option>
+                        <option value="gcp-secret-manager">Stored in Google Secret Manager</option>
+                      </select>
+                    </Field>
+                    {source === 'gcp-secret-manager' && (
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <Field label="Secret resource name">
+                          <Input
+                            name="secret-resource"
+                            placeholder="projects/PROJECT/secrets/SECRET"
+                            defaultValue={sourceConfig?.resource}
+                          />
+                        </Field>
+                        <Field label="Secret version">
+                          <Input
+                            name="secret-version"
+                            defaultValue={sourceConfig?.version ?? 'latest'}
+                          />
+                        </Field>
+                        <p className="text-xs text-fg-muted sm:col-span-2">
+                          The vault reads this version at release. “latest” picks up rotations in
+                          Secret Manager.
+                        </p>
+                      </div>
+                    )}
+                  </>
+                )}
                 {secretEntry &&
-                  manifest.secretFields.map((field) => (
+                  source !== 'gcp-secret-manager' &&
+                  secretFields.map((field) => (
                     <Field
                       key={field.name}
                       label={
@@ -340,6 +593,18 @@ export function Credentials({
                 )}
               </fieldset>
             </form>
+          )}
+          {credential?.type === 'mcp-oauth' && credential.status !== 'revoked' && (
+            <OAuthCredentialActions
+              key={credential.id}
+              credential={credential}
+              install={status.install_id!}
+              org={org}
+              disabled={locked}
+              handoff={oauth?.id === credential.id ? oauth : undefined}
+              notify={setMessage}
+              errors={setError}
+            />
           )}
           {credential && editable && (
             <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -366,7 +631,7 @@ export function Credentials({
               >
                 Test connection
               </Button>
-              {credential.status !== 'revoked' && (
+              {credential.status !== 'revoked' && credential.type !== 'mcp-oauth' && (
                 <Button variant="secondary" disabled={locked} onClick={() => setConfirm('revoke')}>
                   Revoke
                 </Button>
@@ -375,6 +640,14 @@ export function Credentials({
                 Delete
               </Button>
             </div>
+          )}
+          {selectedCredential && (
+            <a
+              className="mt-3 inline-block text-sm text-accent underline"
+              href="/runner/connections"
+            >
+              All connections
+            </a>
           )}
           {manifest && credential && <p className="mt-2 text-sm text-fg-muted">{manifest.test}</p>}
           {confirm && credential && (

@@ -102,6 +102,7 @@ pub(crate) async fn step_operation<B: Backends>(
     let (sr, scope, execution) = step_scope(backends, runner, &params["sr"]).await?;
     let (store, work) = work(backends, &scope, &execution).await?;
     let identity = Identity {
+        service_attribution: None,
         key: runner_key(&runner_id),
         human: None,
         credential_ref: runner_key(&runner_id),
@@ -443,8 +444,14 @@ pub(crate) async fn events<B: Backends>(
     {
         return Err((422, "request.invalid"));
     }
+    let oauth = matches!(
+        request.kind.as_str(),
+        "credential.reconnect_required"
+            | "credential.oauth_expiring"
+            | "credential.oauth_refresh_failing"
+    );
     let webhooks = backends.webhooks();
-    let at_ms = webhooks
+    let mut at_ms = webhooks
         .webhook_time_ms()
         .await
         .map_err(crate::runners::storage)?;
@@ -454,14 +461,108 @@ pub(crate) async fn events<B: Backends>(
         .await
         .map_err(crate::runners::storage)?;
     let mut data = request.data.clone();
+    let mut event_key = r.new_id.as_str();
+    if oauth {
+        let invalid = (422, "request.invalid");
+        let event_id = request.data["event_id"]
+            .as_str()
+            .filter(|id| id.len() == 36 && id.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-'))
+            .ok_or(invalid)?;
+        let credential = request.data["credential_id"]
+            .as_str()
+            .filter(|id| id.len() <= 128 && crate::runner_proxy::plain_segment(id))
+            .ok_or(invalid)?;
+        at_ms = request.data["occurred_at_ms"]
+            .as_i64()
+            .filter(|ms| *ms > 0 && *ms <= at_ms + 300_000)
+            .ok_or(invalid)?;
+        event_key = event_id;
+        data = json!({"credential_id": credential});
+        if request.kind == "credential.reconnect_required" {
+            let reason = request.data["reason"]
+                .as_str()
+                .filter(|reason| {
+                    matches!(
+                        *reason,
+                        "expiry_or_interrupted_refresh"
+                            | "access_only_rejected"
+                            | "invalid_binding"
+                            | "client_authentication_unavailable"
+                            | "invalid_grant"
+                            | "invalid_client"
+                            | "unauthorized_client"
+                            | "refresh_failure_timeout"
+                            | "ambiguous_refresh"
+                            | "binding_changed"
+                    )
+                })
+                .ok_or(invalid)?;
+            data["reason"] = json!(reason);
+        } else if request.kind == "credential.oauth_refresh_failing" {
+            let since = request.data["since_ms"]
+                .as_i64()
+                .filter(|ms| *ms > 0 && *ms <= at_ms)
+                .ok_or(invalid)?;
+            data["since_ms"] = json!(since);
+        } else {
+            let expiry = request.data["expires_at_ms"]
+                .as_i64()
+                .filter(|ms| *ms > at_ms)
+                .ok_or(invalid)?;
+            data["expires_at_ms"] = json!(expiry);
+        }
+    }
+    let budget = request.kind == "runner.budget_threshold";
+    let budget_project = if budget {
+        let invalid = (422, "request.invalid");
+        event_key = request.data["event_id"]
+            .as_str()
+            .filter(|id| {
+                id.len() == 36
+                    && id.split('-').map(str::len).eq([8, 4, 4, 4, 12])
+                    && id
+                        .bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b) || b == b'-')
+            })
+            .ok_or(invalid)?;
+        at_ms = request.data["occurred_at_ms"]
+            .as_i64()
+            .filter(|ms| *ms > 0 && *ms <= at_ms + 300_000)
+            .ok_or(invalid)?;
+        match budget_event_project(&request.data) {
+            Some(project) => project,
+            // Older scoped outbox rows did not identify a project. Drop
+            // those rows rather than sending them to unrelated subscribers.
+            None => return Ok((204, Value::Null)),
+        }
+    } else {
+        None
+    };
     data["install_id"] = json!(runner.install_id);
-    for project in snapshot.projects.keys() {
+    for project in snapshot
+        .projects
+        .keys()
+        .filter(|p| budget_project.is_none_or(|id| p.as_str() == id))
+    {
         let scope = TenantScope {
             org_id: runner.org_id.clone(),
             project_id: project.clone(),
         };
         let event = ProjectEvent {
-            event_id: derived_id("evt_", at_ms, &[&request.kind, &r.new_id, project.as_str()]),
+            event_id: if budget {
+                derived_id(
+                    "evt_",
+                    0, // The outbox identity is independent of the reported occurrence time.
+                    &[
+                        &request.kind,
+                        runner.install_id.as_str(),
+                        event_key,
+                        project.as_str(),
+                    ],
+                )
+            } else {
+                derived_id("evt_", at_ms, &[&request.kind, event_key, project.as_str()])
+            },
             event_type: request.kind.clone(),
             at_ms,
             runbook_id: None,
@@ -473,7 +574,7 @@ pub(crate) async fn events<B: Backends>(
             .map_err(crate::runners::storage)?;
         let (record, deliveries) = plan_project_fan_out(&scope, &event, &subscriptions)
             .map_err(crate::runners::storage)?;
-        if deliveries.is_empty() {
+        if deliveries.is_empty() && !oauth && !budget {
             continue;
         }
         webhooks
@@ -482,6 +583,19 @@ pub(crate) async fn events<B: Backends>(
             .map_err(crate::runners::storage)?;
     }
     Ok((204, Value::Null))
+}
+
+fn budget_event_project(data: &Value) -> Option<Option<&str>> {
+    match data["level"].as_str()? {
+        "project" => {
+            let key = data["key"].as_str()?;
+            (data["project_id"].is_null() || data["project_id"].as_str() == Some(key))
+                .then_some(Some(key))
+        }
+        "agent" | "run" | "step" => Some(Some(data["project_id"].as_str()?)),
+        "org" | "group" | "environment" => Some(None),
+        _ => None,
+    }
 }
 
 /// `GET /v1/runner-installs/{ri}/ready?group={g}&limit={n}` (directory token).
@@ -598,4 +712,34 @@ pub(crate) async fn finish_decision<B: Backends>(
         .await
         .map(|value| (200, value))
         .map_err(|e| api(actor_error(e)))
+}
+
+#[cfg(test)]
+mod budget_event_tests {
+    use super::*;
+
+    #[test]
+    fn scoped_budget_events_require_the_owning_project() {
+        assert_eq!(
+            budget_event_project(&json!({"level":"project","key":"project-a"})),
+            Some(Some("project-a"))
+        );
+        assert_eq!(
+            budget_event_project(
+                &json!({"level":"project","key":"project-a","project_id":"project-b"})
+            ),
+            None
+        );
+        assert_eq!(
+            budget_event_project(&json!({"level":"agent","key":"agent-a"})),
+            None
+        );
+        assert_eq!(
+            budget_event_project(
+                &json!({"level":"agent","key":"agent-a","project_id":"project-b"})
+            ),
+            Some(Some("project-b"))
+        );
+        assert_eq!(budget_event_project(&json!({"level":"org"})), Some(None));
+    }
 }

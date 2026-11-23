@@ -55,6 +55,7 @@ fn agent() -> ActorPrincipal {
             session_id: "s1".into(),
             name: "bot".into(),
             model: None,
+            service_attribution: None,
         },
         credential_ref: "svc-1".into(),
     }
@@ -143,6 +144,9 @@ fn state(store: &MemoryExecutionStore, directory: &MemoryDirectory) -> Execution
 }
 fn header(state: &ExecutionState) -> ExecutionView {
     ExecutionView {
+        overdue_steps: vec![],
+        url: String::new(),
+        web_url: String::new(),
         schema_revision: NonZeroU32::MIN,
         id: state.id.clone(),
         runbook_id: None,
@@ -416,6 +420,8 @@ fn markdown_export_names_people() {
         options: vec![],
         eligible_recipients: vec![],
         escalation_recipients: vec![],
+        excluded_completers: vec![],
+        blocked_reason: None,
         escalated: false,
         quorum: NonZeroU32::MIN,
         decision_lease: None,
@@ -480,6 +486,8 @@ fn markdown_shows_agent_decisions_leases_and_abstentions() {
         options: vec![],
         eligible_recipients: vec![],
         escalation_recipients: vec![],
+        excluded_completers: vec![],
+        blocked_reason: None,
         escalated: false,
         quorum: NonZeroU32::MIN,
         decision_lease: Some(DecisionLeaseView {

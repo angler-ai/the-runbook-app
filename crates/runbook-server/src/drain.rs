@@ -528,6 +528,7 @@ impl Drainer {
         // post; the lease still completes through webhooks/email.
         let _ = runbook_core::slack::fan_out_slack(
             &self.notify,
+            &self.directory,
             &SlackHttp,
             self.config.slack.as_ref(),
             scope,

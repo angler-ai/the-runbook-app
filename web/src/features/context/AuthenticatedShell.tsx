@@ -28,6 +28,7 @@ import {
   Inbox,
   Play,
   Settings,
+  Server,
   Sparkles,
   Webhook,
 } from 'lucide-react';
@@ -261,6 +262,17 @@ function ShellChrome({ children }: { children?: ReactNode }) {
       icon: Settings,
       active: pathname === '/settings' || pathname.startsWith('/settings/'),
     },
+    ...(runner.data?.install_id && me.data?.credential.scopes?.includes('runner:read')
+      ? [
+          {
+            id: 'runner',
+            label: 'Runner',
+            href: '/runner/overview',
+            icon: Server,
+            active: pathname.startsWith('/runner'),
+          },
+        ]
+      : []),
   ];
 
   const renderNavLink = ({ item, className, children }: RenderLinkProps) => {
@@ -271,6 +283,16 @@ function ShellChrome({ children }: { children?: ReactNode }) {
         </Link>
       );
     }
+    if (item.id === 'runner')
+      return (
+        <Link
+          to="/runner/overview"
+          className={className}
+          aria-current={item.active ? 'page' : undefined}
+        >
+          {children}
+        </Link>
+      );
     if (item.id === 'settings') {
       return (
         <Link to="/settings" className={className} aria-current={item.active ? 'page' : undefined}>
@@ -432,6 +454,7 @@ export function switchTarget(
   const base = from ? `/p/${from}` : null;
   if (base && pathname.startsWith(`${base}/runbooks`)) return `/p/${to}/runbooks`;
   if (base && pathname.startsWith(`${base}/executions`)) return `/p/${to}/executions`;
+  if (base && pathname.startsWith(`${base}/agents`)) return `/p/${to}/agents`;
   if (base && pathname.startsWith(`${base}/skills`)) return `/p/${to}/skills`;
   if (base && pathname.startsWith(`${base}/webhooks`)) return `/p/${to}/webhooks`;
   if (base && pathname.startsWith(`${base}/settings`)) return `/p/${to}/settings`;
@@ -471,6 +494,7 @@ export function shellBreadcrumbs(
       ? [{ label: project.title, href: `/p/${project.slug}` }, { label: 'Search' }]
       : [{ label: 'Search' }];
   }
+  if (pathname.startsWith('/runner')) return [{ label: 'Runner', href: '/runner/overview' }];
   if (pathname.startsWith('/settings/organization')) {
     return [{ label: 'Settings' }, { label: 'Organization' }];
   }
@@ -565,6 +589,7 @@ const PROJECT_ROUTES = {
   home: '/p/$project',
   runbooks: '/p/$project/runbooks',
   executions: '/p/$project/executions',
+  agents: '/p/$project/agents',
   skills: '/p/$project/skills',
   webhooks: '/p/$project/webhooks',
   memory: '/p/$project/memory',

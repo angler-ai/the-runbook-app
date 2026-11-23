@@ -100,6 +100,7 @@ fn each_handoff_snapshot_mutation_has_its_own_code() {
             session_id: "session-1".into(),
             name: "test".into(),
             model: None,
+            service_attribution: None,
         };
     }
     let trace = run_document(

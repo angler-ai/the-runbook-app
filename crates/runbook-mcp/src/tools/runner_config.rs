@@ -110,6 +110,8 @@ pub(super) fn definitions() -> Vec<Value> {
             &["install_id", "id", "tool_labels"]),
         tool("list_runner_credential_types", "List credential types and their secret fields. Requires runner:read.",
             true, json!({"install_id": install()}), &["install_id"]),
+        tool("get_runner_credential", "Read the configuration and OAuth connection status of a runner credential. OAuth connect requires a browser session. Requires runner:read.",
+            true, json!({"install_id": install(), "credential_id":s("Credential ID")}), &["install_id", "credential_id"]),
         tool("label_runner_credential", "Set a credential label through the vault. Requires a human org admin with runner:admin.",
             false, json!({"install_id": install(), "credential_id":s("Credential ID"), "label":label()}),
             &["install_id", "credential_id", "label"]),
@@ -173,6 +175,7 @@ pub(super) fn proxy_operation(name: &str, a: &Args<'_>) -> Result<Operation, Bac
                 json!({"tool_labels":labels}),
             )
         }
+        "get_runner_credential" => ("GET", credential()?, Value::Null),
         "list_runner_credential_types" => ("GET", "credentials".into(), Value::Null),
         "label_runner_credential" => ("PATCH", credential()?, json!({"label":a.str("label")})),
         "share_runner_credential" => {

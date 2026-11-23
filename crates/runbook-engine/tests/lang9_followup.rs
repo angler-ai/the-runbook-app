@@ -240,6 +240,7 @@ fn reopening_a_step_restarts_its_follow_up() {
             session_id: "session-1".into(),
             name: "test".into(),
             model: None,
+            service_attribution: None,
         },
         3_700_000,
     );
@@ -262,4 +263,92 @@ fn a_step_without_follow_up_records_nothing_new() {
     tick(&mut trace, 86_400_000);
     assert_eq!(trace.count("StepReminded"), 0);
     assert_eq!(next_wakeup(&trace.state).unwrap(), None);
+}
+
+#[test]
+fn run_relative_deadlines_notify_open_steps_and_owners_of_pending_steps() {
+    let mut trace = document(
+        "spec: {steps: [{id: work, assignee: user:alice, due_after: 1h}, {id: next, assignee: user:alice, due_after: 1h}]}",
+    );
+    assert_eq!(next_wakeup(&trace.state).unwrap(), Some(3_600_000));
+    tick(&mut trace, 3_599_999);
+    assert_eq!(trace.count("StepOverdue"), 0);
+    tick(&mut trace, 3_600_000);
+    tick(&mut trace, 7_200_000);
+    let notices = intents(&trace, "step.overdue");
+    assert_eq!(notices.len(), 2);
+    assert_eq!(notices[0].recipients, [user(ALICE)]);
+    assert_eq!(
+        notices[1].recipients,
+        [user("usr_00000000000000000000000002")]
+    );
+    assert!(notices[1].step_run_ids.is_empty());
+    assert_eq!(trace.state, trace.replay());
+}
+
+#[test]
+fn a_run_relative_deadline_persists_across_a_pause() {
+    let mut trace = document("spec: {steps: [{id: work, assignee: user:alice, due_after: 1h}]}");
+    trace.append(
+        Event::ManualPauseChanged { paused: true },
+        ActorRef::System,
+        0,
+    );
+    tick(&mut trace, 3_600_000);
+    assert_eq!(intents(&trace, "step.overdue").len(), 1);
+    assert_eq!(trace.step("work").overdue_since_ms, Some(3_600_000));
+    assert_eq!(trace.state, trace.replay());
+}
+
+#[test]
+fn a_duration_outside_the_supported_deadline_range_is_rejected() {
+    let parsed = runbook_spec::parse(
+        "metadata: {id: deadlines}\nspec: {steps: [{id: work, due_after: 18446744073709551615ms}]}",
+    )
+    .unwrap();
+    assert!(runbook_spec::compile(&parsed, &Default::default()).is_err());
+}
+
+#[test]
+fn overdue_notices_coalesce_across_loop_iterations() {
+    let mut trace = document(
+        r#"
+spec:
+  steps:
+    - id: collect
+      loop:
+        until: "${{ iteration == 2 }}"
+        max_iterations: 2
+        steps:
+          - id: work
+            due_after: 1h
+            actor: human
+"#,
+    );
+    tick(&mut trace, 3_600_000);
+    let id = trace.step("collect#1.work").id.clone().unwrap();
+    let now = trace.state.at_ms;
+    trace.append(
+        Event::StepReported {
+            step_run_id: id,
+            report: WorkReport {
+                status: runbook_model::ReportStatus::Succeeded,
+                verdict: None,
+                outputs: Default::default(),
+                summary: None,
+                evidence: vec![],
+                logs: vec![],
+                files: vec![],
+                appended_logs: false,
+            },
+        },
+        ActorRef::Human {
+            user_id: ALICE.parse().unwrap(),
+        },
+        now,
+    );
+    trace.settle();
+    tick(&mut trace, now);
+    assert_eq!(trace.step("collect#2.work").overdue_since_ms, Some(now));
+    assert_eq!(intents(&trace, "step.overdue").len(), 1);
 }

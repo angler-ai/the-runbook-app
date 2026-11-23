@@ -327,6 +327,22 @@ carry a payload.
 
 **Fix:** remove `outputs`, or wait for a `signal`.
 
+### `spec.independent_review_required`
+
+An approval with `exclude_completers_of` cannot choose an option automatically
+on timeout. Remove the automatic timeout decision to let the gate escalate or
+expire.
+
+### `spec.invalid_excluded_completer`
+
+> Name a distinct human-capable task that precedes this approval on every path.
+
+An approval's `exclude_completers_of` contains a duplicate or names something
+other than a human-capable task that precedes the approval on every path.
+
+**Fix:** name each preceding task once and move the review into the same path
+when the work is conditional.
+
 ### `spec.followup_invalid`
 
 > Invalid reminder or escalation settings.

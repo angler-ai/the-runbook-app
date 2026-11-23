@@ -54,7 +54,15 @@ pub fn validate_override(
     if matches!(node.kind, NodeKind::Approval(_)) || step.approval.is_some() {
         return Err(EngineError::new("amendment.approval_forbidden"));
     }
-    if !finished(step) {
+    let timed_out_task = state.engine_version >= crate::version::SCOPED_INDEPENDENT_APPROVALS
+        && matches!(node.kind, NodeKind::Task(_))
+        && step.status == StepStatus::TimedOut
+        && step.finished_at_ms.is_some()
+        && step
+            .attempt_history
+            .last()
+            .is_some_and(|attempt| attempt.timed_out);
+    if !(finished(step) || timed_out_task) {
         return Err(EngineError::new("amendment.step_not_finished"));
     }
     if to.status != step.status {

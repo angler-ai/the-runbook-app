@@ -35,9 +35,12 @@ it('read_host_allows_only_get_head_options', () => {
   expect(() => checkMethod('read', 'POST')).toThrow('egress denied');
 });
 it('header_set_overwrites_sandbox_value', () => {
-  const headers = new Headers({ 'x-api-key': 'fake' });
-  injectHeader(headers, { header_name: 'X-API-Key', header_format: 'Bearer {}' }, 'secret');
-  expect(Object.fromEntries(headers)).toEqual({ 'x-api-key': 'Bearer secret' });
+  const placeholder = 'rb-placeholder-fixture';
+  const headers = new Headers([['authorization', `Bearer ${placeholder}`], ['Authorization', 'caller-value']]);
+  const binding = { header_name: 'AUTHORIZATION', header_format: 'Bearer {}' };
+  expect(() => injectHeader(headers, binding, placeholder)).toThrow('egress denied');
+  injectHeader(headers, binding, 'fixture:token');
+  expect(Object.fromEntries(headers)).toEqual({ authorization: 'Bearer fixture:token' });
 });
 it('strips range headers when injecting a credential', () => {
   const headers = new Headers({ Range: 'bytes=0-4', 'If-Range': '"etag"' });
@@ -164,4 +167,41 @@ it('redacts encoded credential echoes from upstream', () => {
   ];
   const guard = responseGuard([secret]);
   for (const value of encoded) expect(guard(Buffer.from(value)).toString()).toBe('[REDACTED]');
+});
+
+it('a replacement gateway has no old listener and rejects the old listener secret on a new one', async () => {
+  const claims = { runner_id: 'runner', sub: 'step', claim_id: 'claim', generation: 1,
+    exp: Math.floor(Date.now() / 1000) + 600 } as GrantClaims;
+  const sandbox_id = 'rb-' + createHash('sha256').update(JSON.stringify(['runner', 'step', 'claim', 1])).digest('hex');
+  const config = { role: 'gateway' as const, urls: { api: 'https://api.example' }, outboundTokens: { api: 'token' },
+    inboundTokens: {}, listen: { host: '127.0.0.1', port: 0 } };
+  const create = () => sandboxRoute(config, { verifyCapability: async () => claims }, new MaterialStore(), '127.0.0.1');
+  vi.stubGlobal('fetch', async () => Response.json({ layers: [rules, rules, rules], destructive: false, credentialLabels: {} }));
+  const old = create();
+  const replacement = create();
+  const ctx = { caller: 'sandbox-ctl' as const, body: { capability: 'valid', sandbox_id }, params: { sandbox_id } };
+  try {
+    const listener = (await old.routes[0]!.handle(ctx)).body as { proxy_url: string; listener_secret: string };
+    const check = (gateway: typeof old) => gateway.routes.find(({ path }) => path.endsWith('/check'))!.handle(ctx);
+    expect(await check(old)).toEqual({ status: 204 });
+    old.close();
+    await expect(localFetch(listener.proxy_url)).rejects.toThrow();
+    expect(await check(replacement)).toEqual({ status: 410 });
+    const next = (await replacement.routes[0]!.handle(ctx)).body as typeof listener;
+    expect(next.listener_secret).not.toBe(listener.listener_secret);
+    const response = await new Promise<string>((resolve, reject) => {
+      const address = new URL(next.proxy_url);
+      const socket = connect(Number(address.port), address.hostname, () => {
+        const auth = Buffer.from(`runbook:${listener.listener_secret}`).toString('base64');
+        socket.write(`CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\nProxy-Authorization: Basic ${auth}\r\n\r\n`);
+      });
+      socket.setEncoding('utf8').on('data', (chunk: string) => { socket.destroy(); resolve(chunk); });
+      socket.once('error', reject).setTimeout(3000, () => socket.destroy(new Error('proxy timed out')));
+    });
+    expect(response).toMatch(/^HTTP\/1\.1 407 /);
+  } finally {
+    old.close();
+    replacement.close();
+    vi.unstubAllGlobals();
+  }
 });

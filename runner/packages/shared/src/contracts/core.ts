@@ -97,6 +97,8 @@ export type RunnerScope = 'runner:read' | 'runner:admin';
 
 /** JWT, typ `rb-user+jwt`, EdDSA, 60 s. */
 export interface UserAssertionClaims {
+  session_hash?: string;
+  fresh_mfa?: boolean;
   iss: string;
   aud: `runner:${string}`;
   jti: string;
@@ -185,6 +187,7 @@ export interface OrgRunnerStatus {
   version: string | null;
   groups: { id: string; name: string; projects: string[] }[];
   runners: { id: string; name?: string; group_id?: string; status: string; running?: number; capacity?: number }[];
+  queued_steps?: number | null;
   last_heartbeat_at: string | null;
 }
 export interface GroupProjectsRequest {
@@ -197,7 +200,7 @@ export type WaitingReason =
   | 'runner_offline'
   | `limit:${string}`;
 export interface WaitingRequest {
-  items: { step_run_id: string; reason: WaitingReason }[];
+  items: { step_run_id: string; reason: WaitingReason; detail?: string }[];
 }
 
 export type RunnerEventKind =

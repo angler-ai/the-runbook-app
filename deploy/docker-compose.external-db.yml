@@ -74,6 +74,10 @@ services:
       RUNBOOK_THEME_ACCENT_SECONDARY: ${RUNBOOK_THEME_ACCENT_SECONDARY:-}
       RUNBOOK_THEME_DARK_ACCENT: ${RUNBOOK_THEME_DARK_ACCENT:-}
       RUNBOOK_THEME_DARK_ACCENT_SECONDARY: ${RUNBOOK_THEME_DARK_ACCENT_SECONDARY:-}
+    networks:
+      default: {}
+      runner-vault-core:
+        aliases: [runner-core]
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:

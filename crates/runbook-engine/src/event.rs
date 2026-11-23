@@ -83,6 +83,11 @@ pub enum Event {
     ApprovalEscalated {
         snapshot: crate::EscalationSnapshot,
     },
+    /// An unfinished step reached its deadline relative to the run's start.
+    StepOverdue {
+        step_id: String,
+        due_at_ms: i64,
+    },
     /// LANG9: a reminder for a step left open, due at `due_at_ms`.
     StepReminded {
         step_run_id: StepRunId,
@@ -364,6 +369,7 @@ impl Event {
             Self::ExecutionDeadlineElapsed { .. } => "ExecutionDeadlineElapsed",
             Self::TaskDeadlineElapsed { .. } => "TaskDeadlineElapsed",
             Self::ApprovalEscalated { .. } => "ApprovalEscalated",
+            Self::StepOverdue { .. } => "StepOverdue",
             Self::StepReminded { .. } => "StepReminded",
             Self::StepEscalated { .. } => "StepEscalated",
             Self::ApprovalExpired { .. } => "ApprovalExpired",
@@ -462,6 +468,11 @@ pub enum Command {
     },
     ResolveEscalation {
         request: crate::EscalationRequest,
+    },
+    /// Record a missed run-relative deadline on a step instance.
+    MarkStepOverdue {
+        step_id: String,
+        due_at_ms: i64,
     },
     /// LANG9: send the reminder due at `due_at_ms`.
     RemindStep {

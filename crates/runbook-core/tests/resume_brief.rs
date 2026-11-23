@@ -46,6 +46,7 @@ fn agent() -> ActorPrincipal {
             session_id: "s1".into(),
             name: "bot".into(),
             model: None,
+            service_attribution: None,
         },
         credential_ref: "svc-1".into(),
     }

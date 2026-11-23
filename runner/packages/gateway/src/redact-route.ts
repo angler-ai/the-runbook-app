@@ -3,10 +3,10 @@ import { MAX_TRANSCRIPT_BYTES, TRANSCRIPT_ROLES, type TranscriptRole } from '@ru
 import type { GrantClaims } from '@runbook/runner-shared/contracts/core';
 import { HttpError, type Route } from '@runbook/runner-shared/http';
 import { redactValue, type Redaction } from '@runbook/runner-shared/redact';
-import type { MaterialStore } from './material.ts';
+import { materialValues, type MaterialStore } from './material.ts';
 
 export function redactStepValue(store: MaterialStore, claims: GrantClaims, redaction: Redaction, value: unknown) {
-  const released = store.forStep(claims).flatMap(({ material }) => Object.values(material.fields));
+  const released = store.forStep(claims).flatMap(({ material }) => materialValues(material));
   return redactValue(value, (text) => redaction.redact(text, released));
 }
 

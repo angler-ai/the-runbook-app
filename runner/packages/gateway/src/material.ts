@@ -3,8 +3,15 @@ import { sandboxIdForClaim } from '@runbook/runner-shared/capability';
 import type { GrantClaims } from '@runbook/runner-shared/contracts/core';
 import type { ClaimFence, MaterialPush } from '@runbook/runner-shared/contracts/internal';
 
+export function materialValues(material: MaterialPush['material'] | undefined): string[] {
+  if (!material) return [];
+  return material.mcp_oauth ? [material.mcp_oauth.access_token] : Object.values(material.fields);
+}
+
 export class MaterialStore {
   private readonly entries = new Map<string, { release: MaterialPush; timer: NodeJS.Timeout; abort: AbortController }>();
+  private readonly oauthGenerations = new Map<string, { generation: number; timer: NodeJS.Timeout }>();
+  private readonly oauthUses = new Map<string, { generation: number; version: number; at: number; timer: NodeJS.Timeout }>();
   private readonly revocations = new Map<string, NodeJS.Timeout>();
   private readonly ended = new Map<string, NodeJS.Timeout>();
   private readonly steps = new Map<string, Set<string>>();
@@ -24,6 +31,10 @@ export class MaterialStore {
         this.ended.has(sandboxIdForClaim({ sub: release.step_run_id, claim_id: release.claim_id,
           generation: release.generation, runner_id: release.runner_id }))) throw new RangeError('claim ended');
     if (this.revocations.has(release.credential_id)) throw new RangeError('credential revoked');
+    const minimum = this.oauthGenerations.get(release.credential_id);
+    if (minimum && (release.material.mcp_oauth?.generation ?? -1) < minimum.generation) {
+      throw new RangeError('OAuth connection ended');
+    }
     const ttl = Date.parse(release.expires_at) - this.now();
     if (!Number.isFinite(ttl) || ttl <= 0 || ttl > 630_000) throw new RangeError('invalid release expiry');
     const previous = this.get(release.release_id);
@@ -97,7 +108,26 @@ export class MaterialStore {
     return true;
   }
 
+  noteOAuthUse(release: MaterialPush): void {
+    const oauth = release.material.mcp_oauth;
+    if (!oauth || this.get(release.release_id) !== release) return;
+    const key = release.credential_id;
+    const previous = this.oauthUses.get(key);
+    if (previous && (previous.generation > oauth.generation ||
+        (previous.generation === oauth.generation && previous.version > oauth.token_version))) return;
+    clearTimeout(previous?.timer);
+    this.oauthUses.set(key, { generation: oauth.generation, version: oauth.token_version, at: this.now(),
+      timer: setTimeout(() => this.oauthUses.delete(key), 300_000).unref() });
+  }
+
+  lastOAuthUse(id: string, generation: number, version: number): number | null {
+    const use = this.oauthUses.get(id);
+    return use?.generation === generation && use.version === version ? use.at : null;
+  }
+
   revokeCredential(id: string): void {
+    clearTimeout(this.oauthUses.get(id)?.timer);
+    this.oauthUses.delete(id);
     clearTimeout(this.revocations.get(id));
     // Fence any live grant that could have been issued before revocation.
     this.revocations.set(id, setTimeout(() => this.revocations.delete(id), 630_000).unref());
@@ -106,7 +136,29 @@ export class MaterialStore {
     }
   }
 
+  fenceOAuth(id: string, generation: number): void {
+    const previous = this.oauthGenerations.get(id);
+    if (previous && previous.generation > generation) return;
+    clearTimeout(previous?.timer);
+    const timer = setTimeout(() => this.oauthGenerations.delete(id), 630_000).unref();
+    this.oauthGenerations.set(id, { generation, timer });
+    const use = this.oauthUses.get(id);
+    if (use && use.generation < generation) {
+      clearTimeout(use.timer);
+      this.oauthUses.delete(id);
+    }
+    for (const { release } of this.entries.values()) {
+      if (release.credential_id === id && (release.material.mcp_oauth?.generation ?? -1) < generation) {
+        this.delete(release.release_id);
+      }
+    }
+  }
+
   clear(): void {
+    for (const { timer } of this.oauthGenerations.values()) clearTimeout(timer);
+    this.oauthGenerations.clear();
+    for (const { timer } of this.oauthUses.values()) clearTimeout(timer);
+    this.oauthUses.clear();
     for (const timer of this.revocations.values()) clearTimeout(timer);
     this.revocations.clear();
     for (const timer of this.ended.values()) clearTimeout(timer);

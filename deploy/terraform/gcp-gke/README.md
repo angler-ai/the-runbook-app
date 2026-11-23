@@ -534,13 +534,97 @@ To destroy the deployment:
 
 ## Runner infrastructure
 
-Set `runner_enabled = true` to create a regional Cloud KMS key and a
-separate Google service account for each of the five runner processes.
-Only the vault service account receives encrypt/decrypt on the vault key
-and Vertex AI user in the project. Save the `runner_vault_kms_key` output
-for `RUNNER_KEK_GCP_KEY`. Keep the key and its versions for as long as the
-vault database contains values they protect. Terraform protects the key
-against destruction.
+See [Run the runner on GKE](https://docs.therunbook.app/runner/gke/) for
+runner image digests, one-time registration and database preparation,
+process secrets, and vault identity enrollment. The guide's shared database
+connection budget covers the 25-connection test tier and the production
+`db-custom-1-3840` tier.
 
-Runner workloads and Workload Identity bindings are deferred until the R2
-Kubernetes sandbox backend is available.
+## Isolated temporary installs
+
+Use separate state and a dedicated network and subnet for each install. Set
+`name_prefix` when creating the install. This prefixes module-owned names,
+including the SQL databases, service accounts, and Kubernetes namespaces.
+Names provided for existing resources, standard DNS record names, container
+names, and port names keep their existing meaning. IAM account IDs longer
+than 30 characters keep the prefix and receive a deterministic hash suffix.
+`labels` adds labels wherever the resource supports them. Built-in Kubernetes
+labels retain precedence so selectors and admission still work. KMS key
+rings, Google service accounts, Cloud SQL databases and users, and DNS
+records have no label field.
+
+For a disposable instance, example overrides are:
+
+```hcl
+create_cluster               = true
+name_prefix                  = "runbook-test-"
+labels                       = { runbook-test = "true" }
+release_channel              = "REGULAR"
+deletion_protection          = false
+sql_deletion_protection      = false
+sql_api_deletion_protection  = false
+sql_final_backup              = false
+sql_retain_backups_on_delete = false
+kms_prevent_destroy          = false
+ingress_enabled              = false
+```
+
+Leaving `release_channel` unset preserves GKE's automatic channel selection,
+normally Regular for Autopilot. Both SQL deletion protections and cluster
+deletion protection default to enabled. Cloud SQL retains backups on
+deletion and takes a final backup with `sql_final_backup_retention_days = 30`
+by default.
+
+With `ingress_enabled = false`, the module omits the public static IP,
+Ingress, BackendConfig, FrontendConfig, and managed certificate. Private
+Service Access can still reserve an internal address range for Cloud SQL.
+Use the core's ClusterIP Service address from inside the cluster or
+`kubectl -n runbook-test-runbook port-forward svc/runbook-test-runbook 8080:8080`.
+In this mode the core and runner use the internal HTTP Service origin.
+Existing ingress state addresses are moved automatically by Terraform.
+
+OAuth MCP discovery and browser callbacks require HTTPS. The module warns
+when a runner install uses the internal HTTP origin. The production default
+uses managed-certificate ingress and sets the core origin to
+`https://${app_domain}`. Wait until the certificate is active before connecting
+OAuth credentials.
+
+For a private test, add a TLS reverse-proxy sidecar to the core pod and
+expose its HTTPS port through the existing ClusterIP Service. Use a private
+test CA and a hostname on the certificate that is resolvable by the browser
+and the runner pods. Route that hostname to the sidecar from inside the
+cluster and use a local port forward or other private access path for the
+browser. Install the test CA in the browser and mount it in runner pods
+that connect over TLS (set `NODE_EXTRA_CA_CERTS` to its PEM file). Set
+`RUNBOOK_ORIGIN` on core and `CORE_URL` on the runner processes to that HTTPS
+origin so the assertion issuer, discovery and callback URLs agree. The vault
+can keep `RUNNER_VAULT_CORE_URL` on the internal HTTP Service for grant calls.
+Retain the core's private NetworkPolicy allowance for the test TLS port and
+configure the mock OAuth provider for the HTTPS callback
+`/v1/runner/oauth/callback/<credential-id>`.
+
+Terraform requires literal lifecycle values. The protected KMS key stays
+at `google_kms_crypto_key.runner_vault[0]`. A new install with
+`kms_prevent_destroy = false` uses `runner_vault_temporary[0]` at a separate
+address. The protected runner database also keeps its existing address,
+while a disposable SQL instance uses `runner_temporary[0]`. Select these
+settings before the first apply. Changing them on an existing install
+would change the resource address. No manual state migration is required
+for default installs. When destroying a temporary key, verify that its
+versions are scheduled for destruction and automatic rotation is disabled.
+Cloud KMS retains the key and key ring records.
+
+Temporary image repositories can supply digest-pinned images with
+`<name_prefix>runbook-runner` and `<name_prefix>runbook-sandbox` basenames.
+Use a distinct prefixed Secret Manager secret for each process and pass its
+numeric version. The module supplies the database names to the migration Job and the
+sandbox account, pod name prefix and labels to the controller. Use the
+prefixed database names in the one-time SQL preparation.
+
+For a prefixed install with both SQL deletion protections disabled, Terraform
+abandons the child databases and users during destroy. The SQL instance
+deletion removes them together with their grants and ownership. If you
+disable only the runner inside a disposable install, its database and users
+stay on the instance. Google can retain the Private Service Access
+connection and its underlying network and allocation for four days after
+Cloud SQL deletion.

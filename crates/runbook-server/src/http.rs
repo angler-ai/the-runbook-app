@@ -39,6 +39,8 @@ enum Work {
 #[derive(Clone)]
 pub struct Client {
     tx: mpsc::Sender<Call>,
+    runner_calls: mpsc::Sender<Call>,
+    runner_proxy: mpsc::Sender<Call>,
     streams: mpsc::Sender<crate::event_stream::StreamCall>,
     max_request_bytes: usize,
     pub(crate) json_body_bytes: usize,
@@ -149,7 +151,7 @@ fn internal_url(listen: std::net::SocketAddr) -> String {
 pub const READY_CACHE: Duration = Duration::from_secs(1);
 /// HOST1 review: the longest one readiness ping may run in the worker
 /// (acquiring a connection included); it never outlives the probe.
-const PING_TIMEOUT: Duration = Duration::from_secs(3);
+const PING_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// The worker thread's stack (CF0 review 3).
 const WORKER_STACK_BYTES: usize = 8 << 20;
@@ -164,6 +166,11 @@ impl Worker {
         config.retention.check()?;
         let limits = config.transport.clone();
         let (tx, mut rx) = mpsc::channel::<Call>(limits.queue_depth.max(1));
+        let (runner_calls, runner_rx) = mpsc::channel::<Call>(limits.queue_depth.max(1));
+        let (runner_proxy, proxy_rx) = mpsc::channel::<Call>(limits.queue_depth.max(1));
+        // A runner operation can hold an execution lock while doing a
+        // second checkout. Keep room for that checkout and ordinary traffic.
+        let runner_concurrency = config.database.pool_size().saturating_sub(2).clamp(1, 2);
         let (files, mut files_rx) = mpsc::channel::<FileCall>(limits.queue_depth.max(1));
         let (mcp, mut mcp_rx) = mpsc::channel::<crate::mcp::McpWork>(limits.queue_depth.max(1));
         let (pings, mut ping_rx) = mpsc::channel::<oneshot::Sender<bool>>(8);
@@ -244,23 +251,41 @@ impl Worker {
                     tokio::select! {
                         _ = &mut stopped => {},
                         _ = local.run_until(async move {
+                            tokio::task::spawn_local(serve_runner_calls(runner_rx, router.clone(), runner_concurrency));
+                            tokio::task::spawn_local(serve_runner_calls(proxy_rx, router.clone(), 2));
+                            tokio::task::spawn_local(async move {
+                                let mut last = None;
+                                let mut logged_at = tokio::time::Instant::now();
+                                while let Some(reply) = ping_rx.recv().await {
+                                    if reply.is_closed() {
+                                        continue;
+                                    }
+                                    let result = tokio::time::timeout(
+                                        PING_TIMEOUT,
+                                        runbook_store_postgres::ping(&ping_config),
+                                    )
+                                    .await;
+                                    let cause = match result {
+                                        Ok(Ok(())) => None,
+                                        Ok(Err(error)) => Some(error.0),
+                                        Err(_) => Some("postgres.readiness_timeout"),
+                                    };
+                                    let ok = cause.is_none();
+                                    if last != Some(ok) || logged_at.elapsed() >= Duration::from_secs(30) {
+                                        let stats = ping_config.pool_stats();
+                                        match cause {
+                                            Some(cause) => crate::log::warning("database", &format!("{cause}: {stats:?}")),
+                                            None => crate::log::info("database", &format!("database ready: {stats:?}")),
+                                        }
+                                        last = Some(ok);
+                                        logged_at = tokio::time::Instant::now();
+                                    }
+                                    let _ = reply.send(ok);
+                                }
+                            });
                             let admit_stream = |call: crate::event_stream::StreamCall| streams.admit(call);
                             loop {
                                 let work = tokio::select! {
-                                    ping = ping_rx.recv() => {
-                                        let Some(reply) = ping else { break; };
-                                        let config = ping_config.clone();
-                                        tokio::task::spawn_local(async move {
-                                            let ok = tokio::time::timeout(
-                                                PING_TIMEOUT,
-                                                runbook_store_postgres::ping(&config),
-                                            )
-                                            .await
-                                            .is_ok_and(|r| r.is_ok());
-                                            let _ = reply.send(ok);
-                                        });
-                                        continue;
-                                    }
                                     call = rx.recv() => match call { Some(call) => Work::Api(call), None => break },
                                     call = files_rx.recv() => match call { Some(call) => Work::Files(call), None => break },
                                     work = mcp_rx.recv() => match work { Some(work) => Work::Mcp(work), None => break },
@@ -312,32 +337,37 @@ impl Worker {
                                             crate::mcp::run(&router, work, permits).await;
                                         });
                                     }
-                                    Work::Api(call) => {
+                                    Work::Api(mut call) => {
                                         tokio::task::spawn_local(async move {
                                             let _permit = permit;
-                                            if let Some(key) = &call.limit {
-                                                use runbook_api::backends::Backends;
-                                                if let Err(limited) = router
-                                                    .backends
-                                                    .rate_limit(
-                                                        key,
-                                                        crate::device::CODE_WINDOW_MS,
-                                                        crate::device::CODES_PER_HOUR,
-                                                    )
-                                                    .await
-                                                {
-                                                    let _ = call
-                                                        .reply
-                                                        .send(limited.response(&call.request.request_id));
-                                                    return;
+                                            let handle = async {
+                                                if let Some(key) = &call.limit {
+                                                    use runbook_api::backends::Backends;
+                                                    if let Err(limited) = router
+                                                        .backends
+                                                        .rate_limit(
+                                                            key,
+                                                            crate::device::CODE_WINDOW_MS,
+                                                            crate::device::CODES_PER_HOUR,
+                                                        )
+                                                        .await
+                                                    {
+                                                        return limited.response(&call.request.request_id);
+                                                    }
+                                                }
+                                                if call.internal {
+                                                    router.can_register(call.request).await
+                                                } else {
+                                                    router.handle(call.request).await
+                                                }
+                                            };
+                                            tokio::select! {
+                                                biased;
+                                                _ = call.reply.closed() => {}
+                                                response = handle => {
+                                                    let _ = call.reply.send(response);
                                                 }
                                             }
-                                            let response = if call.internal {
-                                                router.can_register(call.request).await
-                                            } else {
-                                                router.handle(call.request).await
-                                            };
-                                            let _ = call.reply.send(response);
                                         });
                                     }
                                 }
@@ -350,6 +380,8 @@ impl Worker {
         Ok(Self {
             client: Client {
                 tx,
+                runner_calls,
+                runner_proxy,
                 streams,
                 max_request_bytes,
                 json_body_bytes: limits.json_body_bytes.min(max_request_bytes),
@@ -534,8 +566,9 @@ async fn dispatch(State(client): State<Client>, request: Request<Body>) -> Respo
     // A person who opens an API address in the browser (say, from an email)
     // gets the sign-in or not-found page, not the problem JSON.
     let path = request.uri().path().to_owned();
+    let method = request.method().clone();
     let navigation = runbook_api::web::is_navigation(
-        request.method().as_str(),
+        method.as_str(),
         request
             .headers()
             .get("sec-fetch-dest")
@@ -551,12 +584,20 @@ async fn dispatch(State(client): State<Client>, request: Request<Body>) -> Respo
     )
     .await
     .unwrap_or_else(|_| ApiResponse::error(503, "server.timeout", &request_id));
+    if response.problem
+        && let Some(failed) =
+            runbook_api::http::oauth_callback_failure(method.as_str(), &path, &request_id)
+    {
+        return encode(failed);
+    }
     if navigation
         && response.problem
         && let Some(location) = runbook_api::web::navigation_redirect(&path, response.status)
     {
         let mut redirect = ApiResponse::json(302, serde_json::Value::Null, &request_id);
-        redirect.location = Some(Box::new(location.to_owned()));
+        redirect.navigation = Some(Box::new(runbook_api::problem::Navigation::Redirect(
+            location.to_owned(),
+        )));
         return encode(redirect);
     }
     encode(response)
@@ -671,9 +712,23 @@ async fn process(client: Client, request: Request<Body>, nonce: String, id: &str
         }
         Err(refused) => return refused,
     };
+    let (queue, busy) = if runbook_api::runner_access::is_runner(&request) {
+        (
+            &client.runner_calls,
+            ApiResponse::error(429, "runner.busy", id),
+        )
+    } else if runbook_api::runner_proxy::recognizes(path)
+        || runbook_api::http::is_runner_oauth_callback(path)
+    {
+        (
+            &client.runner_proxy,
+            ApiResponse::error(429, "runner.busy", id),
+        )
+    } else {
+        (&client.tx, ApiResponse::error(503, "server.busy", id))
+    };
     let (reply, receive) = oneshot::channel();
-    if client
-        .tx
+    if queue
         .try_send(Call {
             request,
             internal,
@@ -682,12 +737,37 @@ async fn process(client: Client, request: Request<Body>, nonce: String, id: &str
         })
         .is_err()
     {
-        return ApiResponse::error(503, "server.busy", id);
+        return busy;
     }
     receive
         .await
         .unwrap_or_else(|_| ApiResponse::error(503, "server.unavailable", id))
 }
+/// Optional runner traffic has its own bounded queues and concurrency.
+async fn serve_runner_calls(
+    rx: mpsc::Receiver<Call>,
+    router: Rc<runbook_api::router::Router<crate::backends::PostgresBackends>>,
+    concurrency: usize,
+) {
+    use futures_util::StreamExt;
+    futures_util::stream::unfold(rx, |mut rx| async {
+        rx.recv().await.map(|call| (call, rx))
+    })
+    .for_each_concurrent(concurrency, |mut call| {
+        let router = &router;
+        async move {
+            tokio::select! {
+                biased;
+                _ = call.reply.closed() => {}
+                response = router.handle(call.request) => {
+                    let _ = call.reply.send(response);
+                }
+            }
+        }
+    })
+    .await;
+}
+
 /// CF0: a portable response on the wire.
 pub(crate) fn to_axum(response: runbook_api::http::HttpResponse) -> Response<Body> {
     let mut builder = Response::builder().status(response.status);

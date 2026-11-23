@@ -5,6 +5,8 @@ import { MAX_TRANSCRIPT_BYTES, TRANSCRIPT_ROLES, type TranscriptRole, type Egres
 import { claudeSettings, type ClaudeEffort } from '@runbook/runner-shared/claude-settings';
 import { modelCachePricing } from '@runbook/runner-shared/model-pricing';
 import { HttpError, type Route } from '@runbook/runner-shared/http';
+import type { SandboxEnvironment } from '@runbook/runner-shared/contracts/environments';
+import { approvedImage, clusterApproved, environmentPin, registryList, seedEnvironment } from './environments.ts';
 import { sharedWith, validateEgress, type AgentConfig } from './agents.ts';
 
 interface ProfileRow {
@@ -46,7 +48,8 @@ export function gatewayResources(pool: pg.Pool, verifier: Pick<CapabilityVerifie
       .map(({ credential_id }) => credential_id);
     const bound = claims.reach === 'read' ? allowed.filter((id) => claims.connections?.includes(id)) : allowed;
     const { rows } = await pool.query<{ id: string; label: Label }>(
-      `SELECT id, label FROM credentials WHERE id = ANY($1::text[]) AND org_id = $2 AND status = 'active'
+      `SELECT id, label FROM credentials WHERE id = ANY($1::text[]) AND org_id = $2
+       AND (status = 'active' OR ($4 = 'mcp' AND type = 'mcp-oauth' AND status <> 'revoked'))
        AND (sharing->>'projects' = 'all' OR (sharing->'projects') ? $3)
        AND delivery ? $4 AND (groups = '"all"'::jsonb OR groups ? $5)`,
       [bound, orgId, claims.project_id, delivery, claims.group_id],
@@ -57,6 +60,25 @@ export function gatewayResources(pool: pg.Pool, verifier: Pick<CapabilityVerifie
   function allowsCredential(labels: Record<string, Label>, id: string, destructive: boolean) {
     if (!Object.hasOwn(labels, id)) return false;
     return destructive || labels[id] === 'read' || labels[id] === 'write';
+  }
+
+  async function sandboxEnvironment(claims: GrantClaims, config: AgentConfig, groupSize: SandboxEnvironment['size']) {
+    const pinnedEnvironment = await environmentPin(pool, orgId, config.environment_id,
+      config.environment_version_id, !config.environment_version_id);
+    if (!pinnedEnvironment) {
+      if (config.environment_version_id) denied();
+      return undefined;
+    }
+    const { config: environment, image_digest } = pinnedEnvironment;
+    const entries = Object.entries(environment.credential_env);
+    const allowed = entries.length ? await labels(claims, config, 'proxy') : {};
+    const credential_names = entries
+      .filter(([, id]) => allowsCredential(allowed, id, claims.destructive)).map(([name]) => name);
+    return {
+      image: image_digest, custom: environment.image !== null,
+      size: config.sandbox?.size ?? (config.environment_version_id ? environment.size : groupSize),
+      env: environment.env, credential_names, setup: environment.setup, setup_timeout_s: environment.setup_timeout_s,
+    } satisfies SandboxEnvironment;
   }
 
   async function modelProfile(claims: GrantClaims, config: AgentConfig, profile: string | undefined) {
@@ -126,10 +148,11 @@ export function gatewayResources(pool: pg.Pool, verifier: Pick<CapabilityVerifie
       const profile = (body as { profile?: unknown })?.profile;
       if (claims.runner_id !== runnerId || (profile !== undefined && typeof profile !== 'string')) denied();
       const selected = await modelProfile(claims, config, profile);
-      const { rows: [group] } = await pool.query<{ sandbox: { size?: string } }>(
+      const { rows: [group] } = await pool.query<{ sandbox: { size?: SandboxEnvironment['size'] } }>(
         'SELECT sandbox FROM groups WHERE group_id = $1', [claims.group_id],
       );
       if (!group) denied();
+      const environment = await sandboxEnvironment(claims, config, group.sandbox.size ?? 'small');
       const credentials: { credential_id: string; delivery: Delivery }[] = [
         { credential_id: selected.credentialId, delivery: 'model' },
       ];
@@ -148,8 +171,33 @@ export function gatewayResources(pool: pg.Pool, verifier: Pick<CapabilityVerifie
           timeout_s: Math.min(config.limits.timeout_s, (claims.timeout_ms ?? Infinity) / 1000),
           max_tokens: Math.min(config.limits.max_tokens, claims.max_tokens ?? Infinity),
         }, has_mcp: Boolean(config.mcp?.length),
-        size: config.sandbox?.size ?? group.sandbox.size ?? 'small',
+        size: environment?.size ?? config.sandbox?.size ?? group.sandbox.size ?? 'small',
+        environment: environment && { image: environment.image, has_setup: Boolean(environment.setup) },
       } };
+    },
+  }, {
+    method: 'POST', path: '/internal/environment/default', callers: ['sandbox-ctl'],
+    async handle({ body }) {
+      const image = (body as { image?: unknown } | null)?.image;
+      if (typeof image !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(image)) denied();
+      await seedEnvironment(pool, orgId, image);
+      return { status: 204 };
+    },
+  }, {
+    method: 'POST', path: '/internal/environment/sandbox', callers: ['sandbox-ctl'],
+    async handle({ body }) {
+      const { claims, config } = await pinned(body);
+      const { rows: [group] } = await pool.query<{ sandbox: { size?: SandboxEnvironment['size'] } }>(
+        'SELECT sandbox FROM groups WHERE group_id = $1', [claims.group_id]);
+      if (!group) denied();
+      const environment = await sandboxEnvironment(claims, config, group.sandbox.size ?? 'small');
+      if (environment?.custom && (!environment.image || !approvedImage(environment.image, await registryList(pool, orgId)))) {
+        throw new HttpError(403, 'sandbox.image_not_approved', 'sandbox image is outside the approved list');
+      }
+      if (environment && !clusterApproved(environment.image ?? '')) {
+        throw new HttpError(403, 'sandbox.image_not_approved', 'sandbox image is outside the approved list');
+      }
+      return environment ? { body: environment } : { status: 204 };
     },
   }, {
     method: 'POST', path: '/internal/egress/policy', callers: ['gateway'],
@@ -178,11 +226,12 @@ export function gatewayResources(pool: pg.Pool, verifier: Pick<CapabilityVerifie
       const { claims, config } = await pinned(body);
       const destructive = claims.destructive;
       const { rows } = await pool.query<{
-        id: string; url: string; transport: string; credential_id: string | null; sharing: unknown;
+        id: string; url: string; transport: string; credential_id: string | null; credential_type: string | null; sharing: unknown;
         tool_labels: Record<string, Label>; never_allowed: string[]; tools: { name: string }[];
       }>(
-        `SELECT m.id, m.url, m.transport, m.credential_id, m.sharing, m.tool_labels, m.never_allowed, s.tools
+        `SELECT m.id, m.url, m.transport, m.credential_id, m.sharing, m.tool_labels, m.never_allowed, s.tools, c.type AS credential_type
          FROM mcp_servers m JOIN mcp_tool_snapshots s ON s.server_id = m.id AND s.id = m.pinned_snapshot_id
+         LEFT JOIN credentials c ON c.id = m.credential_id
          WHERE m.id = ANY($1::text[])`,
         [(config.mcp ?? []).map(({ server_id }) => server_id)],
       );
@@ -197,7 +246,8 @@ export function gatewayResources(pool: pg.Pool, verifier: Pick<CapabilityVerifie
           return [{ tool, label }];
         });
         return tools.length ? [{ id: row.id, url: row.url, transport: row.transport,
-          ...(row.credential_id && { credential_id: row.credential_id }), tools }] : [];
+          ...(row.credential_id && { credential_id: row.credential_id }),
+          ...(row.credential_type === 'mcp-oauth' && { oauth: true }), tools }] : [];
       });
       return { body: { destructive, credentialLabels, servers } };
     },

@@ -745,6 +745,9 @@ pub async fn on_conflict_cancel_previous_bounds_its_preparation<
 /// fact, applied by `build_document`).
 fn header(state: &runbook_engine::ExecutionState) -> runbook_model::ExecutionView {
     runbook_model::ExecutionView {
+        overdue_steps: vec![],
+        url: String::new(),
+        web_url: String::new(),
         schema_revision: std::num::NonZeroU32::MIN,
         id: state.id.clone(),
         runbook_id: None,

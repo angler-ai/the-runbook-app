@@ -1,6 +1,6 @@
 output "ingress_ip" {
   description = "The reserved external IPv4 address assigned to the GKE Ingress load balancer. Point DNS A records for app_domain (and usercontent_domain) to this IP."
-  value       = google_compute_global_address.ingress_ip.address
+  value       = one(google_compute_global_address.ingress_ip[*].address)
 }
 
 output "app_hostname" {
@@ -40,7 +40,7 @@ output "database_user" {
 
 output "cluster_name" {
   description = "The GKE cluster name."
-  value       = var.cluster_name
+  value       = local.cluster_name
 }
 
 output "cluster_location" {

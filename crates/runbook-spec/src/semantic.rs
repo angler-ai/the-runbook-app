@@ -315,6 +315,9 @@ fn approval(value: &Approval) -> Value {
     if let Some(after) = &value.agent_after {
         projection["agent_after"] = duration(after);
     }
+    if !value.exclude_completers_of.is_empty() {
+        projection["exclude_completers_of"] = array(&value.exclude_completers_of, |id| string(id));
+    }
     if let Some(approves) = &value.approves {
         projection["approves"] = array(approves, |option| string(option));
     }
@@ -459,6 +462,9 @@ fn node(value: &Node) -> Value {
         ("timeout", optional(value.timeout.as_ref(), duration)),
         ("kind", kind),
     ]);
+    if let Some(due) = &value.due_after {
+        projected["due_after"] = duration(due);
+    }
     // LANG9: follow-up is projected only when set.
     if let (Some(f), Value::Object(map)) = (&value.followup, &mut projected) {
         map.insert("followup".into(), followup(f));

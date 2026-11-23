@@ -268,6 +268,10 @@ fn roots(state: &ExecutionState) -> Result<BTreeMap<String, Value>, EngineError>
         ("id".into(), json!(state.id.as_str())),
         ("title".into(), json!(state.title)),
         ("url".into(), json!(state.url)),
+        (
+            "web_url".into(),
+            json!(runbook_model::execution_web_url(&state.url, &state.id)),
+        ),
         ("created_by".into(), json!(state.created_by)),
         ("tags".into(), json!(state.tags)),
     ]);

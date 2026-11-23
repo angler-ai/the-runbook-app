@@ -3,7 +3,10 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { admissionLoop } from '../src/admission.ts';
 import { runClaim } from '../src/claim.ts';
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 it('checks admission at startup, on a wake, and every thirty seconds', async () => {
   vi.useFakeTimers();
@@ -22,6 +25,31 @@ it('checks admission at startup, on a wake, and every thirty seconds', async () 
   expect(admit).toHaveBeenCalledWith(1);
   expect(run).toHaveBeenCalledWith({ step_run_id: 'step', slot_id: 'slot' }, expect.any(AbortSignal));
   await worker.close();
+});
+
+it('coalesces wake requests during an admission outage and backs off with jitter', async () => {
+  vi.useFakeTimers();
+  vi.spyOn(Math, 'random').mockReturnValue(0.5);
+  const admit = vi.fn()
+    .mockRejectedValueOnce(new Error('core unavailable'))
+    .mockRejectedValueOnce(new Error('core unavailable'))
+    .mockResolvedValue({ items: [] });
+  const worker = admissionLoop(1, admit, async () => false, () => undefined);
+  try {
+    await vi.advanceTimersByTimeAsync(0);
+    for (let i = 0; i < 10; i++) worker.wake();
+    await vi.advanceTimersByTimeAsync(1499);
+    expect(admit).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(admit).toHaveBeenCalledTimes(2);
+    worker.wake();
+    await vi.advanceTimersByTimeAsync(2999);
+    expect(admit).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(admit).toHaveBeenCalledTimes(3);
+  } finally {
+    await worker.close();
+  }
 });
 
 function fixture(refused = false) {
@@ -91,6 +119,24 @@ it('heartbeats_while_running_and_stops_on_lease_loss', async () => {
   ]);
   await vi.advanceTimersByTimeAsync(60_000);
   expect(f.refresh).toHaveBeenCalledTimes(2);
+});
+
+it('stops a held step and releases its claim when the gateway loses the listener', async () => {
+  vi.useFakeTimers();
+  const f = fixture();
+  f.deps.renewSandbox = async () => {
+    throw Object.assign(new Error('sandbox unavailable'), { code: 'sandbox.gone' });
+  };
+  const running = f.run();
+  try {
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(f.calls.slice(-4)).toEqual(['loop.aborted', 'sandbox.destroy', 'core.release', 'slot.release']);
+    expect(f.calls).not.toContain('core.report');
+    expect(f.heartbeat).toHaveBeenCalledOnce();
+  } finally {
+    await vi.advanceTimersByTimeAsync(1000);
+    await running;
+  }
 });
 
 it('cost_reported_on_step_report after sandbox removal', async () => {
@@ -248,6 +294,7 @@ it('treats approval.not_open as a finished race without retrying or sending a ta
 
 it('records a rejected decision as an abstention on the same lease', async () => {
   vi.useFakeTimers();
+  vi.spyOn(Math, 'random').mockReturnValue(0.5);
   const f = fixture();
   f.deps.execute = vi.fn(async () => ({
     status: 'succeeded' as const, evidence: [], logs: [], outputs: {},
@@ -258,7 +305,7 @@ it('records a rejected decision as an abstention on the same lease', async () =>
     .mockResolvedValue(undefined);
   f.deps.finishDecision = finishDecision;
   const running = runClaim({ kind: 'decision', step_run_id: 'step', slot_id: 'slot' }, f.deps, new AbortController().signal);
-  await vi.advanceTimersByTimeAsync(999);
+  await vi.advanceTimersByTimeAsync(749);
   expect(finishDecision).toHaveBeenCalledTimes(1);
   await vi.advanceTimersByTimeAsync(1);
   await expect(running).resolves.toBe(true);

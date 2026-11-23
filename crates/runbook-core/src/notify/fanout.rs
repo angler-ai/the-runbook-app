@@ -24,6 +24,13 @@ pub struct EmailFanOut {
 }
 
 fn step_title(intent: &NotificationIntent) -> Option<String> {
+    if let Some(title) = intent
+        .detail
+        .as_ref()
+        .and_then(|detail| detail["step_title"].as_str())
+    {
+        return Some(title.into());
+    }
     let step_run_id = intent.step_run_ids.first()?;
     intent
         .ready_steps

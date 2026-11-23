@@ -7,15 +7,16 @@ import { CAPABILITY_HEADER, type ToolCallRecord, type McpDiscoveryRequest } from
 import { HttpError, type Route } from '@runbook/runner-shared/http';
 import { redactValue, type Redaction } from '@runbook/runner-shared/redact';
 import type { CapabilityVerifier } from '../capability.ts';
-import type { MaterialStore } from '../material.ts';
+import { materialValues, type MaterialStore } from '../material.ts';
 import { StepTools, upstreamHeaders, type PinnedTool } from './snapshot.ts';
-import { connectUpstream } from './upstream.ts';
+import { connectUpstream, UpstreamAccessBlocked } from './upstream.ts';
 
 interface ServerSnapshot {
   id: string;
   url: string;
   transport: 'streamable-http' | 'sse';
   credential_id?: string;
+  oauth?: boolean;
   tools: PinnedTool[];
 }
 
@@ -78,21 +79,29 @@ export function mcpRoute(config: Config, verifier: Pick<CapabilityVerifier, 'ver
             throw new Error('MCP credential unavailable');
           }
         }
-        const secrets = new Set(store.forStep(claims).flatMap(({ material }) => Object.values(material.fields)));
+        const secrets = new Set(store.forStep(claims).flatMap(({ material }) => materialValues(material)));
         const observedSecrets: string[] = [...secrets];
         const upstream = await connectUpstream(entry.url, entry.transport, async () => {
           const current = await verifier.verifyCapability(token);
           if (current.runner_id !== authenticatedRunner || !store.active(current)) throw new Error('MCP claim unavailable');
           const release = entry.credential_id ? store.forStep(current).find((candidate) =>
             candidate.delivery === 'mcp' && candidate.credential_id === entry.credential_id) : undefined;
-          if (entry.credential_id && !release) throw new Error('MCP release unavailable');
+          if (entry.credential_id && !release) {
+            if (entry.oauth) throw new UpstreamAccessBlocked({ kind: 'missing_access' });
+            throw new Error('MCP release unavailable');
+          }
+          const oauth = release?.material.mcp_oauth;
           const deadline = AbortSignal.timeout(Math.max(0, current.exp * 1000 - Date.now()));
-          for (const secret of Object.values(release?.material.fields ?? {})) {
+          for (const secret of materialValues(release?.material)) {
             if (!secrets.has(secret)) observedSecrets.push(secret);
             secrets.add(secret);
           }
           return {
-            headers: upstreamHeaders(entry.url, release && { url: release.binding.url, token: release.material.fields.token }),
+            headers: upstreamHeaders(entry.url, release && { url: release.binding.url, token: release.material.mcp_oauth?.access_token ?? release.material.fields.token }),
+            ...(oauth && release && {
+              oauth: { release_id: release.release_id, token_version: oauth.token_version },
+              accepted: () => store.noteOAuthUse(release),
+            }),
             signal: release ? AbortSignal.any([deadline, store.signal(release)]) : deadline,
           };
         }, request?.signal);
@@ -112,7 +121,8 @@ export function mcpRoute(config: Config, verifier: Pick<CapabilityVerifier, 'ver
               _meta: { ...tool._meta, 'runbook/label': entry.tools.find(({ tool: pinned }) => pinned.name === tool.name)?.label ?? 'destructive' },
             })))));
           return { tools: lists.flat() };
-        } catch {
+        } catch (error) {
+          if (error instanceof UpstreamAccessBlocked) throw error;
           throw new Error('tool list unavailable');
         }
       });
@@ -126,7 +136,7 @@ export function mcpRoute(config: Config, verifier: Pick<CapabilityVerifier, 'ver
           const match = matches[0];
           if (!match || matches.length !== 1) throw new Error('tool unavailable');
           const args = call.arguments ?? {};
-          const liveSecrets = store.forStep(claims).flatMap(({ material }) => Object.values(material.fields));
+          const liveSecrets = store.forStep(claims).flatMap(({ material }) => materialValues(material));
           const redacted = redactValue(args, (value) => redaction.redact(value, liveSecrets)) as Record<string, unknown>;
           record = {
             capability, server_id: match.entry.id, tool: match.name, result_bytes: 0, duration_ms: 0,
@@ -143,8 +153,9 @@ export function mcpRoute(config: Config, verifier: Pick<CapabilityVerifier, 'ver
           record.result_bytes = Buffer.byteLength(JSON.stringify(result));
           if (result.isError) record.error = 'tool_failed';
           return result;
-        } catch {
+        } catch (error) {
           if (record) record.error = 'tool_unavailable';
+          if (error instanceof UpstreamAccessBlocked) throw error;
           return { content: [{ type: 'text', text: 'tool unavailable' }], isError: true };
         } finally {
           if (record) record.duration_ms = Date.now() - started;
@@ -203,9 +214,9 @@ export function discoveryRoute(store: MaterialStore, redaction: Redaction): Rout
           if (input.release_id && (!release || release.delivery !== 'mcp' || release.step_run_id !== `test:${release.release_id}`)) {
             throw new Error('MCP release unavailable');
           }
-          if (release) secrets.push(...Object.values(release.material.fields));
+          if (release) secrets.push(...materialValues(release.material));
           return {
-            headers: upstreamHeaders(input.url!, release && { url: release.binding.url, token: release.material.fields.token }),
+            headers: upstreamHeaders(input.url!, release && { url: release.binding.url, token: release.material.mcp_oauth?.access_token ?? release.material.fields.token }),
             ...(release && { signal: store.signal(release) }),
           };
         });

@@ -220,7 +220,9 @@ describe('Account › Security', () => {
     const prompt = await screen.findByRole('dialog', { name: 'Confirm it’s you' });
     await user.type(within(prompt).getByLabelText('Code from your authenticator app'), '123456');
     await user.click(within(prompt).getByRole('button', { name: 'Verify' }));
-    expect(await screen.findByRole('dialog', { name: 'Your new backup codes' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('dialog', { name: 'Your new backup codes' }),
+    ).toBeInTheDocument();
     expect(calls.filter((c) => c.path === 'verify-totp')).toHaveLength(2);
   });
 
@@ -259,7 +261,10 @@ describe('Account › Security', () => {
     expect(within(dialog).getByText('zzzzz-99999')).toBeInTheDocument();
     await user.click(within(dialog).getByRole('button', { name: 'I saved my backup codes' }));
     expect(screen.queryByText('zzzzz-99999')).not.toBeInTheDocument();
-    const cached = client.getMutationCache().getAll().map((mutation) => mutation.state.data);
+    const cached = client
+      .getMutationCache()
+      .getAll()
+      .map((mutation) => mutation.state.data);
     expect(JSON.stringify(cached)).not.toContain('zzzzz-99999');
   });
 
@@ -550,6 +555,71 @@ describe('Step-up prompt for core API refusals', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
+  it('enrolls an authenticator inline, verifies it and retries the original action', async () => {
+    stubWebAuthn();
+    const calls = serveAuth(
+      defaultState({ passkeys: [], totp: false, security: security({ mfa_enrolled: false }) }),
+    );
+    let attempts = 0;
+    server.use(
+      http.post('*/v1/orgs/:org/users/:user/mfa/reset', () =>
+        ++attempts === 1
+          ? HttpResponse.json(
+              { status: 403, code: 'auth.mfa_step_up', fresh_minutes: 10 },
+              { status: 403, headers: { 'Content-Type': 'application/problem+json' } },
+            )
+          : HttpResponse.json({ reset: true }),
+      ),
+    );
+    renderHost();
+    const pending = api.POST('/v1/orgs/{org}/users/{user}/mfa/reset', {
+      params: { path: { org: 'org_1', user: 'usr_2' } },
+    });
+    const user = userEvent.setup();
+    expect(await screen.findByRole('button', { name: 'Set up a passkey' })).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: 'Set up an authenticator app' }));
+    await user.click(screen.getByRole('button', { name: 'Set up authenticator app' }));
+    await user.type(await screen.findByLabelText('Code from your authenticator app'), '123456');
+    await user.click(screen.getByRole('button', { name: 'Confirm code' }));
+    await user.click(await screen.findByRole('button', { name: 'I saved my backup codes' }));
+    await user.type(await screen.findByLabelText('Code from your authenticator app'), '123456');
+    await user.click(screen.getByRole('button', { name: 'Verify' }));
+    expect((await pending).data).toEqual({ reset: true });
+    expect(calls.filter((call) => call.path === 'verify-totp')).toHaveLength(2);
+  });
+
+  it('uses first-passkey enrollment to resume the pending action', async () => {
+    stubWebAuthn();
+    const calls = serveAuth(
+      defaultState({
+        passkeys: [],
+        totp: false,
+        security: security({ mfa_enrolled: false, allow_authenticator: false }),
+      }),
+    );
+    let attempts = 0;
+    server.use(
+      http.post('*/v1/orgs/:org/users/:user/mfa/reset', () =>
+        ++attempts === 1
+          ? HttpResponse.json(
+              { status: 403, code: 'auth.mfa_step_up', fresh_minutes: 10 },
+              { status: 403, headers: { 'Content-Type': 'application/problem+json' } },
+            )
+          : HttpResponse.json({ reset: true }),
+      ),
+    );
+    renderHost();
+    const pending = api.POST('/v1/orgs/{org}/users/{user}/mfa/reset', {
+      params: { path: { org: 'org_1', user: 'usr_2' } },
+    });
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Set up a passkey' }));
+    expect(screen.queryByRole('button', { name: 'Set up an authenticator app' })).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Create passkey' }));
+    expect((await pending).data).toEqual({ reset: true });
+    expect(calls.map((call) => call.path)).toContain('verify-registration');
+  });
+
   it('reports the refusal when the person cancels', async () => {
     stubWebAuthn();
     serveAuth(defaultState());
@@ -719,8 +789,12 @@ describe('Settings › Organization › Security', () => {
     const { puts } = renderTab();
     let release = () => {};
     let markStarted = () => {};
-    const pending = new Promise<void>((resolve) => { release = resolve; });
-    const started = new Promise<void>((resolve) => { markStarted = resolve; });
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
     server.use(
       http.put('*/v1/orgs/:org/security', async ({ request }) => {
         const policy = await request.json();
@@ -760,7 +834,9 @@ describe('Settings › Organization › Security', () => {
     await user.click(await screen.findByRole('radio', { name: 'Everyone' }));
     await user.click(screen.getByRole('checkbox', { name: 'Passkeys' }));
     await user.click(screen.getByRole('button', { name: 'Save security settings' }));
-    expect(await screen.findByText(/cannot set up an authenticator app first/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/cannot set up an authenticator app first/i),
+    ).toBeInTheDocument();
     await user.click(screen.getByRole('radio', { name: 'Owners and admins' }));
     expect(screen.queryByRole('list', { name: 'Members locked out' })).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Save security settings' }));

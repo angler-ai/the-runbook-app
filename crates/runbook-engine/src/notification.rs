@@ -114,6 +114,23 @@ pub fn notification_for(
                 .map(|pending| serde_json::json!({ "targets": pending.recipients }));
         }
         // LANG9: reminders and follow-up escalation, for people.
+        Event::StepOverdue { step_id, due_at_ms } => {
+            let step = state.steps.iter().find(|step| step.step_id == *step_id)?;
+            let open = crate::followup::is_open(step);
+            intent.kind = "step.overdue".into();
+            intent.step_run_ids.extend(step.id.clone());
+            intent.recipients = if open {
+                crate::followup::reminder_recipients(state, step)
+            } else {
+                crate::followup::owner_recipients(state)
+            };
+            intent.reason = Some(if open { "still_open" } else { "not_open" }.into());
+            intent.detail = Some(serde_json::json!({
+                "path": step_id,
+                "step_title": crate::step_title(state, step),
+                "due_at_ms": due_at_ms,
+            }));
+        }
         Event::StepReminded { step_run_id, .. } => {
             intent.kind = "step.reminder".into();
             intent.step_run_ids.push(step_run_id.clone());
@@ -148,7 +165,11 @@ pub fn notification_for(
         }
         Event::ExecutionStarted { .. } => {
             intent.kind = "execution.started".into();
-            intent.detail = Some(serde_json::json!({ "status": crate::reported_status(state) }));
+            intent.detail = Some(serde_json::json!({
+                "status": crate::reported_status(state),
+                "created_by": state.created_by,
+                "parent_execution_id": state.parent.as_ref().map(|parent| &parent.execution_id),
+            }));
         }
         Event::ExecutionCompleted { status, .. } => {
             intent.kind = "execution.completed".into();
@@ -209,7 +230,14 @@ pub fn notifications_for(
     before: &ExecutionState,
     after: &ExecutionState,
 ) -> Vec<NotificationIntent> {
-    let mut out: Vec<NotificationIntent> = notification_for(event, after).into_iter().collect();
+    let repeated_overdue = matches!(&event.event, Event::StepOverdue { step_id, .. }
+        if after.steps.iter().find(|step| step.step_id == *step_id).is_some_and(|step|
+            before.steps.iter().any(|prior| prior.node_id == step.node_id && prior.overdue_since_ms.is_some())));
+    let mut out: Vec<NotificationIntent> = if repeated_overdue {
+        vec![]
+    } else {
+        notification_for(event, after).into_iter().collect()
+    };
     if event.execution_id != after.id || event.seq != after.sequence {
         return out;
     }

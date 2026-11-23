@@ -77,14 +77,22 @@ pub fn apply_automatic_decision(
     // destructive-path restrictions. The reducer never re-runs this check:
     // replay must not depend on today's policy code (F5). A refused decision
     // is withheld; the gate expires undecided and `on_expired` applies.
-    if !runbook_spec::validate_policy(state.compiled()).is_empty() {
+    let restricted = !crate::approval::definition(state, &state.steps[index])?
+        .exclude_completers_of
+        .is_empty();
+    if restricted || !runbook_spec::validate_policy(state.compiled()).is_empty() {
         if !expire {
             return Err(EngineError::new("approval.invalid_automatic_policy"));
         }
         return Ok(vec![Event::AutomaticDecisionWithheld {
             step_run_id: policy.step_run_id.clone(),
             deadline_at_ms: policy.deadline_at_ms,
-            reason: "approval.invalid_automatic_policy".into(),
+            reason: if restricted {
+                "approval.independent_review_required"
+            } else {
+                "approval.invalid_automatic_policy"
+            }
+            .into(),
         }]);
     }
     let base_sequence = state
@@ -136,6 +144,13 @@ pub(crate) fn apply(
         return Err(EngineError::new("approval.time_mismatch"));
     }
     let (index, option) = validate(state, &fact.timeout)?;
+    if state.engine_version >= crate::version::INDEPENDENT_APPROVALS
+        && !crate::approval::definition(state, &state.steps[index])?
+            .exclude_completers_of
+            .is_empty()
+    {
+        return Err(EngineError::new("approval.independent_review_required"));
+    }
     if fact.base_sequence != state.sequence
         || fact.option != option
         || !state.steps[index]

@@ -75,6 +75,13 @@ export interface SlotOutcome {
 
 /** The header that carries a step's capability on the gateway's MCP endpoint. */
 export const CAPABILITY_HEADER = 'X-Runbook-Capability';
+export const MCP_ACCESS_BLOCKED = -32040;
+export interface McpAccessBlocked {
+  kind: 'missing_access' | 'insufficient_scope';
+  release_id?: string;
+  token_version?: number;
+}
+
 export interface McpDiscoveryRequest {
   url: string;
   transport: 'streamable-http' | 'sse';
@@ -173,6 +180,8 @@ export interface TestResponse {
 /** What a release delivers: the secret fields of one credential version. */
 export interface ReleaseMaterial {
   fields: Record<string, string>;
+  /** Only the OAuth access token is projected into this shape. */
+  mcp_oauth?: { access_token: string; token_version: number; generation: number };
 }
 
 export interface ClaimFence {

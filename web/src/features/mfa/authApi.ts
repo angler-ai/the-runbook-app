@@ -87,7 +87,11 @@ export async function authRequest<T>(path: string, options: AuthRequestOptions =
     ) {
       const origin = globalThis.location.origin;
       const principal = await readStepUpPrincipal(origin);
-      if (principal && await requestStepUp(error, { method }) && principal === await readStepUpPrincipal(origin)) {
+      if (
+        principal &&
+        (await requestStepUp(error, { method })) &&
+        principal === (await readStepUpPrincipal(origin))
+      ) {
         return authRequest<T>(path, { ...options, stepUp: false });
       }
     }
@@ -149,11 +153,14 @@ export interface PasskeyItem {
 
 export const listPasskeys = () => authRequest<PasskeyItem[]>('/passkey/list-user-passkeys');
 
-export async function registerPasskey(name: string): Promise<void> {
-  const options = await authRequest<CreationOptionsJSON>('/passkey/generate-register-options');
+export async function registerPasskey(name: string, stepUp = true): Promise<void> {
+  const options = await authRequest<CreationOptionsJSON>('/passkey/generate-register-options', {
+    stepUp,
+  });
   const credential = await navigator.credentials.create({ publicKey: toCreationOptions(options) });
   if (!credential) throw new DOMException('No passkey was created.', 'NotAllowedError');
   await authRequest('/passkey/verify-registration', {
+    stepUp,
     body: {
       response: credentialToJSON(credential as PublicKeyCredential),
       name: name.trim() || undefined,
@@ -190,7 +197,8 @@ export interface TotpSetup {
   backupCodes: string[];
 }
 
-export const enableTotp = () => authRequest<TotpSetup>('/two-factor/enable', { body: {} });
+export const enableTotp = (stepUp = true) =>
+  authRequest<TotpSetup>('/two-factor/enable', { body: {}, stepUp });
 
 export const disableTotp = () => authRequest('/two-factor/disable', { body: {} });
 

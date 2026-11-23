@@ -51,7 +51,7 @@ pub use directory::{OwnerAssignment, OwnerRecoveryFault, PostgresDirectory};
 pub use execution::{PostgresExecutionStore, PostgresSession};
 pub use live_events::{LiveEvent, LiveEvents};
 pub use migrate::SCHEMA_VERSION;
-pub use pool::DEFAULT_POOL_SIZE;
+pub use pool::{DEFAULT_POOL_SIZE, PoolStats};
 use std::fmt;
 use tokio::task::JoinHandle;
 use tokio_postgres::Client;
@@ -91,7 +91,17 @@ impl PostgresStore {
             .primary()
             .connect(postgres_native_tls::MakeTlsConnector::new(tls))
             .await
-            .map_err(|_| Error("postgres.connection_failed"))?;
+            .map_err(|error| {
+                let cause = match error.code().map(|code| code.code()) {
+                    Some("53300") => "connection_limit",
+                    Some("28000" | "28P01" | "42501") => "connection_auth",
+                    Some("57P03") => "database_starting",
+                    Some(_) => "connection_sql_error",
+                    None => "connection_transport",
+                };
+                config.pool().failure(cause);
+                Error("postgres.connection_failed")
+            })?;
         let store = Self {
             client,
             connection: tokio::spawn(async move {
@@ -139,9 +149,7 @@ impl PostgresStore {
 }
 /// HOST1 readiness: one pooled connection answers `SELECT 1`.
 pub async fn ping(config: &DatabaseConfig) -> Result<(), Error> {
-    let conn = pool::Pool::new(config.clone()).get().await?;
-    conn.client().query_one("SELECT 1", &[]).await?;
-    Ok(())
+    pool::Pool::new(config.clone()).get().await?.ping().await
 }
 
 impl Drop for PostgresStore {

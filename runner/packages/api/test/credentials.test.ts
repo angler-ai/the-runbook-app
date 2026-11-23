@@ -87,6 +87,35 @@ it.skipIf(!hasTestDatabase)('relays the exact assertion and raw body to the vaul
   }
 });
 
+it.each(['secrets', 'test'])('preserves Secret Manager destination policy errors on the %s route', async (operation) => {
+  const pool = { query: async () => ({ rowCount: 1, rows: [{ type: 'api-key' }] }) } as unknown as Parameters<typeof credentialResources>[0];
+  const handle = credentialResources(pool, { role: 'api', listen: { host: '', port: 0 },
+    urls: { vault: 'https://vault.example' }, inboundTokens: {}, outboundTokens: {} });
+  const claims: UserAssertionClaims = {
+    iss: 'core', aud: 'runner:install', jti: 'once', iat: 0, exp: 60, org_id: 'org', user_id: 'user',
+    org_role: 'admin', principal: 'human', project_roles: {}, scopes: ['runner:admin'],
+    htm: 'POST', htu: '', bh: '',
+  };
+  const blob = Buffer.from(JSON.stringify({
+    v: 1, org_id: 'org', credential_id: 'c', field: 'key', expected_version: 0,
+    binding_hash: 'fixture', ingest_key_id: 'key', expires_at: 1, enc: 'e', ct: 'c',
+  })).toString('base64url');
+  const body = operation === 'secrets' ? { blob } : undefined;
+  const rawBody = body ? Buffer.from(JSON.stringify(body)) : Buffer.alloc(0);
+  vi.stubGlobal('fetch', async () => Response.json({
+    error: { code: 'secret_manager.destination_not_allowed', message: 'private upstream message' },
+  }, { status: 403 }));
+  try {
+    await expect(handle({ method: 'POST', target: '', claims, body, assertion: { rawBody, token: 'signed' } },
+      ['', 'runner', 'v1', 'credentials', 'c', operation, 'key'])).rejects.toMatchObject({
+      status: 403, code: 'secret_manager.destination_not_allowed',
+      message: 'This destination is outside the deployment policy for the Secret Manager reference.',
+    });
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
 it.skipIf(!hasTestDatabase)('reports revocation when testing a credential and keeps other vault refusals generic', async () => {
   const h = await startHarness({
     core: { baseUrl: 'https://core.example', releaseToken: TOKENS.release },

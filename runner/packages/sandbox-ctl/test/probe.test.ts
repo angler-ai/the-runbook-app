@@ -1,6 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import { enforceProbe } from '../src/probe.ts';
-import { meterSandbox } from '../src/meter.ts';
+import { computeClient, meterSandbox } from '../src/meter.ts';
 
 it('successful_probe_stops_sandbox_and_alerts', async () => {
   const destroy = vi.fn(async () => undefined);
@@ -22,6 +22,28 @@ it('a failed probe harness never admits a sandbox', async () => {
 it('meters_vcpu_and_memory_seconds', () => {
   expect(meterSandbox('medium', { vcpu_per_second_usd: 0.001, gib_per_second_usd: 0.002 }, 2000))
     .toEqual({ amount: 0.01, usage: { vcpu_seconds: 2, gib_seconds: 4 } });
+});
+
+it('reserves the admitted footprint plus teardown before recording measured compute', async () => {
+  const requests: Record<string, unknown>[] = [];
+  vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+    requests.push(JSON.parse(String(init.body)));
+    return url.endsWith('/reserve') ? Response.json({ reservation_id: 'hold' }) : new Response(null, { status: 204 });
+  });
+  const compute = computeClient({ role: 'sandbox-ctl', listen: { host: '', port: 0 },
+    urls: { api: 'https://api.fixture' }, inboundTokens: {}, outboundTokens: {} });
+  try {
+    const hold = await compute.reserve('fixture', 'small', {
+      vcpu_per_second_usd: 0.02, gib_per_second_usd: 0.01, timeout_s: 5,
+    }, { vcpu: 2, gib: 4 });
+    if ('level' in hold) throw new Error('compute refused');
+    expect(requests[0]?.amount_usd).toBeCloseTo(1.2);
+    expect(hold.timeoutMs).toBe(5000);
+    await hold.settle(6000, { vcpu: 0.75, gib: 2 });
+    expect(requests[1]?.actual_usd).toBeCloseTo(0.21);
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });
 
 it('probes the bridge gateway, a public address, external DNS and seccomp', async () => {
@@ -89,6 +111,148 @@ it('a missing live container settles metering and removes its listener before re
         body: expect.objectContaining({ phase: 'stopped' }) }),
       expect.objectContaining({ method: 'DELETE', url: `https://example.test/gateway/internal/sandboxes/${id}` }),
     ]));
+  } finally {
+    await Promise.allSettled([...service.live.values()].map((entry) => service.destroy(entry)));
+    vi.unstubAllGlobals();
+  }
+});
+
+it.each(['example.com', 'kubernetes.default.svc.cluster.local'])(
+  'fails the Kubernetes isolation check if %s resolves', async (reachable) => {
+    const { enforceKubernetesProbe } = await import('../src/kubernetes-probe.ts');
+    const { runInNewContext } = await import('node:vm');
+    const { EventEmitter } = await import('node:events');
+    const alert = vi.fn(async () => undefined);
+    await expect(enforceKubernetesProbe(async ({ argv }) => {
+      const process = { env: { HTTPS_PROXY: 'http://runbook:fixture@127.0.0.1:8080', SSL_CERT_FILE: '/fixture' }, exitCode: 0 };
+      // Run the actual sandbox program with deterministic, local-only network outcomes.
+      const socket = () => Object.assign(new EventEmitter(), {
+        destroy() {}, setTimeout() {},
+      });
+      const modules = {
+        'node:net': { isIP: () => 4, connect: () => {
+          const conn = socket();
+          queueMicrotask(() => conn.emit('error', new Error('blocked')));
+          return conn;
+        } },
+        'node:http': { request: ({ headers }: { headers: Record<string, string> }) => {
+          const req = socket();
+          return Object.assign(req, {
+            end() {
+              queueMicrotask(() => req.emit('connect', { statusCode: headers['Proxy-Authorization'] ? 403 : 407 }, socket()));
+            },
+          });
+        } },
+        'node:dns': { promises: { Resolver: class {
+          async resolve4(host: string) {
+            if (host !== reachable) throw new Error('DNS blocked');
+            return ['192.0.2.1'];
+          }
+        } } },
+        'node:fs': { statSync: () => ({ isFile: () => true }) },
+      };
+      await runInNewContext(argv[2]!, { process, URL, Buffer, require: (name: keyof typeof modules) => modules[name] });
+      return { exit_code: process.exitCode, stdout: '', stderr: '' };
+    }, alert)).rejects.toMatchObject({ code: 'sandbox.probe_succeeded' });
+    expect(alert).toHaveBeenCalledOnce();
+  },
+);
+
+it('fences a Kubernetes sandbox after a failed probe even when deletion fails', async () => {
+  const { sandboxIdForClaim } = await import('@runbook/runner-shared/capability');
+  const { sandboxService } = await import('../src/server.ts');
+  const claims = { sub: 'step', runner_id: 'runner', claim_id: 'claim', generation: 1, exp: Date.now() / 1000 + 600 };
+  const id = sandboxIdForClaim(claims);
+  const listener = { proxy_url: 'http://10.2.0.2:20000', ca_pem: 'test-ca', listener_secret: 'test' };
+  const backend = {
+    image: 'image',
+    allocateNetwork: async () => ({ id: 'network' }),
+    start: async (_id: string, network: unknown) => ({ id, network, containerId: 'owned-uid', listener }),
+    destroy: vi.fn(async () => { throw new Error('delete temporarily unavailable'); }),
+    exec: vi.fn(async () => ({ exit_code: 20, stdout: '', stderr: '' })),
+  };
+  vi.stubGlobal('fetch', async (url: string) => {
+    if (url.endsWith('/compute/rates')) return Response.json({ vcpu_per_second_usd: 0, gib_per_second_usd: 0, timeout_s: 60 });
+    if (url.endsWith('/ledger/reserve')) return Response.json({ reservation_id: 'reservation' });
+    if (url.endsWith('/gateway/internal/sandboxes')) return Response.json(listener);
+    return new Response(null, { status: 204 });
+  });
+  const service = sandboxService(backend as unknown as Parameters<typeof sandboxService>[0], {
+    role: 'sandbox-ctl', listen: { host: '', port: 0 }, urls: { api: 'https://api.example', gateway: 'https://example.test/gateway' },
+    inboundTokens: {}, outboundTokens: {},
+  }, { verifyCapability: async () => claims as Awaited<ReturnType<Parameters<typeof sandboxService>[2]['verifyCapability']>> },
+  undefined, { kubernetes: true });
+  try {
+    const create = service.routes.find(({ path }) => path === '/internal/sandboxes')!;
+    const exec = service.routes.find(({ path }) => path.endsWith('/exec'))!;
+    await expect(create.handle({ caller: 'worker', params: {}, body: { capability: 'test', image: 'image', size: 'small' } }))
+      .rejects.toMatchObject({ code: 'sandbox.probe_succeeded' });
+    await expect(exec.handle({ caller: 'worker', params: { id }, body: {}, request: {
+      method: 'POST', headers: { 'x-runbook-capability': 'test' },
+    } })).rejects.toMatchObject({ code: 'sandbox.gone' });
+    expect(backend.exec).toHaveBeenCalledOnce();
+  } finally {
+    for (const entry of service.live.values()) clearTimeout(entry.timer);
+    vi.unstubAllGlobals();
+  }
+});
+
+it.each([0, 1, 124])('executes the pinned setup once and gates later commands when it exits %s', async (exit_code) => {
+  const { sandboxIdForClaim } = await import('@runbook/runner-shared/capability');
+  const { sandboxService } = await import('../src/server.ts');
+  const claims = { sub: 'step', runner_id: 'runner', claim_id: 'claim', generation: 1, exp: Date.now() / 1000 + 600 };
+  const id = sandboxIdForClaim(claims);
+  const image = `registry.example/sandbox@sha256:${'a'.repeat(64)}`;
+  const listener = { proxy_url: 'http://10.2.0.2:8888', ca_pem: 'fixture-ca', listener_secret: 'fixture-listener' };
+  const backend = {
+    image: 'installation-image',
+    allocateNetwork: async () => ({ id: 'network', gatewayAddress: '10.2.0.2', bridgeGateway: '10.2.0.1' }),
+    start: vi.fn(async (_id: string, network: unknown) => ({ id, network, containerId: 'container', listener })),
+    destroy: vi.fn(async () => undefined),
+    exec: vi.fn().mockResolvedValueOnce({ exit_code: 0 })
+      .mockResolvedValueOnce({ exit_code, stdout: 'preparing', stderr: '', timed_out: exit_code === 124 })
+      .mockResolvedValue({ exit_code: 0 }),
+  };
+  vi.stubGlobal('fetch', async (url: string) => {
+    if (url.endsWith('/environment/sandbox')) return Response.json({
+      image, size: 'small', custom: true, setup: 'printf preparing', setup_timeout_s: 120,
+      env: { REGION: 'us' }, credential_names: ['SECRET_TOKEN'],
+    });
+    if (url.endsWith('/compute/rates')) return Response.json({ vcpu_per_second_usd: 0, gib_per_second_usd: 0, timeout_s: 60 });
+    if (url.endsWith('/ledger/reserve')) return Response.json({ reservation_id: 'reservation' });
+    if (url.endsWith('/gateway/internal/sandboxes')) return Response.json(listener);
+    return new Response(null, { status: 204 });
+  });
+  const service = sandboxService(backend as unknown as Parameters<typeof sandboxService>[0], {
+    role: 'sandbox-ctl', listen: { host: '', port: 0 }, urls: { api: 'https://api.example', gateway: 'https://example.test/gateway' },
+    inboundTokens: {}, outboundTokens: {},
+  }, { verifyCapability: async () => claims as Awaited<ReturnType<Parameters<typeof sandboxService>[2]['verifyCapability']>> },
+  () => {}, { environments: true });
+  try {
+    const create = service.routes.find(({ path }) => path === '/internal/sandboxes')!;
+    const setup = service.routes.find(({ path }) => path.endsWith('/setup'))!;
+    const exec = service.routes.find(({ path }) => path.endsWith('/exec'))!;
+    const start = (selected: string) => create.handle({
+      caller: 'worker', params: {}, body: { capability: 'test', image: selected, size: 'small' },
+    });
+    await expect(start(backend.image)).rejects.toMatchObject({ code: 'sandbox.invalid_template' });
+    expect(await start(image)).toMatchObject({ status: 201 });
+    expect(backend.start.mock.calls[0]?.slice(-2)).toEqual([image, { custom: true, setup: true }]);
+    const invoke = (route: typeof setup, body: object) => route.handle({ caller: 'worker', params: { id }, body,
+      request: { method: 'POST', headers: { 'x-runbook-capability': 'test' } } });
+    await expect(invoke(exec, {})).rejects.toMatchObject({ code: 'sandbox.setup_required' });
+    expect(await invoke(setup, { script: 'ignored' })).toMatchObject({ body: { exit_code, stdout: 'preparing' } });
+    expect(backend.exec.mock.calls[1]).toMatchObject([
+      { env: { REGION: 'us', SECRET_TOKEN: expect.stringMatching(/^rb-placeholder-/) } },
+      { argv: ['/bin/bash', '--noprofile', '--norc', '-s'], stdin: 'printf preparing', return_partial: true },
+      undefined, true,
+    ]);
+    const timeout = (backend.exec.mock.calls[1]?.[1] as { timeout_s: number }).timeout_s;
+    expect(timeout).toBeLessThanOrEqual(60);
+    expect(Math.abs(timeout * 1000 - Math.round(timeout * 1000)) < 1e-8).toBe(true);
+    await expect(invoke(setup, {})).rejects.toMatchObject({ code: exit_code === 0 ? 'sandbox.setup_unavailable' : 'sandbox.gone' });
+    if (exit_code === 0) await expect(invoke(exec, {})).resolves.toMatchObject({ body: { exit_code: 0 } });
+    else await expect(invoke(exec, {})).rejects.toMatchObject({ code: 'sandbox.gone' });
   } finally {
     await Promise.allSettled([...service.live.values()].map((entry) => service.destroy(entry)));
     vi.unstubAllGlobals();

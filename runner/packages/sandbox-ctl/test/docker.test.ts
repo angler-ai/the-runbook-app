@@ -1,3 +1,8 @@
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import Docker from 'dockerode';
 import { expect, it, vi } from 'vitest';
@@ -9,13 +14,14 @@ if (!available) process.stderr.write('Docker is unreachable; skipping sandbox Do
 
 it.skipIf(!available)('uses the hardened template, denies direct egress and confines file access', async () => {
   const image = process.env.RUNNER_TEST_SANDBOX_IMAGE ?? 'runbook-sandbox:1';
+  const { Id: defaultDigest } = await docker.getImage(image).inspect();
   const backend = new DockerSandboxBackend(docker, image);
   const id = `rb-test-${randomUUID()}`;
   const network = await backend.allocateNetwork(id);
   try {
     const sandbox = await backend.start(id, network, 'small', {
       proxy_url: 'http://192.0.2.1:8888/', ca_pem: 'test-ca', listener_secret: 'test-listener-password',
-    });
+    }, undefined, defaultDigest);
     const { HostConfig: host, Config: config } = await docker.getContainer(sandbox.containerId).inspect();
     expect(host).toMatchObject({ ReadonlyRootfs: true, CapDrop: ['ALL'], Memory: 1073741824,
       NanoCpus: 500000000, PidsLimit: 128, SecurityOpt: ['no-new-privileges', 'seccomp=builtin'] });
@@ -182,3 +188,55 @@ it('names the missing sandbox image in startup errors', async () => {
     proxy_url: 'http://192.0.2.1:8888/', ca_pem: 'fixture', listener_secret: 'fixture',
   })).rejects.toMatchObject({ code: 'sandbox.image_missing', message: expect.stringContaining('runbook-sandbox:fixture') });
 });
+
+it('refuses a missing custom digest without asking the Docker daemon to pull it', async () => {
+  const pull = vi.fn(async () => { throw new Error('unexpected network path'); });
+  const backend = new DockerSandboxBackend({
+    pull,
+    getImage: () => ({ inspect: async () => { throw { statusCode: 404 }; } }),
+  } as unknown as Docker, 'installation-image');
+  await expect(backend.requireLocalImage(`registry.example/sandbox@sha256:${'1'.repeat(64)}`))
+    .rejects.toMatchObject({ code: 'sandbox.image_missing' });
+  expect(pull).not.toHaveBeenCalled();
+});
+
+it.skipIf(!available || spawnSync('go', ['version']).status !== 0)(
+  'verifies that successful and timed-out setup both leave an empty process scope', async () => {
+    const image = process.env.RUNNER_TEST_SANDBOX_IMAGE ?? 'runbook-sandbox:1';
+    const { Architecture } = await docker.getImage(image).inspect();
+    const location = mkdtempSync(join(tmpdir(), 'runbook-setup-'));
+    const helper = join(location, 'helper');
+    try {
+      execFileSync('go', ['build', '-o', helper, fileURLToPath(new URL('../helper/main.go', import.meta.url))],
+        { env: { ...process.env, GOOS: 'linux', GOARCH: Architecture, CGO_ENABLED: '0' } });
+      // The PID file is written by ordinary fixture work. Check from outside
+      // the supervisor before another command could read the workspace.
+      const command = `set -eu
+        printf '%s\n' 'sleep 30 >/dev/null 2>&1 &' 'echo $! >/tmp/child' |
+          /runbook-trusted/helper setup-docker 2000 /bin/bash -s
+        test ! -d /proc/$(cat /tmp/child)
+        set +e
+        printf '%s\n' 'sleep 30 >/dev/null 2>&1 &' 'echo $! >/tmp/child' 'sleep 30' |
+          /runbook-trusted/helper setup-docker 100 /bin/bash -s
+        result=$?
+        set -e
+        test "$result" -eq 124
+        test ! -d /proc/$(cat /tmp/child)`;
+      // Bind mount the locally compiled static helper into a fresh namespace.
+      const container = await docker.createContainer({
+        Image: image, User: '10001:10001', Entrypoint: ['/bin/bash', '-c'], Cmd: [command],
+        HostConfig: { NetworkMode: 'none', ReadonlyRootfs: true, CapDrop: ['ALL'], Init: true,
+          SecurityOpt: ['no-new-privileges', 'seccomp=builtin'],
+          Tmpfs: { '/tmp': 'rw,nosuid,nodev,noexec,mode=1777' },
+          Binds: [helper + ':/runbook-trusted/helper:ro'] },
+      });
+      try {
+        await container.start();
+        expect(await container.wait()).toMatchObject({ StatusCode: 0 });
+      } finally {
+        await container.remove({ force: true });
+      }
+    } finally {
+      rmSync(location, { recursive: true, force: true });
+    }
+  }, 45_000);

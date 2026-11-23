@@ -8,6 +8,8 @@ import { withTransaction } from '@runbook/runner-shared/db';
 import { HttpError } from '@runbook/runner-shared/http';
 import { findSecretShapedValues } from '@runbook/runner-shared/secret-shape';
 import { audit } from './audit.ts';
+import type { OAuthAccessService } from './oauth/access.ts';
+import { record } from './types/common.ts';
 import { canonicalGroups, credentialBinding } from './types/index.ts';
 
 function invalid(): never {
@@ -18,28 +20,45 @@ export function credentialInput(body: unknown): Record<string, unknown> {
   if (!body || typeof body !== 'object' || Array.isArray(body)) invalid();
   const input = body as Record<string, unknown>;
   if (Object.keys(input).some((key) => !['name', 'type', 'config', 'groups', 'sharing', 'label'].includes(key)) ||
-      findSecretShapedValues(input).length) invalid();
+      findSecretShapedValues(input).some((finding) =>
+        !(finding.path === 'config.client_id' && finding.reason === 'high-entropy'))) invalid();
   return input;
 }
 
-export function credentialConfiguration(type: string, raw: unknown, groups: unknown) {
+export function credentialConfiguration(type: string, raw: unknown, groups: unknown, previous?: unknown) {
   if (!Object.hasOwn(CREDENTIAL_TYPES, type) || !raw || typeof raw !== 'object' || Array.isArray(raw)) invalid();
   const manifest = CREDENTIAL_TYPES[type as CredentialType];
-  const config = raw as Record<string, unknown>;
-  if (Object.keys(config).some((key) => !manifest.configFields.some(({ name }) => name === key)) ||
+  let config = record(raw);
+  if (type === 'mcp-oauth') {
+    const old = previous === undefined ? undefined : record(previous);
+    if (old?.issuer && config !== old) {
+      // The provider endpoints and client identity come from discovery and confirmation.
+      for (const key of Object.keys(config)) {
+        if (!['scopes', 'extra_parameters'].includes(key) && !isDeepStrictEqual(old[key], config[key])) invalid();
+      }
+      config = { ...old, ...config };
+    } else if (!old?.issuer && Object.keys(config).some((key) => !manifest.configFields.some(({ name }) => name === key))) {
+      invalid();
+    }
+    if (!config.issuer && config.registration_mode === 'dynamic' &&
+        (config.client_id !== undefined || config.token_endpoint_auth_method !== undefined)) invalid();
+  } else if (Object.keys(config).some((key) =>
+    !(key === 'secret_source' && manifest.secretSources) && !manifest.configFields.some(({ name }) => name === key)) ||
       validateCredentialConfig(manifest.type, config).length) invalid();
   if (config.test && (typeof config.test !== 'object' || Array.isArray(config.test) ||
       Object.keys(config.test).some((key) => key !== 'method' && key !== 'path'))) invalid();
   try {
     const allowedGroups = canonicalGroups(groups);
     const binding = credentialBinding(type, config, allowedGroups);
+    if (binding.secret_source !== undefined) config = { ...config, secret_source: binding.secret_source };
     return { manifest, config, groups: allowedGroups, binding, hash: bindingHash(type, binding) };
   } catch {
     return invalid();
   }
 }
 
-export const exposedCredential = `id, name, type, scope, project_id, config, groups, sharing, label, label_initialized, status, delivery, secret_meta,
+export const exposedCredential = `id, name, type, scope, project_id, config, groups, sharing, label, label_initialized, status, delivery, secret_meta, oauth_status,
+  (delivery ? 'proxy') AS placeholder_eligible,
   translate(rtrim(encode(binding_hash, 'base64'), '='), '+/', '-_') AS binding_hash`;
 
 export function credentialProjects(sharing: unknown): 'none' | 'all' | string[] {
@@ -69,12 +88,12 @@ function requireCredentialAdmin(claims: UserAssertionClaims) {
   }
 }
 
-export async function writeCredentialMetadata(pool: pg.Pool, claims: UserAssertionClaims, body: unknown, id?: string) {
+export async function writeCredentialMetadata(pool: pg.Pool, claims: UserAssertionClaims, body: unknown, id?: string, oauth?: OAuthAccessService) {
   requireCredentialAdmin(claims);
-  return withTransaction(pool, (client) => writeMetadata(client, claims, body, id));
+  return withTransaction(pool, (client) => writeMetadata(client, claims, body, id, oauth));
 }
 
-async function writeMetadata(client: pg.PoolClient, claims: UserAssertionClaims, body: unknown, id?: string) {
+async function writeMetadata(client: pg.PoolClient, claims: UserAssertionClaims, body: unknown, id?: string, oauth?: OAuthAccessService) {
   const change = credentialInput(body);
   try {
     if (!id) {
@@ -94,7 +113,7 @@ async function writeMetadata(client: pg.PoolClient, claims: UserAssertionClaims,
     if (typeof name !== 'string' || !name || name.length > 128 || typeof type !== 'string' ||
         (id && current?.type !== type)) invalid();
     const configured = credentialConfiguration(type, change.config ?? (id ? current?.config : undefined),
-      change.groups ?? (id ? current?.groups : undefined) ?? 'all');
+      change.groups ?? (id ? current?.groups : undefined) ?? 'all', id ? current?.config : undefined);
     const label = change.label ?? (id ? current?.label : undefined) ?? configured.manifest.defaultLabel;
     if (label !== 'read' && label !== 'write' && label !== 'destructive') invalid();
     const sharing = { projects: credentialProjects(change.sharing ?? (id ? current?.sharing : undefined) ?? { projects: 'none' }) };
@@ -114,11 +133,26 @@ async function writeMetadata(client: pg.PoolClient, claims: UserAssertionClaims,
         [credential, claims.org_id, name, type, JSON.stringify(configured.config), JSON.stringify(configured.binding), configured.hash,
           JSON.stringify(sharing), JSON.stringify(configured.groups), JSON.stringify(configured.manifest.deliveries), claims.user_id, label]);
     } else if (!unchanged || (!current.label_initialized && change.label !== undefined)) {
+      const oldHash = type === 'mcp-oauth' ? bindingHash(type, credentialBinding(type, current.config, canonicalGroups(current.groups))) : null;
+      const bindingChanged = oldHash && !oldHash.equals(configured.hash) && oauth &&
+        await oauth.changeBinding(client, credential, configured, claims.user_id);
       await client.query(
         `UPDATE credentials SET name = $2, config = $3, binding = $4, binding_hash = $5,
           sharing = $6, groups = $7, updated_at = now() WHERE id = $1`,
         [credential, name, JSON.stringify(configured.config), JSON.stringify(configured.binding), configured.hash,
           JSON.stringify(sharing), JSON.stringify(configured.groups)]);
+      if (oldHash && !oldHash.equals(configured.hash)) {
+        // Discovery confirms a particular draft binding. Don't show a stale
+        // candidate after the administrator edits the draft.
+        await client.query(`UPDATE credentials SET oauth_status = NULLIF(oauth_status - 'discovery_candidate', '{}'::jsonb) WHERE id = $1`,
+          [credential]);
+        await client.query(`UPDATE credential_oauth SET candidate = NULL, candidate_hash = NULL, registration_operation = NULL
+          WHERE credential_id = $1 AND candidate_hash IS NOT NULL`, [credential]);
+      }
+      if (bindingChanged) {
+        await client.query(`UPDATE credentials SET status = 'reconnect_required',
+          oauth_status = COALESCE(oauth_status, '{}') || '{"connect_result":"reconnect_required"}'::jsonb WHERE id = $1`, [credential]);
+      }
       if (change.label !== undefined && (current.label !== label || !current.label_initialized)) {
         await client.query('UPDATE credentials SET label = $2, label_initialized = true WHERE id = $1', [credential, label]);
         await audit(client, {
@@ -146,7 +180,7 @@ async function writeMetadata(client: pg.PoolClient, claims: UserAssertionClaims,
   }
 }
 
-export async function approveCredentialProposal(pool: pg.Pool, claims: UserAssertionClaims, id: string): Promise<number> {
+export async function approveCredentialProposal(pool: pg.Pool, claims: UserAssertionClaims, id: string, oauth?: OAuthAccessService): Promise<number> {
   requireCredentialAdmin(claims);
   return withTransaction(pool, async (client) => {
     const { rows: [proposal] } = await client.query<{
@@ -161,7 +195,7 @@ export async function approveCredentialProposal(pool: pg.Pool, claims: UserAsser
     }
     const change = credentialInput(proposal.diff);
     if (change.label !== undefined) throw new HttpError(403, 'auth.denied', 'credential labels must be set directly by an administrator');
-    await writeMetadata(client, claims, change, proposal.target_id ?? undefined);
+    await writeMetadata(client, claims, change, proposal.target_id ?? undefined, oauth);
     await client.query("UPDATE proposals SET status = 'approved', decided_at = now(), decided_by = $2 WHERE id = $1",
       [id, claims.user_id]);
     await audit(client, {

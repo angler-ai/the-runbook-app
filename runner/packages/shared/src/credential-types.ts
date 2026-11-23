@@ -9,6 +9,7 @@ import { findSecretShapedValues } from './secret-shape.ts';
 
 import { CREDENTIAL_TYPES, type CredentialType } from './credential-manifest.ts';
 export * from './credential-manifest.ts';
+export * from './credential-source.ts';
 
 /** Sharing defaults to none (design §6.1). */
 export const DEFAULT_SHARING = { projects: 'none' } as const;

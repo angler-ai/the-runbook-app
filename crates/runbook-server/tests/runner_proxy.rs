@@ -6,6 +6,8 @@ mod auth_stub;
 mod database;
 #[path = "support/runner_fixture.rs"]
 mod runner_fixture;
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD as B64};
+use ed25519_dalek::{Signer, SigningKey};
 use runbook_core::{
     directory::{DirectoryCommit, DirectoryMutation, DirectoryStore},
     signing::{Jwks, USER_TYP, UserAssertionClaims, verify},
@@ -26,6 +28,7 @@ use std::{
 #[derive(Clone, Debug)]
 struct Seen {
     target: String,
+    body: Vec<u8>,
     headers: BTreeMap<String, String>,
 }
 #[derive(Clone)]
@@ -78,9 +81,23 @@ impl MockRunner {
                         Ok(n) => body.extend_from_slice(&chunk[..n]),
                     }
                 }
-                shared.seen.lock().unwrap().push(Seen { target, headers });
-                let _ = stream.write_all(
-                    b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 11\r\nConnection: close\r\n\r\n{\"ok\":true}",
+                let data = if target.ends_with("/credentials/oauth_fixture/connect") {
+                    oauth_start_reply(&headers, &body)
+                } else if target == "/runner/v1/oauth/callback/oauth_fixture" {
+                    json!({"connected":true,"test":{"ok":true}})
+                } else {
+                    json!({"ok":true})
+                }
+                .to_string();
+                shared.seen.lock().unwrap().push(Seen {
+                    target,
+                    headers,
+                    body,
+                });
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{data}",
+                    data.len()
                 );
             }
         });
@@ -117,6 +134,49 @@ async fn with_runner(f: impl AsyncFnOnce(&Fixture, &MockRunner, &Registered)) {
 fn proxy(reg: &Registered, path: &str) -> String {
     format!("/v1/runners/{}/proxy/{path}", reg.install)
 }
+fn oauth_start_reply(headers: &BTreeMap<String, String>, body: &[u8]) -> Value {
+    let token = &headers["runbook-assertion"];
+    let payload = B64.decode(token.split('.').nth(1).unwrap()).unwrap();
+    let claims: UserAssertionClaims = serde_json::from_slice(&payload).unwrap();
+    let url = format!("https://auth.example/authorize?state={OAUTH_STATE}");
+    let nonce_hash = runbook_core::signing::body_hash(OAUTH_NONCE.as_bytes());
+    let request: Value = serde_json::from_slice(body).unwrap();
+    let expires = now_ms()
+        + if request["binding_hash"] == "skewed" {
+            780_000
+        } else {
+            660_000
+        };
+    let mut statement = Vec::new();
+    for field in [
+        "runbook-runner/oauth-start/v1",
+        &claims.org_id,
+        claims.aud.strip_prefix("runner:").unwrap(),
+        "oauth_fixture",
+        request["binding_hash"].as_str().unwrap(),
+        &url,
+        &nonce_hash,
+        claims.session_hash.as_deref().unwrap(),
+        &claims.jti,
+        &expires.to_string(),
+        "",
+    ] {
+        statement.extend((field.len() as u32).to_be_bytes());
+        statement.extend(field.as_bytes());
+    }
+    let key = SigningKey::from_bytes(&[7; 32]);
+    let signature = B64.encode(key.sign(&statement).to_bytes());
+    let reply_url = if request["binding_hash"] == "tampered" {
+        format!("{url}&unexpected=1")
+    } else {
+        url
+    };
+    json!({"authorization_url":reply_url,"nonce":OAUTH_NONCE,
+        "identity_signature":signature,"expires_at_ms":expires,"request_id":claims.jti})
+}
+
+const OAUTH_STATE: &str = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const OAUTH_NONCE: &str = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
 const CSRF: (&str, &str) = ("x-runbook-csrf", "1");
 
 async fn assertion(f: &Fixture, seen: &Seen) -> UserAssertionClaims {
@@ -303,4 +363,99 @@ async fn hosted_mcp_proxies_runner_reads_with_the_oauth_agent_scope() {
         },
     )
     .await;
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL; owned databases only"]
+async fn runner_oauth_callback_uses_the_initiating_browser_and_signs_a_fixed_post() {
+    let files = auth_stub::Files::new("runner-oauth");
+    for browser in ["fresh-browser", "other-browser"] {
+        files.put_session(browser, "owner-auth", "owner@example.test");
+    }
+    files.update(|sessions| {
+        sessions.get_mut("other-browser").unwrap()["mfa_enrolled"] = json!(true);
+        let fresh = sessions.get_mut("fresh-browser").unwrap();
+        fresh["mfa_verified_at"] = json!(now_ms());
+        fresh["mfa_method"] = json!("totp");
+        fresh["mfa_enrolled"] = json!(true);
+    });
+    let mut auth = AuthConfig::new(auth_stub::command("auth_stub_child"));
+    auth.child_env = files.env();
+    auth.methods = vec!["email".into()];
+    with_fixture_config(
+        |config| {
+            config.runner.private_networks = true;
+            config.auth = Some(auth);
+        },
+        async |f| {
+            let directory = PostgresDirectory::new(f.config.database.clone());
+            directory.commit(DirectoryCommit {
+                org_id: f.org.clone(),
+                expected_revision: directory.snapshot(&f.org).await.unwrap().revision,
+                mutations: vec![DirectoryMutation::BindVerifiedEmail {
+                    user_id: f.user.clone(), email: "owner@example.test".into(),
+                }],
+            }).await.unwrap();
+            assert!(f.worker.client().auth_child().unwrap().wait_ready(Duration::from_secs(20)));
+            let runner = MockRunner::start();
+            let reg = f.register_runner(&runner.url()).await;
+            f.heartbeat(&reg).await;
+            let key = SigningKey::from_bytes(&[7; 32]);
+            let identity = f.call("PUT", &format!("/v1/orgs/{}/runner/vault-identity", f.org),
+                &f.admin_pat().await, json!({"public_key": B64.encode(key.verifying_key().to_bytes())})).await;
+            assert_eq!(identity.status, 204, "{}", identity.body);
+            let start = proxy(&reg, "runner/v1/credentials/oauth_fixture/connect");
+            let origin = ("origin", "https://runbooks.example");
+            let browser = "__Host-runbook.session_token=fresh-browser";
+            let other = "__Host-runbook.session_token=other-browser";
+            assert_eq!(f.request("POST", &start, None, &[CSRF, origin, ("cookie", other)], json!({"binding_hash":"fixture"}))
+                .await.code(), "auth.mfa_step_up");
+            let tampered = f.request("POST", &start, None, &[CSRF, origin, ("cookie", browser)],
+                json!({"binding_hash":"tampered"})).await;
+            assert_eq!(tampered.code(), "runner.bad_response");
+            assert!(!tampered.headers.contains_key("set-cookie"));
+            let skewed = f.request("POST", &start, None, &[CSRF, origin, ("cookie", browser)],
+                json!({"binding_hash":"skewed"})).await;
+            assert_eq!(skewed.code(), "runner.oauth_clock_skew");
+            assert!(!skewed.headers.contains_key("set-cookie"));
+            let launch = f.request("POST", &start, None, &[CSRF, origin, ("cookie", browser)], json!({"binding_hash":"fixture"})).await;
+            assert_eq!(launch.status, 200, "{}", launch.body);
+            assert!(launch.body.get("nonce").is_none());
+            let nonce_cookie = launch.headers["set-cookie"].split(';').next().unwrap();
+            assert_eq!(assertion(f, &runner.last()).await.fresh_mfa, Some(true));
+            let code = "synthetic-native-callback-marker";
+            let callback = format!("/v1/runner/oauth/callback/oauth_fixture?code={code}&state={OAUTH_STATE}&iss=https%3A%2F%2Fauth.example");
+            for cookie in [browser.to_owned(), format!("{other}; {nonce_cookie}")] {
+                let refusal = f.request("GET", &callback, None, &[("cookie", &cookie)], Value::Null).await;
+                assert_eq!(refusal.status, 303);
+                assert!(refusal.headers["location"].ends_with(".failed"));
+            }
+            assert_eq!(runner.count(), 3);
+            let response = f.request("GET", &callback, None,
+                &[("cookie", &format!("{browser}; {nonce_cookie}"))], Value::Null).await;
+            assert_eq!(response.status, 303);
+            assert_eq!(response.headers["cache-control"], "no-store");
+            assert_eq!(response.headers["referrer-policy"], "no-referrer");
+            assert!(response.headers["location"].ends_with(".connected"));
+            assert!(response.headers["set-cookie"].contains("Max-Age=0"));
+            let forwarded = runner.last();
+            assert_eq!(forwarded.target, "/runner/v1/oauth/callback/oauth_fixture");
+            assert!(!forwarded.headers.contains_key("cookie"));
+            let body: Value = serde_json::from_slice(&forwarded.body).unwrap();
+            assert_eq!(body, json!({"code":code,"state":OAUTH_STATE,"iss":"https://auth.example","nonce":OAUTH_NONCE}));
+            let claims = assertion(f, &forwarded).await;
+            assert_eq!(claims.htm, "POST");
+            assert_eq!(claims.htu, forwarded.target);
+            assert_eq!(claims.bh, runbook_core::signing::body_hash(&forwarded.body));
+            assert_eq!(claims.session_hash.as_deref(), Some(runbook_core::signing::body_hash(b"sess_fresh-browser").as_str()));
+            let confirm = proxy(&reg, "runner/v1/credentials/oauth_fixture/oauth-confirm");
+            let confirmation = json!({"binding_hash":"fixture","confirm_account":OAUTH_STATE});
+            let from_pat = f.request("POST", &confirm, Some(&f.admin_pat().await), &[CSRF, origin], confirmation.clone()).await;
+            assert_eq!(from_pat.status, 403);
+            let from_browser = f.request("POST", &confirm, None, &[CSRF, origin, ("cookie", browser)], confirmation).await;
+            assert_eq!(from_browser.status, 200, "{}", from_browser.body);
+            assert_eq!(assertion(f, &runner.last()).await.session_hash, claims.session_hash);
+            assert!(!files.log().into_iter().any(|entry| entry.to_string().contains(code)));
+        },
+    ).await;
 }

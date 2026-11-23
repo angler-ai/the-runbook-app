@@ -125,8 +125,10 @@ services:
     mem_limit: ${RUNBOOK_MEMORY_LIMIT:-1g}
     pids_limit: 200
     networks:
-      - internal
-      - edge
+      internal: {}
+      edge: {}
+      runner-vault-core:
+        aliases: [runner-core]
 
   # Test-only mail catcher for the smoke tests (deploy/smoke/sign_in.sh):
   # started only with `--profile smoke`, never by a plain `up`. The server

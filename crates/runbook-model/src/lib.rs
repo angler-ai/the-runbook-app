@@ -12,6 +12,22 @@ pub use document::*;
 pub use inbox::*;
 pub use memory::*;
 
+/// The canonical API address for a run on this origin.
+pub fn execution_api_url(origin: &str, id: &ExecutionId) -> String {
+    format!("{}/v1/executions/{id}", origin.trim_end_matches('/'))
+}
+
+/// Derive the browser link from a run's stored API address.
+pub fn execution_web_url(url: &str, id: &ExecutionId) -> String {
+    let api_path = format!("/v1/executions/{id}");
+    let web_path = format!("/x/{id}");
+    let origin = url
+        .strip_suffix(&api_path)
+        .or_else(|| url.strip_suffix(&web_path))
+        .unwrap_or_default();
+    format!("{origin}{web_path}")
+}
+
 pub type Data = BTreeMap<String, Value>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -336,8 +352,54 @@ pub enum ActorRef {
         session_id: String,
         name: String,
         model: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        service_attribution: Option<Box<ServiceTokenAttribution>>,
     },
     System,
+}
+
+/// Service credential provenance recorded when work is performed.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ServiceTokenAttribution {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub creator: Option<UserId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<UserId>,
+}
+
+impl ServiceTokenAttribution {
+    pub fn users(&self) -> impl Iterator<Item = &UserId> {
+        self.creator.iter().chain(&self.owner)
+    }
+}
+
+impl ActorRef {
+    /// Claim ownership is tied to the principal and session. Attribution can
+    /// change between the claim and a subsequent report.
+    pub fn same_claim_actor(&self, other: &Self) -> bool {
+        match (self, other) {
+            (
+                Self::Agent {
+                    principal_id,
+                    session_id,
+                    name,
+                    model,
+                    ..
+                },
+                Self::Agent {
+                    principal_id: their_id,
+                    session_id: their_session,
+                    name: their_name,
+                    model: their_model,
+                    ..
+                },
+            ) => {
+                (principal_id, session_id, name, model)
+                    == (their_id, their_session, their_name, their_model)
+            }
+            _ => self == other,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -583,6 +645,15 @@ pub struct ExecutionParentView {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct ExecutionView {
+    /// Milestones that passed their run-relative deadline and are still unfinished.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub overdue_steps: Vec<OverdueStepView>,
+    /// The run's API address.
+    #[serde(default)]
+    pub url: String,
+    /// The run page to share with people.
+    #[serde(default)]
+    pub web_url: String,
     #[schemars(range(max = 4294967295_u64))]
     pub schema_revision: NonZeroU32,
     pub id: ExecutionId,
@@ -649,6 +720,15 @@ pub struct ExecutionView {
     /// no step reported a cost.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cost: Option<StepCost>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct OverdueStepView {
+    pub path: String,
+    pub title: String,
+    pub due_at_ms: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step_run_id: Option<StepRunId>,
 }
 
 /// LANG3: a run cancelled because a newer run took its concurrency key.
@@ -735,6 +815,12 @@ pub struct ApprovalView {
     pub options: Vec<ApprovalOption>,
     pub eligible_recipients: Vec<RecipientRef>,
     pub escalation_recipients: Vec<RecipientRef>,
+    /// People who completed work this approval must independently review.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub excluded_completers: Vec<UserId>,
+    /// Why a pending approval has no independent reviewers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blocked_reason: Option<String>,
     pub escalated: bool,
     #[schemars(range(max = 4294967295_u64))]
     pub quorum: NonZeroU32,
@@ -795,6 +881,12 @@ pub struct CommentView {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct ResumeBrief {
+    /// The run's API address.
+    #[serde(default)]
+    pub url: String,
+    /// The run page to share with people.
+    #[serde(default)]
+    pub web_url: String,
     #[schemars(range(max = 4294967295_u64))]
     pub schema_revision: NonZeroU32,
     pub execution_id: ExecutionId,

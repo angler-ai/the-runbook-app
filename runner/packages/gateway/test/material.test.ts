@@ -1,7 +1,10 @@
+import type { AddressInfo } from 'node:net';
+import { createGatewayServer } from '../src/server.ts';
 import { afterEach, expect, it, vi } from 'vitest';
 import { MaterialStore } from '../src/material.ts';
 import { CapabilityVerifier } from '../src/capability.ts';
 import type { GrantClaims } from '@runbook/runner-shared/contracts/core';
+import { createLogger } from '@runbook/runner-shared/log';
 import { loadConfig } from '@runbook/runner-shared/config';
 import { generateSigningKey, signJwt } from '../../shared/test-utils/jwt.ts';
 
@@ -119,4 +122,49 @@ it('aborts in-flight dispatch when a replacement changes the binding', () => {
   store.put({ ...release, binding: { origin: 'https://replacement.example' } });
   expect(signal.aborted).toBe(true);
   store.clear();
+});
+
+it('tracks OAuth use for the current generation and token version', () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(1_000);
+  const store = new MaterialStore();
+  const oauth = { ...release, delivery: 'mcp' as const, material: {
+    fields: {}, mcp_oauth: { access_token: 'fixture', generation: 1, token_version: 1 },
+  } };
+  store.put(oauth);
+  expect(store.lastOAuthUse('credential', 1, 1)).toBeNull();
+  store.noteOAuthUse(oauth);
+  expect(store.lastOAuthUse('credential', 1, 1)).toBe(1_000);
+  expect(store.lastOAuthUse('credential', 1, 2)).toBeNull();
+  store.fenceOAuth('credential', 2);
+  store.noteOAuthUse(oauth);
+  expect(store.lastOAuthUse('credential', 1, 1)).toBeNull();
+  store.clear();
+});
+
+it('accepts visible ASCII OAuth tokens and refuses placeholders as release material', async () => {
+  const token = 't'.repeat(32);
+  const store = new MaterialStore(() => 1000);
+  const server = createGatewayServer({ inboundTokens: { vault: token }, log: createLogger('gateway-test') }, store);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/internal/material`;
+  const push = (delivery: string, material: object) => fetch(url, { method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ ...release, delivery, material }),
+  });
+  const mcp = (access_token: string) => push('mcp', { fields: {}, mcp_oauth: { access_token, generation: 1, token_version: 1 } });
+  try {
+    const notionToken = 'ntn_fixture:workspace-token';
+    expect((await mcp(notionToken)).status).toBe(204);
+    expect(store.get(release.release_id)?.material.mcp_oauth?.access_token).toBe(notionToken);
+    for (const invalid of ['rb-placeholder-fixture', 'space token', 'control\n', 'unicode-é']) {
+      expect((await mcp(invalid)).status).toBe(400);
+    }
+    for (const delivery of ['proxy', 'mcp', 'model']) {
+      expect((await push(delivery, { fields: { key: 'rb-placeholder-fixture' } })).status).toBe(400);
+    }
+  } finally {
+    store.clear();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
 });

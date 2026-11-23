@@ -10,6 +10,10 @@ type Credential = { id: string; name: string; sharing: unknown; label?: Label; d
 
 export interface AgentConfig {
   profiles: string[];
+  environment_id?: string;
+  environment_version_id?: string;
+  environment_overrides?: { size?: NonNullable<AgentConfig['sandbox']>['size']; timeout_s?: number;
+    egress?: AgentCeiling['hosts']; max_cost_usd?: number; max_run_cost_usd?: number };
   instructions?: string;
   skills?: string[];
   skill_pins?: components['schemas']['RunnerSkillPin'][];
@@ -74,14 +78,17 @@ export function computeCeiling(config: AgentConfig, catalog: Catalog, projectId:
     return entry;
   });
   const { max_cost_usd, max_tokens, timeout_s, concurrency, cost_per_day_usd } = config.limits;
+  const { cost_per_month_usd, max_run_cost_usd, alert_threshold_percent } = config.limits;
   const { max_turns, idle_timeout_s, tool_timeout_s, stream_stall_s } = config.limits;
   const bound = (value: number | undefined, max: number) => value !== undefined &&
     (!Number.isSafeInteger(value) || value < 1 || value > max);
-  if (!Number.isFinite(max_cost_usd) || max_cost_usd < 0 || !Number.isSafeInteger(max_tokens) || max_tokens < 1 ||
+  if (!Number.isFinite(max_cost_usd) || max_cost_usd < 0 || max_cost_usd > 99_999_999.999999 || !Number.isSafeInteger(max_tokens) || max_tokens < 1 ||
       !Number.isSafeInteger(timeout_s) || timeout_s < 1 || timeout_s > 86400 ||
       bound(max_turns, 1000) || bound(idle_timeout_s, 86400) || bound(tool_timeout_s, 300) || bound(stream_stall_s, 3600) ||
-      (concurrency !== undefined && (!Number.isSafeInteger(concurrency) || concurrency < 0)) ||
-      (cost_per_day_usd !== undefined && (!Number.isFinite(cost_per_day_usd) || cost_per_day_usd < 0 || cost_per_day_usd >= 100_000_000))) {
+      (concurrency != null && (!Number.isSafeInteger(concurrency) || concurrency < 0 || concurrency > 2_147_483_647)) ||
+      [cost_per_day_usd, cost_per_month_usd, max_run_cost_usd].some((value) =>
+        value != null && (!Number.isFinite(value) || value < 0 || value > 99_999_999.999999)) ||
+      (alert_threshold_percent != null && bound(alert_threshold_percent, 100))) {
     throw new HttpError(422, 'agent.invalid_limits', 'invalid agent limits');
   }
   const profiles = configuredProfiles.map(({ name }) => name);

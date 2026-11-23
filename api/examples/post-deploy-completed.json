@@ -5,6 +5,8 @@
     "severity": "major"
   },
   "id": "exe_00000000000000000000000001",
+  "url": "https://runbooks.example.com/v1/executions/exe_00000000000000000000000001",
+  "web_url": "https://runbooks.example.com/x/exe_00000000000000000000000001",
   "inputs": {
     "regions": [
       "east",

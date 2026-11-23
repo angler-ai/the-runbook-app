@@ -933,22 +933,31 @@ async fn step_execution(
 /// than the problem JSON, as natively.
 async fn api(req: Request, env: Env, path: String, query: Option<String>) -> Result<Response> {
     let header = |name: &str| req.headers().get(name).ok().flatten();
+    let method = if req.method() == Method::Get {
+        "GET"
+    } else {
+        "OTHER"
+    };
     let navigation = runbook_api::web::is_navigation(
-        if req.method() == Method::Get {
-            "GET"
-        } else {
-            "OTHER"
-        },
+        method,
         header("sec-fetch-dest").as_deref(),
         header("accept").as_deref(),
     );
-    let response = api_inner(req, env, path.clone(), query).await?;
+    let callback_failure =
+        || runbook_api::http::oauth_callback_failure(method, &path, "req_callback");
+    let response = match api_inner(req, env, path.clone(), query).await {
+        Ok(response) => response,
+        Err(error) => return callback_failure().map_or(Err(error), to_response),
+    };
     let problem = response
         .headers()
         .get("content-type")
         .ok()
         .flatten()
         .is_some_and(|v| v.starts_with("application/problem+json"));
+    if problem && let Some(failed) = callback_failure() {
+        return to_response(failed);
+    }
     if navigation
         && problem
         && let Some(location) = runbook_api::web::navigation_redirect(&path, response.status_code())

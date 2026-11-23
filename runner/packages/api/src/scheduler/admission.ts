@@ -5,20 +5,21 @@ import type { SlotOutcome } from '@runbook/runner-shared/contracts/internal';
 import { sandboxIdForClaim } from '@runbook/runner-shared/capability';
 import { withTransaction } from '@runbook/runner-shared/db';
 import { settleInTransaction } from '../ledger/settle.ts';
-import { lockBuckets, type BudgetContext } from '../ledger/buckets.ts';
-import { CapExceeded, reserveInTransaction } from '../ledger/reserve.ts';
+import { lockBuckets, type BudgetContext, type Level as BudgetScope, type Period } from '../ledger/buckets.ts';
+import { lockBudgetSettings } from '../ledger/limits.ts';
+import { CapExceeded, tryReserve } from '../ledger/reserve.ts';
 
 const levels = ['org', 'group', 'project', 'agent', 'runner'] as const;
 type Level = (typeof levels)[number];
-type Counts = Record<Level, number>;
-type Limits = Record<Level, number | null>;
+type Counts = Record<Level, number> & { environment?: number };
+type Limits = Record<Level, number | null> & { environment?: number | null };
 
 export const defaultLimits = { orgConcurrency: 20, orgDailyUsd: 50, agentConcurrency: 5, stepUsd: 1 };
 
 export function checkConcurrency(current: Counts, limits: Limits): WaitingReason | undefined {
-  for (const level of levels) {
+  for (const level of [...levels, 'environment'] as const) {
     const cap = limits[level];
-    if (cap !== null && current[level] >= cap) return `limit:${level}`;
+    if (cap != null && (current[level] ?? 0) >= cap) return `limit:${level}`;
   }
 }
 
@@ -151,39 +152,69 @@ export async function reapSlots(pool: pg.Pool, now = new Date()): Promise<number
   });
 }
 
-export async function admit(pool: pg.Pool, item: ReadyItem, context: BudgetContext, limits: Limits,
-  expiresAt: Date, now = new Date()): Promise<{ slot_id: string } | { reason: WaitingReason } | undefined> {
+export interface BudgetBlock {
+  scope: BudgetScope;
+  key: string;
+  period: Period | 'concurrency';
+  cap: number;
+  detail: string;
+}
+
+export function budgetBlock(context: BudgetContext, scope: BudgetScope, key: string, period: BudgetBlock['period'], cap: number): BudgetBlock {
+  const name = [...(context.names?.[scope] ?? key)].slice(0, 115).map((ch) => {
+    const code = ch.charCodeAt(0);
+    return code < 32 || (code >= 127 && code <= 159) ? ' ' : ch;
+  }).join('');
+  const label = period === 'day' ? 'daily' : period === 'month' ? 'monthly' : period;
+  return { scope, key, period, cap, detail: period === 'concurrency'
+    ? `${scope} ${name}: concurrency limit ${cap} reached`
+    : `${scope} ${name}: ${label} budget $${cap} reached` };
+}
+
+type AdmissionSettings = (client: pg.PoolClient) => Promise<{ context: BudgetContext; limits: Limits; agentVersionId: string } | undefined>;
+
+export async function admit(pool: pg.Pool, item: ReadyItem, input: BudgetContext | AdmissionSettings, fallbackLimits: Limits | undefined,
+  expiresAt: Date, now = new Date(), fallbackVersion?: string): Promise<{ slot_id: string } | { reason: WaitingReason; budget?: BudgetBlock } | undefined> {
   if (!liveSlot({ expiresAt: expiresAt.getTime() }, now.getTime())) return undefined;
-  try {
-    return await withTransaction(pool, async (client) => {
-      await client.query('SELECT pg_advisory_xact_lock($1)', [admissionLock]);
-      const duplicate = await client.query('SELECT 1 FROM slots WHERE step_run_id = $1 AND released_at IS NULL', [item.step_run_id]);
-      if (duplicate.rowCount) return undefined;
-      const { rows: [counts] } = await client.query<Counts>(
-        `SELECT count(*)::int AS org,
-           count(*) FILTER (WHERE group_id = $1)::int AS "group",
-           count(*) FILTER (WHERE project_id = $2 AND group_id = $1)::int AS project,
-           count(*) FILTER (WHERE agent_id = $3)::int AS agent,
-           count(*) FILTER (WHERE runner_id = $4)::int AS runner
-         FROM slots WHERE released_at IS NULL`,
-        [context.groupId, context.projectId, context.agentId, context.runnerId],
-      );
-      const reason = checkConcurrency(counts!, limits);
-      if (reason) return { reason };
-      const id = randomUUID();
-      const reservation = await reserveInTransaction(client, context,
-        admissionAmount(context.caps.step ?? defaultLimits.stepUsd), 'admission', now);
-      await client.query(
-        `INSERT INTO slots(id, step_run_id, group_id, runner_id, project_id, agent_id,
-          execution_id, expires_at, admission_reservation_id, max_cost_usd)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-        [id, item.step_run_id, context.groupId, context.runnerId, context.projectId, context.agentId,
-          item.execution_id, expiresAt, reservation.reservation_id, context.caps.step],
-      );
-      return { slot_id: id };
-    });
-  } catch (error) {
-    if (error instanceof CapExceeded) return { reason: `limit:${error.level}` };
-    throw error;
-  }
+  return withTransaction(pool, async (client) => {
+    await lockBudgetSettings(client);
+    await client.query('SELECT pg_advisory_xact_lock($1)', [admissionLock]);
+    const settings = typeof input === 'function' ? await input(client) : { context: input, limits: fallbackLimits!, agentVersionId: fallbackVersion };
+    if (!settings) return { reason: 'agent_paused' };
+    const { context, limits, agentVersionId } = settings;
+    const duplicate = await client.query('SELECT 1 FROM slots WHERE step_run_id = $1 AND released_at IS NULL', [item.step_run_id]);
+    if (duplicate.rowCount) return undefined;
+    const { rows: [counts] } = await client.query<Counts>(
+      `SELECT count(*)::int AS org,
+         count(*) FILTER (WHERE group_id = $1)::int AS "group",
+         count(*) FILTER (WHERE project_id = $2)::int AS project,
+         count(*) FILTER (WHERE agent_id = $3)::int AS agent,
+         count(*) FILTER (WHERE runner_id = $4)::int AS runner,
+         count(*) FILTER (WHERE environment_id = $5)::int AS environment
+       FROM slots WHERE released_at IS NULL`,
+      [context.groupId, context.projectId, context.agentId, context.runnerId, context.environmentId ?? null],
+    );
+    const reason = checkConcurrency(counts!, limits);
+    if (reason) {
+      const scope = reason.slice('limit:'.length) as Level | 'environment';
+      const keys = { org: context.orgId, group: context.groupId, project: context.projectId,
+        agent: context.agentId, environment: context.environmentId, runner: undefined };
+      const key = keys[scope];
+      return { reason, budget: key ? budgetBlock(context, scope as BudgetScope, key, 'concurrency', limits[scope]!) : undefined };
+    }
+    const id = randomUUID();
+    const stepCap = Math.min(context.caps.step ?? defaultLimits.stepUsd, context.pinnedCaps?.step ?? Infinity);
+    const reservation = await tryReserve(client, context, admissionAmount(stepCap), 'admission', now);
+    if (reservation instanceof CapExceeded)
+      return { reason: `limit:${reservation.level}`, budget: budgetBlock(context, reservation.level, reservation.key, reservation.period, reservation.cap) };
+    await client.query(
+      `INSERT INTO slots(id, step_run_id, group_id, runner_id, project_id, agent_id,
+        execution_id, expires_at, admission_reservation_id, max_cost_usd, environment_id, agent_version_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      [id, item.step_run_id, context.groupId, context.runnerId, context.projectId, context.agentId,
+        item.execution_id, expiresAt, reservation.reservation_id, stepCap, context.environmentId ?? null, agentVersionId ?? null],
+    );
+    await client.query('DELETE FROM budget_waiting WHERE step_run_id = $1', [item.step_run_id]);
+    return { slot_id: id };
+  });
 }

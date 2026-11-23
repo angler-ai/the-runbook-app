@@ -6,6 +6,7 @@ import { JwksCache, verifyJwt } from './jwt.ts';
 export interface AssertionOptions {
   consumeReplay(install: string, jti: string, expiresAt: Date): Promise<boolean>;
   coreUrl: string;
+  jwksBaseUrl?: string;
   installId: string;
   orgId: string;
   now?: () => number;
@@ -18,7 +19,7 @@ export class AssertionVerifier {
 
   constructor(options: AssertionOptions) {
     this.options = options;
-    this.jwks = JwksCache.fromUrl(`${options.coreUrl}/.well-known/jwks.json`, options.fetch);
+    this.jwks = JwksCache.fromUrl(`${options.jwksBaseUrl ?? options.coreUrl}/.well-known/jwks.json`, options.fetch);
   }
 
   async verifyAssertion(input: { token: string; method: string; target: string; body: Buffer }): Promise<UserAssertionClaims> {

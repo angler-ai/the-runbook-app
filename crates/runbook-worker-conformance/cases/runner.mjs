@@ -1,13 +1,13 @@
 // The same runner HTTP contract runs on Postgres and the Workers build.
 import assert from 'node:assert/strict';
-import { createHash, createPublicKey, generateKeyPairSync, verify } from 'node:crypto';
+import { createHash, createPublicKey, generateKeyPairSync, sign, verify } from 'node:crypto';
 import { setTimeout } from 'node:timers/promises';
 
 export function runnerClient(send) {
   let seq = 0;
-  async function call(method, path, status, { token, body, headers, raw = false } = {}) {
+  async function call(method, path, status, { token, body, headers, raw = false, signal } = {}) {
     const response = await send(path, {
-      method,
+      method, redirect: 'manual', signal,
       headers: {
         ...(token && { authorization: `Bearer ${token}` }),
         ...(body && { 'content-type': 'application/json' }),
@@ -40,7 +40,7 @@ function verifyAssertion(jwks, jwt, expectedType) {
   return decode(payload);
 }
 
-export async function runnerScenario({ call, token, project, org, user, url, forwarded, setRunnerReply }) {
+export async function runnerScenario({ call, token, project, org, user, url, forwarded, setRunnerReply, oauthBrowser, readiness, native }) {
   const { body: meta } = await call('GET', '/v1/meta', 200);
   assert.equal(meta.runner_contract_version, 4);
   const runnerStatus = `/v1/orgs/${org}/runner`;
@@ -90,7 +90,8 @@ export async function runnerScenario({ call, token, project, org, user, url, for
   assert.match(install.release_token, /^trb_rrl_/);
   assert.match(install.join_token, /^trb_rjn_/);
   assert.equal((await call('GET', runnerStatus, 200, { token })).body.vault_identity_key, initialIdentity);
-  const replacementIdentity = identityKey();
+  const replacement = generateKeyPairSync('ed25519');
+  const replacementIdentity = replacement.publicKey.export({ format: 'jwk' }).x;
   await call('PUT', `${runnerStatus}/vault-identity`, 403, {
     token: actingAgent, body: { public_key: replacementIdentity },
   });
@@ -190,6 +191,21 @@ export async function runnerScenario({ call, token, project, org, user, url, for
   assert.deepEqual(online.groups, [{ id: group, name: 'Renamed ops', projects: [project] }]);
   assert.equal(online.runners[0].running, 2);
   assert.equal(online.runners[0].capacity, 8);
+  const oauthId = 'oauth_fixture';
+  const codeMarker = 'synthetic-runner-oauth-code-marker';
+  const stateMarker = 'SYNTHETIC_RUNNER_OAUTH_STATE_MARKER_01234567';
+  const callback = await call('GET', `/v1/runner/oauth/callback/${oauthId}?code=${codeMarker}&state=${stateMarker}`, 303, { raw: true });
+  assert.equal(callback.headers.get('cache-control'), 'no-store');
+  assert.equal(callback.headers.get('referrer-policy'), 'no-referrer');
+  assert.match(callback.headers.get('location'), /#oauth-result=oauth_fixture\.failed$/);
+  assert.equal(callback.body, '');
+  await call('POST', proxy.replace('/groups', `/credentials/${oauthId}/connect`), 403, {
+    ...csrf, body: { binding_hash: 'fixture' },
+  });
+  await call('POST', proxy.replace('/groups', `/oauth/callback/${oauthId}`), 404, {
+    ...csrf, body: { code: codeMarker },
+  });
+  assert.equal(forwarded.length, 0);
   const answer = await call('GET', `${proxy}?limit=5`, 200, csrf);
   assert.deepEqual(answer.body, { groups: [] });
   assert.equal(answer.headers.get('set-cookie'), null);
@@ -254,7 +270,11 @@ export async function runnerScenario({ call, token, project, org, user, url, for
   const agentAssertion = verifyAssertion(initialJwks, forwarded.at(-1).headers.get('runbook-assertion'));
   assert.equal(agentAssertion.principal, 'agent');
   assert.equal(agentAssertion.sponsor_id, user);
-  await call('POST', proxy, 200, { ...csrf, token: adminOnly, body: updateGroup });
+  assert.equal(postAssertion.session_hash, undefined);
+  const beforeBudgetWrite = forwarded.length;
+  await call('POST', proxy, 403, { ...csrf, token: adminOnly, body: { ...updateGroup, cost_per_month_usd: 1 } });
+  await call('POST', proxy.replace('/groups', '/environments'), 403, { ...csrf, token: adminOnly, body: { name: 'Default' } });
+  assert.equal(forwarded.length, beforeBudgetWrite);
   setRunnerReply(() => Response.json({ code: 'agent.not_found' }, {
     status: 404, headers: { 'content-type': 'application/json; charset=utf-8' },
   }));
@@ -416,12 +436,47 @@ export async function runnerScenario({ call, token, project, org, user, url, for
   const { body: afterClaim } = await call('GET', ready, 200, directory);
   assert.deepEqual(afterClaim.items.map(({ step_run_id: id }) => id), [other.items[0].step_run_id]);
 
+  // A wedged runner API must not occupy the core's request or readiness
+  // capacity while a runner step is actively claimed.
+  let unblock;
+  const blocked = new Promise((resolve) => { unblock = resolve; });
+  const beforeHang = forwarded.length;
+  setRunnerReply(() => blocked);
+  const requests = Promise.allSettled(Array.from({ length: 9 }, () => call('GET', proxy, 502, csrf)));
+  try {
+    for (let i = 0; forwarded.length === beforeHang && i < 100; i++) await setTimeout(10);
+    assert.ok(forwarded.length > beforeHang, 'a runner proxy request reached the stalled server');
+    // Let the native worker admit every request it can.
+    await setTimeout(100);
+    await call('GET', readiness, 200, { raw: true });
+    const { body: active } = await call('GET', execution, 200, {
+      token, signal: AbortSignal.timeout(3_000),
+    });
+    assert.ok(active.steps.some(({ id, status }) => id === sr && status === 'claimed'));
+  } finally {
+    const unavailable = () => Response.json({ code: 'fixture.gateway_restarted' }, { status: 502 });
+    setRunnerReply(unavailable);
+    unblock(unavailable);
+    for (const result of await requests) if (result.status === 'rejected') throw result.reason;
+    setRunnerReply(() => Response.json({ groups: [] }));
+  }
+
   const grantBody = {
     kind: 'credential', credential_id: 'cred_dd', credential_version: 1, delivery: 'proxy',
     claim_id: claim.id, generation: claim.generation, runner_id: runner.runner_id,
   };
   const grantRoute = `/v1/step-runs/${sr}/grants`;
   const requestGrant = () => call('POST', grantRoute, 200, { token: install.release_token, body: grantBody });
+  if (native) {
+    // Each request can take an execution connection and then need a
+    // second connection while the other requests wait for the same row.
+    const burst = Array.from({ length: 8 }, () => requestGrant());
+    const done = Promise.allSettled(burst);
+    await setTimeout(100);
+    await call('GET', readiness, 200);
+    const outcomes = await done;
+    for (const outcome of outcomes) if (outcome.status === 'rejected') throw outcome.reason;
+  }
   const { body: result } = await requestGrant();
   await requestGrant();
   assert.equal((await step()).runner.releases.length, 1);
@@ -477,20 +532,6 @@ export async function runnerScenario({ call, token, project, org, user, url, for
   await grant(capabilityRequest, 200);
   assert.equal((await step()).runner.releases.length, 1);
 
-  const { body: subscription } = await call('POST', `/v1/projects/${project}/webhooks`, 201, {
-    token, body: { name: 'Runner budgets', url, events: ['runner.budget_threshold'] },
-  });
-  await call('POST', `${registry}/events`, 422, {
-    ...directory, body: { kind: 'runner.unknown', data: {} },
-  });
-  await call('POST', `${registry}/events`, 204, {
-    ...directory, body: { kind: 'runner.budget_threshold', data: { level: 'project', percent: 80 } },
-  });
-  const deliveries = `/v1/projects/${project}/webhooks/${subscription.webhook.id}/deliveries`;
-  assert.deepEqual(
-    (await call('GET', deliveries, 200, { token })).body.items.map(({ event_type }) => event_type),
-    ['runner.budget_threshold'],
-  );
   const release = { token: install.release_token };
   const { body: capability } = await call('POST', grantRoute, 200, {
     ...release, body: { kind: 'capability', claim_id: claim.id, generation: claim.generation, runner_id: runner.runner_id },
@@ -870,6 +911,29 @@ export async function runnerScenario({ call, token, project, org, user, url, for
   const { body: foreign } = await call('POST', `/v1/orgs/${org}/projects`, 201, {
     token, body: { slug: 'other-ops', title: 'Other ops' },
   });
+  const subscriptions = await Promise.all([project, foreign.id].map(async (projectId) => {
+    const { body } = await call('POST', `/v1/projects/${projectId}/webhooks`, 201, {
+      token, body: { name: 'Runner budgets', url, events: ['runner.budget_threshold'] },
+    });
+    return `/v1/projects/${projectId}/webhooks/${body.webhook.id}/deliveries`;
+  }));
+  await call('POST', `${registry}/events`, 422, {
+    ...directory, body: { kind: 'runner.unknown', data: {} },
+  });
+  const budgetEvent = { kind: 'runner.budget_threshold', data: {
+    event_id: '12345678-0000-4000-8000-000000000001', occurred_at_ms: Date.now(),
+    level: 'project', key: project, project_id: project, period: 'month', threshold: 80,
+  } };
+  for (let retry = 0; retry < 2; retry++) {
+    await call('POST', `${registry}/events`, 204, { ...directory,
+      body: { ...budgetEvent, data: { ...budgetEvent.data, occurred_at_ms: budgetEvent.data.occurred_at_ms + retry } },
+    });
+  }
+  const [ownerDelivery, otherDelivery] = await Promise.all(subscriptions.map(async (endpoint) =>
+    (await call('GET', endpoint, 200, { token })).body.items.map(({ event_type }) => event_type)));
+  assert.deepEqual(ownerDelivery, ['runner.budget_threshold']);
+  assert.deepEqual(otherDelivery, []);
+
   const restricted = await mint('Restricted runner reader', ['runner:read'], { projects: [project] });
   await call('GET', proxy, 200, { ...csrf, token: restricted });
   const restrictedAssertion = verifyAssertion(initialJwks, forwarded.at(-1).headers.get('runbook-assertion'));
@@ -1046,4 +1110,61 @@ export async function runnerScenario({ call, token, project, org, user, url, for
 
   const cleared = await call('PATCH', projectPath, 200, { token, body: { default_agent: null } });
   assert.equal(cleared.body.default_agent ?? null, null);
+
+  if (oauthBrowser) {
+    const state = 's'.repeat(43);
+    const nonce = 'n'.repeat(43);
+    setRunnerReply(() => {
+      const claims = verifyAssertion(jwks, forwarded.at(-1).headers.get('runbook-assertion'));
+      const authorization_url = `https://auth.example/authorize?state=${state}`;
+      const expires_at_ms = Date.now() + 600_000;
+      const parts = ['runbook-runner/oauth-start/v1', org, install.install_id, oauthId, 'fixture',
+        authorization_url, createHash('sha256').update(nonce).digest('base64url'),
+        claims.session_hash, claims.jti, String(expires_at_ms), ''];
+      const statement = Buffer.concat(parts.flatMap((part) => {
+        const text = Buffer.from(part);
+        const length = Buffer.alloc(4);
+        length.writeUInt32BE(text.length);
+        return [length, text];
+      }));
+      return Response.json({ authorization_url, nonce, expires_at_ms, request_id: claims.jti,
+        identity_signature: sign(null, statement, replacement.privateKey).toString('base64url') });
+    });
+    const startPath = proxy.replace('/groups', `/credentials/${oauthId}/connect`);
+    const browserHeaders = { 'x-runbook-csrf': '1', origin: oauthBrowser.origin };
+    const browser = '__Host-runbook.session_token=oauth-current';
+    const other = '__Host-runbook.session_token=oauth-other';
+    const noMfa = await call('POST', startPath, 403, { headers: { ...browserHeaders, cookie: other }, body: { binding_hash: 'fixture' } });
+    assert.equal(noMfa.body.code, 'auth.mfa_step_up');
+    const launch = await call('POST', startPath, 200, { headers: { ...browserHeaders, cookie: browser }, body: { binding_hash: 'fixture' } });
+    assert.equal(launch.body.nonce, undefined);
+    const challenge = launch.headers.get('set-cookie').split(';')[0];
+    assert.match(challenge, /^__Host-runbook-mcp-oauth_fixture=/);
+    assert.equal(verifyAssertion(jwks, forwarded.at(-1).headers.get('runbook-assertion')).fresh_mfa, true);
+
+    const callbackPath = `/v1/runner/oauth/callback/${oauthId}?code=${codeMarker}&state=${state}&iss=https%3A%2F%2Fauth.example`;
+    const before = forwarded.length;
+    const unavailable = `__Host-runbook.session_token=oauth-unavailable; ${challenge}`;
+    for (const cookie of [browser, `${other}; ${challenge}`, unavailable]) {
+      const rejected = await call('GET', callbackPath, 303, { headers: { cookie }, raw: true });
+      assert.match(rejected.headers.get('location'), /\.failed$/);
+      assert.equal(rejected.headers.get('referrer-policy'), 'no-referrer');
+    }
+    assert.equal(forwarded.length, before);
+    setRunnerReply(() => Response.json({ connected: true, test: { ok: true } }));
+    const connected = await call('GET', callbackPath, 303, { headers: { cookie: `${browser}; ${challenge}` }, raw: true });
+    assert.match(connected.headers.get('location'), /\.connected$/);
+    assert.equal(connected.headers.get('referrer-policy'), 'no-referrer');
+    assert.equal(forwarded.length, before + 1);
+    const request = forwarded.at(-1);
+    assert.equal(request.method, 'POST');
+    assert.equal(request.url.pathname, `/runner/v1/oauth/callback/${oauthId}`);
+    assert.equal(request.url.search, '');
+    assert.equal(request.headers.has('cookie'), false);
+    assert.deepEqual(JSON.parse(request.body), { code: codeMarker, state, iss: 'https://auth.example', nonce });
+    const signed = verifyAssertion(jwks, request.headers.get('runbook-assertion'));
+    assert.equal(signed.principal, 'human');
+    assert.equal(signed.bh, createHash('sha256').update(request.body).digest('base64url'));
+    assert.equal(signed.session_hash, createHash('sha256').update('oauth-current').digest('base64url'));
+  }
 }

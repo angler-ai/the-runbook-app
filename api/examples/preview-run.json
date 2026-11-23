@@ -1,6 +1,8 @@
 {
   "schema_revision": 1,
   "id": "exe_01JABCDEFGHJKMNPQRSTVWXYZ0",
+  "url": "https://runbooks.example.com/v1/executions/exe_01JABCDEFGHJKMNPQRSTVWXYZ0",
+  "web_url": "https://runbooks.example.com/x/exe_01JABCDEFGHJKMNPQRSTVWXYZ0",
   "runbook_version_id": "rbv_01JABCDEFGHJKMNPQRSTVWXYZ0",
   "runbook_version": null,
   "title": "Preview post-deploy",

@@ -5,14 +5,14 @@ import type { Redaction } from '@runbook/runner-shared/redact';
 import { sandboxIdForClaim, type CapabilityVerifier } from '@runbook/runner-shared/capability';
 import type { Config } from '@runbook/runner-shared/config';
 import type { Delivery } from '@runbook/runner-shared/contracts/core';
-import type { CreateSandboxResponse, SandboxSize } from '@runbook/runner-shared/contracts/internal';
+import type { CreateSandboxResponse, ExecResponse, SandboxSize } from '@runbook/runner-shared/contracts/internal';
 import type { components } from '@runbook/runner-shared/core-client';
 import { gatewayModel } from '@runbook/runner-shared/gateway-model-provider';
 import type { ExecutionContext, Outcome } from './claim.ts';
 import { clipUtf8, transcriptEvidence } from './evidence.ts';
 import { transcriptWriter } from './transcript.ts';
 import { InternalError, type workerClients } from './clients.ts';
-import { deadline, StepStopped } from './loop/limits.ts';
+import { deadline, OAuthBlocked, StepStopped } from './loop/limits.ts';
 import { failed, runAgent } from './loop/loop.ts';
 import { runNativeAgent } from './loop/native.ts';
 import { workspaceToolsV2 } from './loop/workspace-v2.ts';
@@ -34,6 +34,7 @@ interface RunnerStep {
     tool_timeout_s?: number; stream_stall_s?: number };
   size: SandboxSize;
   has_mcp: boolean;
+  environment?: { image: string | null; has_setup: boolean };
 }
 
 export function claimExecutor(config: Config, clients: ReturnType<typeof workerClients>,
@@ -69,14 +70,18 @@ export function claimExecutor(config: Config, clients: ReturnType<typeof workerC
       wall = deadline(remaining(), 'timeout');
       const signal = AbortSignal.any([ctx.signal, wall.signal]);
 
+      const rejected = (releaseId: string, tokenVersion: number, signal: AbortSignal) =>
+        clients.request('vault', '/internal/oauth/rejected', { signal, timeoutMs: 20_000,
+          body: { capability: ctx.capability(), release_id: releaseId, token_version: tokenVersion } });
       for (const release of runner.credentials) {
         signal.throwIfAborted();
-        await clients.request('vault', '/internal/release', { body: { capability: ctx.capability(), ...release }, signal });
+        await clients.request('vault', '/internal/release', { body: { capability: ctx.capability(), ...release }, signal, timeoutMs: 25_000 });
       }
       const id = sandboxIdForClaim(claims);
       ctx.registerSandbox(id);
       const sandbox = await clients.request<CreateSandboxResponse>('sandbox-ctl', '/internal/sandboxes', {
-        body: { capability: ctx.capability(), size: runner.size, image }, signal, timeoutMs: 30_000,
+        body: { capability: ctx.capability(), size: runner.size, image: runner.environment?.image ?? image }, signal,
+        timeoutMs: process.env.RUNNER_SANDBOX_BACKEND === 'kubernetes' ? 320_000 : runner.environment ? 155_000 : 30_000,
       });
       if (sandbox.sandbox_id !== id) return failed('sandbox_identity_mismatch');
       ctx.sandboxStarted();
@@ -92,12 +97,27 @@ export function claimExecutor(config: Config, clients: ReturnType<typeof workerC
         if (!Object.hasOwn(response, 'value')) throw new StepStopped('redaction_failed');
         return response.value;
       }, signal);
+      if (runner.environment?.has_setup) {
+        try {
+          const result = await clients.request<ExecResponse>('sandbox-ctl', `/internal/sandboxes/${id}/setup`, {
+            body: {}, capability: ctx.capability(), signal, timeoutMs: 605_000,
+          });
+          await transcript.record('tool', { tool: 'environment_setup', result: {
+            exit_code: result.exit_code, timed_out: Boolean(result.timed_out),
+            stdout: clipUtf8(result.stdout, 8_000), stderr: clipUtf8(result.stderr, 8_000),
+          } });
+          if (result.exit_code !== 0 || result.timed_out) return failed('environment_setup_failed');
+        } catch {
+          ctx.signal.throwIfAborted();
+          return failed('environment_setup_failed');
+        }
+      }
       const toolMs = (runner.limits.tool_timeout_s ?? 60) * 1000;
       if (decision) {
         const tools = runbookTools(clients, ctx).filter(({ name }) => name !== 'propose_memory');
         if (runner.has_mcp) {
           const reserved = new Set(['decide_approval', 'report_blocked', 'submit_result', ...tools.map(({ name }) => name)]);
-          mcp = await mcpTools(config.urls.gateway!, config.outboundTokens.gateway!, ctx, signal, reserved, true);
+          mcp = await mcpTools(config.urls.gateway!, config.outboundTokens.gateway!, ctx, signal, reserved, true, rejected);
           tools.push(...mcp.tools);
         }
         const orientation = await clients.context<RunOrientation>(ctx.stepRunId, ctx.claim, 'run', signal);
@@ -167,7 +187,7 @@ export function claimExecutor(config: Config, clients: ReturnType<typeof workerC
       ];
       if (runner.has_mcp) {
         const builtIns = new Set(['submit_result', 'report_blocked', ...tools.map(({ name }) => name)]);
-        mcp = await mcpTools(config.urls.gateway!, config.outboundTokens.gateway!, ctx, signal, workspace && builtIns);
+        mcp = await mcpTools(config.urls.gateway!, config.outboundTokens.gateway!, ctx, signal, workspace && builtIns, false, rejected);
         tools.push(...(workspace ? mcp.tools : mcp.tools.filter(({ name }) => !builtIns.has(name))));
       }
       const orientation = await clients.context<RunOrientation>(ctx.stepRunId, ctx.claim, 'run', signal);
@@ -233,8 +253,13 @@ export function claimExecutor(config: Config, clients: ReturnType<typeof workerC
     } catch (error) {
       ctx.signal.throwIfAborted();
       if (wall?.signal.aborted) return failed((wall.signal.reason as StepStopped).reason);
+      if (error instanceof OAuthBlocked || (error instanceof InternalError && error.code === 'oauth.reconnect_required')) {
+        const reason = error instanceof OAuthBlocked ? error.reason : new OAuthBlocked('missing_access').reason;
+        return { ...failed(reason), status: 'blocked', ...(ctx.kind === 'decision' && { decision: { reason } }) };
+      }
       if (error instanceof StepStopped) return failed(error.reason);
-      if (error instanceof InternalError && error.status === 402) return failed(`limit:${error.level ?? 'unknown'}`);
+      if (error instanceof InternalError && error.code === 'sandbox.image_not_approved') return failed('environment_image_not_approved');
+      if (error instanceof InternalError && error.status === 402) return failed(error.budgetDetail ?? `limit:${error.level ?? 'unknown'}`);
       return failed('runner_step_unavailable');
     } finally {
       wall?.close();

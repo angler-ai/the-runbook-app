@@ -55,3 +55,41 @@ it('cancels the authenticated transport during refresh without dispatching tools
     vi.useRealTimers();
   }
 });
+
+it('never authorizes a negotiated SSE message endpoint in another tenant', async () => {
+  vi.mocked(pinnedFetch).mockReset();
+  vi.mocked(pinnedFetch).mockResolvedValueOnce(new Response(
+    'event: endpoint\ndata: /tenant-b/mcp?sessionId=fixture\n\n',
+    { headers: { 'content-type': 'text/event-stream' } },
+  ));
+  const authorize = vi.fn(async () => ({ headers: { authorization: 'Bearer tenant-a-token' } }));
+  await expect(connectUpstream('https://fixture.example/tenant-a/mcp', 'sse', authorize)).rejects.toThrow('MCP connection failed');
+  expect(authorize).toHaveBeenCalledTimes(1);
+  expect(pinnedFetch).toHaveBeenCalledTimes(1);
+});
+
+it.each([
+  [401, 'Bearer error="invalid_token"', 'missing_access'],
+  [403, 'Bearer error="insufficient_scope"', 'insufficient_scope'],
+] as const)('returns a structured blocked outcome on HTTP %s without replaying the tool call', async (status, challenge, kind) => {
+  vi.mocked(pinnedFetch).mockReset();
+  const requests: string[] = [];
+  vi.mocked(pinnedFetch).mockImplementation(async (_input, init) => {
+    const payload = JSON.parse(String(init?.body)) as { method: string; id?: number };
+    requests.push(payload.method);
+    if (payload.method === 'initialize') return Response.json({ jsonrpc: '2.0', id: payload.id, result: {
+      protocolVersion: '2025-11-25', capabilities: { tools: {} }, serverInfo: { name: 'fixture', version: '1' },
+    } });
+    if (payload.method === 'notifications/initialized') return new Response(null, { status: 202 });
+    return new Response(null, { status, headers: { 'www-authenticate': challenge } });
+  });
+  const upstream = await connectUpstream('https://fixture.example/tenant-a/mcp', 'streamable-http', async () => ({
+    headers: { authorization: 'Bearer fixture' }, oauth: { release_id: 'release', token_version: 2 },
+  }));
+  try {
+    await expect(upstream.call('write', {})).rejects.toMatchObject({ code: -32040, data: { kind } });
+    expect(requests.filter((method) => method === 'tools/call')).toEqual(['tools/call']);
+  } finally {
+    await upstream.close();
+  }
+});

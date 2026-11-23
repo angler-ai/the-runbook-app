@@ -7,24 +7,32 @@ export interface BudgetAlert {
   level: string;
   period: string;
   key: string;
-  threshold: 50 | 80 | 100;
+  threshold: number;
 }
 
 export function crossedThresholds(bucket: BucketRow, actual: number): BudgetAlert[] {
   if (bucket.cap_usd === null) return [];
   const cap = micros(bucket.cap_usd);
-  const spent = micros(bucket.spent_usd) + actual;
-  return ([50, 80, 100] as const)
-    .filter((threshold) => !bucket.alerts_sent.includes(threshold) && cap > 0 && spent * 100 >= cap * threshold)
+  const spent = micros(bucket.spent_usd) + micros(bucket.overrun_usd ?? '0') + actual;
+  if (bucket.alert_threshold_percent != null) {
+    const threshold = bucket.alert_threshold_percent;
+    return !bucket.configured_alert_sent && cap > 0 && spent >= Math.ceil(cap * threshold / 100)
+      ? [{ level: bucket.level, period: bucket.period, key: bucket.key, threshold }] : [];
+  }
+  return [50, 80, 100]
+    .filter((threshold) => !bucket.alerts_sent.includes(threshold) && cap > 0 && spent >= Math.ceil(cap * threshold / 100))
     .map((threshold) => ({ level: bucket.level, period: bucket.period, key: bucket.key, threshold }));
 }
 
 
-export async function enqueueBudgetAlerts(client: pg.PoolClient, alerts: BudgetAlert[], groupId: string, runnerId: string): Promise<void> {
+export async function enqueueBudgetAlerts(client: pg.PoolClient, alerts: BudgetAlert[], groupId: string, runnerId: string, projectId?: string): Promise<void> {
   for (const alert of alerts) {
     const id = randomUUID();
     await client.query('INSERT INTO budget_event_outbox(id, group_id, runner_id, data) VALUES ($1,$2,$3,$4)',
-      [id, groupId, runnerId, JSON.stringify({ ...alert, event_id: id, group_id: groupId, runner_id: runnerId })]);
+      [id, groupId, runnerId, JSON.stringify({
+        ...alert, event_id: id, group_id: groupId, runner_id: runnerId,
+        ...(['project', 'agent', 'run', 'step'].includes(alert.level) && { project_id: projectId }),
+      })]);
   }
 }
 
@@ -33,8 +41,8 @@ export async function deliverBudgetAlerts(pool: pg.Pool, options: {
 }, now = new Date()): Promise<void> {
   for (let i = 0; i < 25; i++) {
     const found = await withTransaction(pool, async (client) => {
-      const { rows: [event] } = await client.query<{ id: string; data: unknown; attempts: number; kind: string }>(
-        `SELECT id, data, attempts, kind FROM budget_event_outbox WHERE next_attempt_at <= $1
+      const { rows: [event] } = await client.query<{ id: string; data: Record<string, unknown>; attempts: number; kind: string; occurred_at_ms: string }>(
+        `SELECT id, data, attempts, kind, occurred_at_ms FROM budget_event_outbox WHERE next_attempt_at <= $1
          ORDER BY next_attempt_at, id LIMIT 1 FOR UPDATE SKIP LOCKED`, [now],
       );
       if (!event) return false;
@@ -44,7 +52,8 @@ export async function deliverBudgetAlerts(pool: pg.Pool, options: {
           `${options.coreUrl}/v1/runner-installs/${encodeURIComponent(options.installId)}/events`, {
             method: 'POST', headers: { authorization: `Bearer ${options.token}`, 'content-type': 'application/json' },
             redirect: 'error', signal: AbortSignal.timeout(10_000),
-            body: JSON.stringify({ kind: event.kind, data: event.data }),
+            body: JSON.stringify({ kind: event.kind, data: event.kind === 'runner.budget_threshold'
+              ? { ...event.data, event_id: event.id, occurred_at_ms: Number(event.occurred_at_ms) } : event.data }),
           });
         delivered = response.ok;
       } catch {

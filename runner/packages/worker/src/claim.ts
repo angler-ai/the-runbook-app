@@ -1,3 +1,4 @@
+import { retryDelay } from '@runbook/runner-shared/retry';
 import type { SlotOutcome } from '@runbook/runner-shared/contracts/internal';
 import { randomUUID } from 'node:crypto';
 import { CoreError, type components, type ReportRequest } from '@runbook/runner-shared/core-client';
@@ -51,6 +52,7 @@ export async function runClaim(item: Admission, deps: ClaimDependencies, shutdow
   let sandbox: string | undefined;
   let sandboxReady = false;
   let lost = false;
+  let sandboxLost = false;
   let executed = false;
   let reported: SlotOutcome | undefined;
   let stop: (() => Promise<void>) | undefined;
@@ -66,7 +68,7 @@ export async function runClaim(item: Admission, deps: ClaimDependencies, shutdow
         sandbox = undefined;
         return true;
       } catch {
-        if (attempt < 2) await sleep(250);
+        if (attempt < 2) await sleep(retryDelay(attempt, 250, 1_000));
       }
     }
     // The controller retains the sandbox in its reaper until teardown succeeds.
@@ -82,7 +84,17 @@ export async function runClaim(item: Admission, deps: ClaimDependencies, shutdow
       // Keep the freshest grant for cleanup even if renewing the slot fails.
       capability = next.token;
       await deps.refresh(slot, next.token, active);
-      if (sandbox && sandboxReady) await deps.renewSandbox(sandbox, next.token, active);
+      if (sandbox && sandboxReady) {
+        try {
+          await deps.renewSandbox(sandbox, next.token, active);
+        } catch (error) {
+          if (!active.aborted && (error as { code?: string } | undefined)?.code === 'sandbox.gone') {
+            sandboxLost = true;
+            lease.abort();
+          }
+          throw error;
+        }
+      }
       active.throwIfAborted();
       expiresAt = next.expiresAt;
     };
@@ -106,6 +118,7 @@ export async function runClaim(item: Admission, deps: ClaimDependencies, shutdow
     let report = { ...outcome, ...(cost && { cost }) };
     let idempotencyKey = randomUUID();
     let fellBack = false;
+    let failures = 0;
     while (!lease.signal.aborted) {
       try {
         if (item.kind === 'decision') {
@@ -141,7 +154,7 @@ export async function runClaim(item: Admission, deps: ClaimDependencies, shutdow
             idempotencyKey = randomUUID();
           }
         }
-        await sleep(1000, lease.signal);
+        await sleep(retryDelay(failures++, 1_000, 15_000), lease.signal);
       }
     }
     return false;
@@ -153,14 +166,18 @@ export async function runClaim(item: Admission, deps: ClaimDependencies, shutdow
     await stop?.();
     if (capability && deps.endClaim) await deps.endClaim(capability).catch(() => undefined);
     const sandboxStopped = await destroy();
-    if (claim && !lost && !executed) await deps.abandon(step, claim).catch(() => undefined);
+    // A missing listener ends this attempt even though its core claim may
+    // still be valid. Release it so the scheduler can start a new attempt.
+    if (claim && !lost && (!executed || (sandboxLost && !reported))) {
+      await deps.abandon(step, claim).catch(() => undefined);
+    }
     if (sandboxStopped) {
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
           await deps.release(slot, reported);
           break;
         } catch {
-          if (attempt < 2) await sleep(250 * 2 ** attempt);
+          if (attempt < 2) await sleep(retryDelay(attempt, 250, 1_000));
           else deps.onSlotReleaseFailure?.();
         }
       }

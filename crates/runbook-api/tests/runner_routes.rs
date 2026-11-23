@@ -82,3 +82,15 @@ fn runner_routes_match_the_runner_contract() {
         "crates/runbook-api/src/runner_routes.json drifted from the runner's public-routes.json; copy the runner's file over it"
     );
 }
+
+#[test]
+fn oauth_connect_steps_up_and_callback_forward_is_core_only() {
+    let start = route_for("POST", "/runner/v1/credentials/cred_1/connect").unwrap();
+    assert!(start.sensitive && !start.core_only);
+    let forward = route_for("POST", "/runner/v1/oauth/callback/cred_1").unwrap();
+    assert!(!forward.sensitive && forward.core_only);
+    assert!(!runbook_api::mfa::sensitive(
+        "GET",
+        "/v1/runner/oauth/callback/cred_1"
+    ));
+}

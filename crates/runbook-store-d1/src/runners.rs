@@ -216,6 +216,11 @@ impl<D: D1> RunnerStore for D1Runners<D> {
         let results = self.db.batch(vec![
             prepare("SELECT g.id, g.name, (SELECT json_group_array(project_id ORDER BY project_id) FROM runner_group_projects WHERE group_id = g.id) AS projects FROM runner_groups g WHERE g.install_id = ? ORDER BY g.id").bind(install.id.as_str()),
             prepare("SELECT id, name, group_id, version, status, running, capacity, last_heartbeat_at_ms FROM runner_runners WHERE install_id = ? ORDER BY id").bind(install.id.as_str()),
+            prepare("SELECT count(*) FROM runner_ready_steps r
+                     JOIN runner_agents a ON a.org_id = r.org_id AND a.agent_id = r.agent_id
+                     JOIN runner_group_projects gp ON gp.group_id = a.group_id AND gp.project_id = r.project_id
+                     WHERE a.install_id = ? AND r.org_id = ? AND a.project_id = r.project_id AND r.decision IS NULL")
+                .bind(install.id.as_str()).bind(org.as_str()),
         ]).await.map_err(store)?;
         let groups = results[0]
             .rows
@@ -254,6 +259,7 @@ impl<D: D1> RunnerStore for D1Runners<D> {
             vault_identity_key: install.vault_identity_key,
             groups,
             runners,
+            queued_steps: Some(results[2].rows[0].integer(0).map_err(store)? as u64),
             last_heartbeat_at: install.last_heartbeat_at_ms,
         })
     }

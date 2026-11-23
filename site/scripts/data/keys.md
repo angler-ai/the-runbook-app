@@ -1744,6 +1744,28 @@ How a failed attempt is retried; the same keys as
   retry: { max_attempts: 3, backoff: 30s, on: [timeout, failed] }
 ```
 
+## spec.steps[].due_after
+type: duration
+as: step
+
+Sets a deadline measured from the start of this run. When the step is
+unfinished at its deadline, it appears under **Overdue steps** on the run
+page. A `step.overdue` notice goes to the step's people if it is open or to
+the runbook's owners if it has yet to open. This happens once per step
+instance and continues while a run is paused.
+
+Use a positive duration. Each deadline is declared on its step. A guarded
+step has a deadline once it opens. Work inside a switch, recovery block or
+iteration is considered once its path is selected or the iteration exists.
+A child started by `call` measures its own deadlines from its start.
+
+```yaml
+- id: confirm_setup
+  actor: human
+  assignee: team:customer_success
+  due_after: 2d
+```
+
 ## spec.steps[].remind_after
 type: duration
 as: step
@@ -2558,6 +2580,35 @@ requires the gate's decision to equal a specific option.
     options: [drop, keep]
     approves: [drop]
     approvers: { teams: [dba] }
+```
+
+## spec.steps[].approval.exclude_completers_of
+type: list of step IDs
+as: step
+
+When someone votes, the run checks the latest submitted result for each
+named task. Its submitter is excluded from human voting, including after
+escalation. Each ID must
+name a human-capable task in the same runbook that precedes the approval
+on every path. A task inside a conditional branch can be named by a later
+approval in that same branch. A task in a loop can be named by a later
+approval in that loop, and the latest submitted result across instances
+determines who is excluded.
+
+If every listed approver is excluded, the approval shows that it is waiting
+for an independent reviewer. Its reminders, escalation and expiry policy
+still apply. A call starts a separate execution. Authors set the rule
+inside the child to review work submitted there.
+
+```yaml
+- id: prepare_account
+  actor: human
+- id: review_account
+  approval:
+    prompt: Is the account ready?
+    options: [yes, needs_work]
+    approvers: { teams: [customer_success] }
+    exclude_completers_of: [prepare_account]
 ```
 
 ## spec.steps[].approval.approvers

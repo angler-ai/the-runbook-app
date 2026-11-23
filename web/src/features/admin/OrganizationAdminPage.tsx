@@ -166,7 +166,7 @@ export function OrganizationAdminPage() {
           {runner.data.status === 'none' ? (
             <SetupCard admin={isOwnerOrAdmin} />
           ) : (
-            <Link to="/settings/organization/runner" className="text-accent underline">
+            <Link to="/runner/overview" className="text-accent underline">
               Runner
             </Link>
           )}

@@ -23,12 +23,12 @@ resource "kubernetes_secret" "runbook_secrets" {
   count = var.manage_secret_values ? 1 : 0
 
   metadata {
-    name      = "runbook-secrets"
+    name      = "${var.name_prefix}runbook-secrets"
     namespace = kubernetes_namespace.runbook.metadata[0].name
-    labels = {
+    labels = merge(var.labels, {
       "app.kubernetes.io/name"       = "runbook"
       "app.kubernetes.io/managed-by" = "terraform"
-    }
+    })
   }
 
   data = merge(

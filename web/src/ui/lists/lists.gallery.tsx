@@ -9,6 +9,8 @@ import { DiffView } from './DiffView';
 const sampleExecutions = [
   {
     id: 'exe_01JABCDEFGHJKMNPQRSTVWXYZ0',
+    url: '/v1/executions/exe_01JABCDEFGHJKMNPQRSTVWXYZ0',
+    web_url: '/x/exe_01JABCDEFGHJKMNPQRSTVWXYZ0',
     schema_revision: 1,
     title: 'Deploy API service v2.4.1',
     status: 'running' as const,
@@ -29,6 +31,8 @@ const sampleExecutions = [
   },
   {
     id: 'exe_01JABCDEFGHJKMNPQRSTVWXYZ1',
+    url: '/v1/executions/exe_01JABCDEFGHJKMNPQRSTVWXYZ1',
+    web_url: '/x/exe_01JABCDEFGHJKMNPQRSTVWXYZ1',
     schema_revision: 1,
     title: 'Smoke test staging cluster',
     status: 'succeeded' as const,
@@ -50,6 +54,8 @@ const sampleExecutions = [
   },
   {
     id: 'exe_01JABCDEFGHJKMNPQRSTVWXYZ2',
+    url: '/v1/executions/exe_01JABCDEFGHJKMNPQRSTVWXYZ2',
+    web_url: '/x/exe_01JABCDEFGHJKMNPQRSTVWXYZ2',
     schema_revision: 1,
     title: 'Emergency rollback eu-west-1',
     status: 'failed' as const,

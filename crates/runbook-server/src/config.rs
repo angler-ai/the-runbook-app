@@ -73,6 +73,8 @@ pub struct RunnerConfig {
     /// self-hosted webhook targets. Link-local and metadata addresses stay
     /// refused.
     pub private_networks: bool,
+    /// Optional exact base URL for private-network proxy requests.
+    pub private_url: Option<String>,
     /// `RUNBOOK_RUNNER_CLIENT_CERT`: a PEM file holding the client
     /// certificate and its key, presented to the runner over mutual TLS.
     pub client_cert_pem: Option<Vec<u8>>,
@@ -730,6 +732,15 @@ impl ServerConfig {
                 "false" | "0" => false,
                 _ => return Err(Error("config.invalid_runner_private_networks")),
             };
+        }
+        if let Some(value) = env_value("RUNBOOK_RUNNER_PRIVATE_URL") {
+            let base = value.trim().trim_end_matches('/');
+            if !config.runner.private_networks {
+                return Err(Error("config.invalid_runner_private_url"));
+            }
+            runbook_core::runners::validate_url(base, true)
+                .map_err(|_| Error("config.invalid_runner_private_url"))?;
+            config.runner.private_url = Some(base.to_owned());
         }
         if let Some(path) = env_value("RUNBOOK_RUNNER_CLIENT_CERT") {
             let pem = std::fs::read(path.trim())

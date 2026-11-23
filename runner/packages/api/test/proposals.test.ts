@@ -20,7 +20,7 @@ it.skipIf(!hasTestDatabase)('applies proposals only after authorized human revie
       org_role: 'member', principal: 'agent', project_roles: { p: 'editor' }, scopes: ['runner:read', 'runner:admin'],
       htm: 'POST', htu: '', bh: '',
     };
-    const human = { ...agent, principal: 'human' as const, user_id: 'reviewer', project_roles: { p: 'admin' as const } };
+    const human = { ...agent, session_hash: 'browser', principal: 'human' as const, user_id: 'reviewer', project_roles: { p: 'admin' as const } };
     const create = (body: unknown) => handle({ method: 'POST', target: '/runner/v1/projects/p/agents', claims: agent, body });
     async function proposal(body: unknown) {
       const result = await create(body);
@@ -32,6 +32,7 @@ it.skipIf(!hasTestDatabase)('applies proposals only after authorized human revie
     });
     const id = await proposal({ name: 'candidate', group_id: 'g' });
     await expect(review(id, { ...human, project_roles: { p: 'editor' } })).rejects.toMatchObject({ status: 403 });
+    await expect(review(id, { ...human, session_hash: undefined })).rejects.toMatchObject({ status: 403 });
     await expect(review(id, agent)).rejects.toMatchObject({ status: 403 });
     expect((await review(id)).status).toBe(204);
     expect((await pool.query("SELECT name, status FROM agents WHERE name = 'candidate'")).rows).toEqual([{ name: 'candidate', status: 'draft' }]);

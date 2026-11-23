@@ -87,6 +87,7 @@ impl<B: Backends> Router<B> {
         // the same answer here.
         if request.credential.is_none()
             && !request.body.is_null()
+            && crate::runner_oauth::credential_id(&request.path).is_none()
             && crate::http::anonymous_body_refused(&request.method, &request.path)
         {
             return Response::error(401, "auth.required", &request.request_id);
@@ -99,6 +100,11 @@ impl<B: Backends> Router<B> {
                 Box::pin(crate::session::link(&self.backends, session)).await
         {
             return Response::error(status, code, &request.request_id);
+        }
+        if let Some(id) = crate::runner_oauth::credential_id(&request.path)
+            && request.method == "GET"
+        {
+            return Box::pin(crate::runner_oauth::callback(&self.backends, &request, id)).await;
         }
         if let Some(response) = Box::pin(crate::mfa::gate(&self.backends, &mut request)).await {
             return response;

@@ -54,5 +54,5 @@ blob_store                              = "postgres"
 # blob_prefix                           = "runbook/"
 
 
-# Optional runner infrastructure (no runner Pods until R2)
+# Optional runner deployment. See https://docs.therunbook.app/runner/gke/
 # runner_enabled = true

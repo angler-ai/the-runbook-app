@@ -228,6 +228,7 @@ fn node_source(n: &Node) -> Result<Value, Vec<Diagnostic>> {
     optional(&mut m, "if", &n.guard);
     m.insert("on_failure".into(), text(failure(n.on_failure)));
     duration(&mut m, "timeout", n.timeout);
+    duration(&mut m, "due_after", n.due_after);
     followup(&mut m, n.followup.as_ref());
     // LANG9: labels are part of the step; a restore must rebuild them.
     if !n.labels.is_empty() {
@@ -502,6 +503,12 @@ fn node_source(n: &Node) -> Result<Value, Vec<Diagnostic>> {
                 }
                 duration(&mut agent, "after", a.agent_after);
                 v.insert("agent".into(), Value::Object(agent));
+            }
+            if !a.exclude_completers_of.is_empty() {
+                v.insert(
+                    "exclude_completers_of".into(),
+                    strings(&a.exclude_completers_of),
+                );
             }
             if let Some(approves) = &a.approves {
                 v.insert("approves".into(), strings(approves));

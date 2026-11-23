@@ -87,8 +87,14 @@ async fn concurrent_requests_stay_within_the_pool_and_reuse_connections() {
             results.iter().find(|r| r.is_err())
         );
         assert!(peak.get() <= CAP, "peak {} working backends", peak.get());
-        // Closed connections' backends exit shortly after; then at most CAP
-        // remain (the idle pool).
+        // The 200 requests run on the same runtime. Hand slots back with
+        // their healthy connections, including while other calls wait.
+        assert!(
+            config.pool_stats().opened <= CAP as u64,
+            "{:?}",
+            config.pool_stats()
+        );
+        // At most CAP pooled backends remain after the load.
         let mut settled = backends().await.len();
         for _ in 0..200 {
             if settled <= CAP {
@@ -108,5 +114,116 @@ async fn concurrent_requests_stay_within_the_pool_and_reuse_connections() {
     })
     .catch_unwind()
     .await;
+    db.finish(result).await;
+}
+
+#[tokio::test]
+#[ignore = "requires a local TCP DATABASE_URL; creates and drops only a test-owned database"]
+async fn readiness_replaces_a_connection_that_stopped_responding() {
+    use runbook_store_postgres::{DatabaseConfig, ping};
+    use tokio::net::{TcpListener, TcpStream};
+    use tokio::sync::watch;
+
+    let mut db = TestDatabase::create_from_env().await.unwrap();
+    let result = AssertUnwindSafe(async {
+        let url = std::env::var("DATABASE_URL").unwrap();
+        let target: tokio_postgres::Config = url.parse().unwrap();
+        let [tokio_postgres::config::Host::Tcp(host)] = target.get_hosts() else {
+            panic!("the reconnect fixture needs a single TCP endpoint");
+        };
+        let port = target.get_ports().first().copied().unwrap_or(5432);
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (blackhole, mut first) = watch::channel(());
+        let host = host.clone();
+        // The proxy accepts a replacement connection, but the first socket
+        // stays open and sends no more responses after the simulated outage.
+        let proxy = tokio::spawn(async move {
+            let (mut client, _) = listener.accept().await.unwrap();
+            let mut upstream = TcpStream::connect((host.as_str(), port)).await.unwrap();
+            let stalled = async move {
+                tokio::select! {
+                    _ = tokio::io::copy_bidirectional(&mut client, &mut upstream) => {}
+                    _ = first.changed() => std::future::pending::<()>().await,
+                }
+            };
+            let (mut client, _) = tokio::select! {
+                socket = listener.accept() => socket.unwrap(),
+                _ = stalled => return,
+            };
+            let mut upstream = TcpStream::connect((host.as_str(), port)).await.unwrap();
+            let _ = tokio::io::copy_bidirectional(&mut client, &mut upstream).await;
+        });
+        let (_, endpoint) = url.split_once("://").unwrap();
+        let (authority, _) = endpoint.split_once('/').unwrap();
+        let credentials = authority.rsplit_once('@').map_or("", |(user, _)| user);
+        let url = format!(
+            "postgres://{credentials}@{address}/{}?sslmode=disable",
+            db.name()
+        );
+        let config = DatabaseConfig::from_values(Some(url), None)
+            .unwrap()
+            .with_pool_size(1);
+        ping(&config).await.unwrap();
+        blackhole.send(()).unwrap();
+        let recovered = tokio::time::timeout(Duration::from_secs(3), ping(&config)).await;
+        proxy.abort();
+        assert_eq!(recovered.unwrap(), Ok(()));
+    })
+    .catch_unwind()
+    .await;
+    db.finish(result).await;
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL; creates and drops only a test-owned database"]
+async fn cancelling_an_execution_request_discards_its_open_transaction() {
+    use runbook_core::session::SessionStore;
+
+    let mut db = TestDatabase::create_from_env().await.unwrap();
+    let result =
+        AssertUnwindSafe(async {
+            let mut admin = PostgresStore::connect(db.config()).await.unwrap();
+            admin.migrate().await.unwrap();
+            let store =
+                PostgresExecutionStore::new(db.config().clone().with_pool_size(1), scope(1));
+            let id = projection().execution_id;
+            store.create_execution(projection()).await.unwrap();
+            let idle_transactions =
+                async || {
+                    admin.client().query_one(
+                "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() \
+                 AND state LIKE 'idle in transaction%'",
+                &[],
+            ).await.unwrap().get::<_, i64>(0)
+                };
+            let request = async {
+                let _session = store.begin(&id).await.unwrap();
+                std::future::pending::<()>().await
+            };
+            let mut request = Box::pin(request);
+            tokio::time::timeout(Duration::from_secs(2), async {
+                loop {
+                    tokio::select! {
+                        _ = &mut request => unreachable!(),
+                        n = idle_transactions() => if n == 1 { break },
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .unwrap();
+            drop(request);
+            tokio::time::timeout(Duration::from_secs(2), async {
+                while idle_transactions().await != 0 {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .unwrap();
+            store.load(&id).await.unwrap();
+        })
+        .catch_unwind()
+        .await;
     db.finish(result).await;
 }

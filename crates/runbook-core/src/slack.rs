@@ -8,14 +8,15 @@
 //! person's own permissions (see `runbook_api::slack_app`). Posting is
 //! best-effort beside the durable channels (webhooks and email own
 //! retries); a Slack outage never blocks a run.
-use crate::{StoreError, catalog::TenantScope, notify::NotifyStore};
+use crate::{StoreError, catalog::TenantScope, directory::DirectoryStore, notify::NotifyStore};
 use runbook_engine::NotificationIntent;
 use std::future::Future;
 
 /// The events a project channel hears about.
 pub fn slack_worthy(intent: &NotificationIntent) -> bool {
     match intent.kind.as_str() {
-        "approval.requested" | "step.blocked" | "step.reminder" | "step.escalated" => true,
+        "approval.requested" | "step.blocked" | "step.reminder" | "step.overdue"
+        | "step.escalated" => true,
         "execution.completed" => {
             intent
                 .detail
@@ -25,6 +26,27 @@ pub fn slack_worthy(intent: &NotificationIntent) -> bool {
                 == Some("failed")
         }
         _ => false,
+    }
+}
+
+fn run_starter(intent: &NotificationIntent) -> String {
+    let detail = intent.detail.as_ref();
+    if let Some(parent) = detail.and_then(|d| d["parent_execution_id"].as_str()) {
+        return format!("call from {parent}");
+    }
+    if let Some(name) = detail.and_then(|d| d["starter_name"].as_str()) {
+        return name.to_owned();
+    }
+    match detail
+        .and_then(|d| d["created_by"].as_str())
+        .and_then(|s| s.split_once(':'))
+    {
+        Some(("webhook", id)) => format!("webhook {id}"),
+        Some(("schedule", id)) => format!("schedule {id}"),
+        Some(("service", _)) => "a service token".into(),
+        Some(("human" | "user", id)) => format!("user {id}"),
+        Some(("agent", id)) => format!("agent sponsored by {id}"),
+        _ => "the system".into(),
     }
 }
 
@@ -48,13 +70,26 @@ pub fn slack_text(
     } else {
         run_title
     };
-    let step = step_title.unwrap_or("A step");
+    let step = step_title
+        .or_else(|| {
+            intent
+                .detail
+                .as_ref()
+                .and_then(|d| d["step_title"].as_str())
+        })
+        .or_else(|| intent.detail.as_ref().and_then(|d| d["path"].as_str()))
+        .unwrap_or("A step");
     let link = crate::notify::fanout::link_absolute(origin, intent);
     let lead = match intent.kind.as_str() {
         "approval.requested" => format!("Approval needed: {step} in {run}"),
         "step.blocked" => format!("Step handed off: {step} in {run} is blocked"),
         "step.reminder" => format!("Reminder: {step} in {run} is still open"),
         "step.escalated" => format!("Step escalated: {step} in {run}"),
+        "step.overdue" if intent.reason.as_deref() == Some("not_open") => {
+            format!("Step overdue: {step} in {run} has yet to open")
+        }
+        "step.overdue" => format!("Step overdue: {step} in {run} is still open"),
+        "execution.started" => format!("Run started: {run} (by {})", run_starter(intent)),
         "execution.completed" => format!("Run failed: {run}"),
         other => format!("{other}: {run}"),
     };
@@ -259,8 +294,9 @@ pub trait SlackTransport {
 /// Returns whether a message was posted. Best-effort by design: callers
 /// log and move on (email and webhooks carry the durable record).
 #[allow(clippy::too_many_arguments)]
-pub async fn fan_out_slack<N: NotifyStore, T: SlackTransport>(
+pub async fn fan_out_slack<N: NotifyStore, D: DirectoryStore, T: SlackTransport>(
     notify: &N,
+    directory: &D,
     transport: &T,
     app: Option<&SlackApp>,
     scope: &TenantScope,
@@ -269,16 +305,45 @@ pub async fn fan_out_slack<N: NotifyStore, T: SlackTransport>(
     step_title: Option<&str>,
     origin: &str,
 ) -> Result<bool, StoreError> {
-    if !slack_worthy(intent) {
+    let run_started = intent.kind == "execution.started";
+    if !run_started && !slack_worthy(intent) {
         return Ok(false);
     }
-    let target = match notify.slack_url(scope).await? {
-        Some(stored) => SlackTarget::parse(&stored),
+    let settings = notify.slack_settings(scope).await?;
+    if run_started
+        && !settings
+            .as_ref()
+            .is_some_and(|settings| settings.notify_run_started)
+    {
+        return Ok(false);
+    }
+    let target = match settings {
+        Some(settings) => SlackTarget::parse(&settings.target),
         None => match app.and_then(|a| a.default_channel.clone()) {
             Some(channel) => SlackTarget::Channel(channel),
             None => return Ok(false),
         },
     };
+    let mut named_intent = None;
+    if run_started
+        && let Some(detail) = intent
+            .detail
+            .as_ref()
+            .filter(|d| d["parent_execution_id"].is_null())
+        && let Some(("human" | "user", id)) = detail["created_by"]
+            .as_str()
+            .and_then(|s| s.split_once(':'))
+        && let Ok(id) = id.parse::<runbook_model::UserId>()
+        && let Ok(snapshot) = directory.snapshot(&scope.org_id).await
+        && let Some(user) = snapshot.users.get(&id)
+    {
+        let mut named = intent.clone();
+        let mut detail = detail.clone();
+        detail["starter_name"] = serde_json::json!(user.name);
+        named.detail = Some(detail);
+        named_intent = Some(named);
+    }
+    let intent = named_intent.as_ref().unwrap_or(intent);
     match target {
         SlackTarget::Webhook(url) => {
             let text = slack_text(intent, run_title, step_title, origin);
@@ -403,6 +468,118 @@ mod tests {
             "https://r.test",
         );
         assert_eq!(m["blocks"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn depicts_a_run_started_by_a_webhook() {
+        let mut start = intent("execution.started");
+        start.detail = Some(serde_json::json!({"created_by": "webhook:deployed"}));
+        let text = slack_text(
+            &start,
+            "Onboard & verify",
+            None,
+            "https://runs.example.test",
+        );
+        assert!(text.contains("Run started: Onboard &amp; verify"));
+        assert!(text.contains("webhook deployed"));
+        assert!(text.starts_with("<https://runs.example.test/x/exe_"));
+    }
+
+    #[derive(Default)]
+    struct RecordedSlack(std::cell::RefCell<Vec<(String, String)>>);
+
+    impl SlackTransport for RecordedSlack {
+        async fn post_slack(&self, url: &str, text: &str) -> Result<(), String> {
+            self.0.borrow_mut().push((url.into(), text.into()));
+            Ok(())
+        }
+
+        async fn slack_api(
+            &self,
+            _: &str,
+            method: &str,
+            _: &[(&str, &str)],
+            body: Option<&serde_json::Value>,
+        ) -> Result<serde_json::Value, String> {
+            assert_eq!(method, "chat.postMessage");
+            let message = body.unwrap();
+            self.0.borrow_mut().push((
+                message["channel"].as_str().unwrap().into(),
+                message["text"].as_str().unwrap().into(),
+            ));
+            Ok(serde_json::json!({"ok": true}))
+        }
+    }
+
+    #[test]
+    fn run_start_opt_in_posts_through_both_slack_destinations() {
+        let test = async {
+            let scope = TenantScope {
+                org_id: "org_00000000000000000000000001".parse().unwrap(),
+                project_id: "prj_00000000000000000000000001".parse().unwrap(),
+            };
+            let notify = crate::notify::memory::MemoryNotify::new(0);
+            let directory = crate::directory::memory::MemoryDirectory::default();
+            let transport = RecordedSlack::default();
+            let app = SlackApp {
+                bot_token: "xoxb-test".into(),
+                signing_secret: "test".into(),
+                default_channel: None,
+            };
+            let mut started = intent("execution.started");
+            started.detail = Some(serde_json::json!({"created_by": "schedule:daily"}));
+            let post = async || {
+                fan_out_slack(
+                    &notify,
+                    &directory,
+                    &transport,
+                    Some(&app),
+                    &scope,
+                    &started,
+                    "Customer onboarding",
+                    None,
+                    "https://runs.example.test",
+                )
+                .await
+                .unwrap()
+            };
+            let webhook = "https://hooks.slack.com/services/test";
+            let channel = "C0123ABCD";
+            notify
+                .save_slack_settings(&scope, Some(webhook.into()), None)
+                .await
+                .unwrap();
+            assert!(!post().await);
+            notify
+                .save_slack_settings(&scope, None, Some(true))
+                .await
+                .unwrap();
+            assert!(post().await);
+            notify
+                .save_slack_settings(
+                    &scope,
+                    Some(SlackTarget::Channel(channel.into()).stored()),
+                    None,
+                )
+                .await
+                .unwrap();
+            assert!(post().await);
+            let messages = transport.0.borrow();
+            assert_eq!(messages.len(), 2);
+            assert_eq!(messages[0].0, webhook);
+            assert_eq!(messages[1].0, channel);
+            assert_eq!(messages[0].1, messages[1].1);
+            assert!(
+                messages[0]
+                    .1
+                    .contains("Customer onboarding (by schedule daily)")
+            );
+        };
+        assert!(
+            std::pin::pin!(test)
+                .poll(&mut std::task::Context::from_waker(std::task::Waker::noop()))
+                .is_ready()
+        );
     }
 
     #[test]
