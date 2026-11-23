@@ -177,7 +177,9 @@ async fn dispatch<B: Backends>(backends: &B, r: &Request) -> Result<(u16, Value)
             return Err(forbidden());
         }
     }
-    route(backends, r, &principal, template, &params, secret).await
+    backends
+        .trace_authenticated_runner(route(backends, r, &principal, template, &params, secret))
+        .await
 }
 
 async fn route<B: Backends>(

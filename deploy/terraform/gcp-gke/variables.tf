@@ -417,17 +417,42 @@ variable "runner_kek_rotation_period" {
 }
 
 variable "runner_vault_vertex_enabled" {
-  description = "Grant the runner vault's service account roles/aiplatform.user. Leave off until attached-identity model use is enabled in the runner."
+  description = "Create a dedicated Vertex inference service account that the runner vault can impersonate."
   type        = bool
   default     = false
+}
+
+variable "runner_google_api_dns" {
+  type        = string
+  default     = "vpc"
+  description = "How runner processes reach Google APIs through the restricted VIP. \"vpc\" adds a private googleapis.com zone to the whole VPC. \"pods\" maps the Google API hostnames the runner uses to the VIP inside runner pods only, for a VPC shared with other workloads."
+  validation {
+    condition     = contains(["vpc", "pods"], var.runner_google_api_dns)
+    error_message = "runner_google_api_dns must be \"vpc\" or \"pods\"."
+  }
+}
+
+variable "runner_vertex_targets" {
+  description = "Map of Vertex project IDs to allowed locations (global or regional). Enable Vertex AI and billing in each target project."
+  type        = map(set(string))
+  default     = {}
+
+  validation {
+    condition = alltrue([
+      for project, locations in var.runner_vertex_targets :
+      can(regex("^[a-z][a-z0-9-]{4,28}[a-z0-9]$", project)) && length(locations) > 0 &&
+      alltrue([for location in locations : length(location) <= 40 && can(regex("^(global|[a-z]+-[a-z]+[1-9][0-9]*)$", location))])
+    ])
+    error_message = "runner_vertex_targets must map valid project IDs to non-empty sets of valid Vertex locations."
+  }
 }
 
 variable "runner_image" {
   type        = string
   default     = ""
-  description = "Digest reference for ghcr.io/angler-ai/runbook-runner."
+  description = "Digest reference for ghcr.io/angler-ai/runbook-runner, or a mirror of it by the same digest."
   validation {
-    condition     = !var.runner_enabled || can(regex("^ghcr[.]io/angler-ai/runbook-runner@sha256:[0-9a-f]{64}$", var.runner_image)) || (var.name_prefix != "" && can(regex("^[^@[:space:]]+/${var.name_prefix}runbook-runner@sha256:[0-9a-f]{64}$", var.runner_image)))
+    condition     = !var.runner_enabled || can(regex("^[a-z0-9][a-z0-9._:/-]*/(runbook-runner|${var.name_prefix}runbook-runner)@sha256:[0-9a-f]{64}$", var.runner_image))
     error_message = "When enabled, pin runbook-runner by digest."
   }
 }
@@ -435,9 +460,9 @@ variable "runner_image" {
 variable "runner_sandbox_image" {
   type        = string
   default     = ""
-  description = "Digest reference for ghcr.io/angler-ai/runbook-sandbox."
+  description = "Digest reference for ghcr.io/angler-ai/runbook-sandbox, or a mirror of it by the same digest."
   validation {
-    condition     = !var.runner_enabled || can(regex("^ghcr[.]io/angler-ai/runbook-sandbox@sha256:[0-9a-f]{64}$", var.runner_sandbox_image)) || (var.name_prefix != "" && can(regex("^[^@[:space:]]+/${var.name_prefix}runbook-sandbox@sha256:[0-9a-f]{64}$", var.runner_sandbox_image)))
+    condition     = !var.runner_enabled || can(regex("^[a-z0-9][a-z0-9._:/-]*/(runbook-sandbox|${var.name_prefix}runbook-sandbox)@sha256:[0-9a-f]{64}$", var.runner_sandbox_image))
     error_message = "When enabled, pin runbook-sandbox by digest."
   }
 }
@@ -666,6 +691,39 @@ variable "runner_secret_manager_secret_ids" {
 
 variable "manage_secret_manager_audit_config" {
   description = "Opt in to replacing this project's Secret Manager service audit configuration with Data Read and Data Write logging. Leave false to manage audit policy separately."
+  type        = bool
+  default     = false
+}
+
+variable "retention_live_days" {
+  type        = string
+  default     = "off"
+  description = "Core finished-run detail live window in days, or off. Sets RUNBOOK_RETENTION_LIVE_DAYS."
+  validation {
+    condition     = var.retention_live_days == "off" || try(can(regex("^[0-9]{1,5}$", var.retention_live_days)) && tonumber(var.retention_live_days) >= 1 && tonumber(var.retention_live_days) <= 36500, false)
+    error_message = "retention_live_days must be a whole number from 1 to 36500, or off."
+  }
+}
+
+variable "trace_export_enabled" {
+  description = "Enable direct OTLP trace export IAM and networking for the core and enabled runner workloads."
+  type        = bool
+  default     = false
+}
+
+variable "trace_sample_ratio" {
+  description = "Fraction of new traces sampled by Runbook. Requests with a parent follow its sampling decision."
+  type        = number
+  default     = 0.1
+
+  validation {
+    condition     = var.trace_sample_ratio >= 0 && var.trace_sample_ratio <= 1
+    error_message = "trace_sample_ratio must be between 0 and 1."
+  }
+}
+
+variable "log_exclusions_enabled" {
+  description = "Exclude Runbook container debug and health-check logs from the project's default log bucket."
   type        = bool
   default     = false
 }

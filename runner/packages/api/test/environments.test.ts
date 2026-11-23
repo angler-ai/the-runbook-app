@@ -119,13 +119,13 @@ it.skipIf(!hasTestDatabase)('enforces environment and monthly caps, with one con
     await expect(reserve(scheduler, context, 0.3, 'model')).resolves.toEqual({ level: 'environment' });
     await expect(reserve(scheduler, { ...context, caps: { ...context.caps, 'environment:day': 2 } }, 0.5, 'model'))
       .resolves.toEqual({ level: 'agent' });
-    await db.admin().query(`INSERT INTO budget_waiting(step_run_id,group_id,project_id,scope,budget_key,period,detail)
-      VALUES ('blocked','g','p','environment',$1,'day','environment Budgeted: daily budget $1 reached')`, [id]);
+    await db.admin().query(`INSERT INTO budget_waiting(step_run_id,group_id,project_id,scope,budget_key,period,detail,execution_id)
+      VALUES ('blocked','g','p','environment',$1,'day','environment Budgeted: daily budget $1 reached','exe_budgeted')`, [id]);
     const { body } = await api({ method: 'GET', target: '/runner/v1/budgets', claims, body: undefined });
     const { items } = body as { items: Budget[] };
     const daily = items.find((row) => row.id === id && row.period === 'day')!;
     expect(daily).toMatchObject({ scope: 'environment', cap: 1, spend: 0.75, percentage: 75,
-      alert_threshold_percent: 25, blocked: [{ step_run_id: 'blocked', reason: expect.stringContaining('Budgeted') }] });
+      alert_threshold_percent: 25, blocked_count: 1, blocked: [{ step_run_id: 'blocked', execution_id: 'exe_budgeted', reason: expect.stringContaining('Budgeted') }] });
     expect(daily.daily_spend).toHaveLength(30);
     expect(daily.daily_spend.at(-1)?.spend_usd).toBe(0.75);
     expect(items.find((row) => row.id === id && row.period === 'concurrency')).toMatchObject({ cap: 2, spend: 0 });
@@ -149,11 +149,31 @@ it.skipIf(!hasTestDatabase)('paginates only visible budget rows and includes a w
     };
     const first = await read('limit=1');
     expect(first.items).toEqual([expect.objectContaining({ id: 'run-a', spend: 0, cap: 0.1,
-      blocked: [{ step_run_id: 'step-a', reason: 'run-a is blocked' }] })]);
+      blocked_count: 1, execution_id: 'run-a',
+      blocked: [{ step_run_id: 'step-a', reason: 'run-a is blocked', execution_id: 'run-a' }] })]);
     expect(first.items[0]?.daily_spend).toHaveLength(30);
     const second = await read('limit=1&cursor=' + first.next_cursor);
     expect(second.items).toEqual([expect.objectContaining({ id: 'run-b' })]);
     expect(second.next_cursor).toBeNull();
+  } finally {
+    await db.drop();
+  }
+});
+
+it.skipIf(!hasTestDatabase)('counts all visible budget waits before limiting linked details', async () => {
+  const db = await createTestDatabase();
+  try {
+    await db.admin().query(`INSERT INTO budget_waiting(step_run_id,group_id,project_id,scope,budget_key,period,detail,cap,execution_id)
+      SELECT 'step-' || n, 'g', 'p', 'run', 'run-a', 'run', 'budget reached', 1, 'run-a'
+      FROM generate_series(1,26) n`);
+    const api = publicResources(db.pool('api'), {} as Parameters<typeof publicResources>[1], async () => {});
+    const target = '/runner/v1/budgets?scope=run&blocked=1';
+    const { body } = await api({ method: 'GET', target, claims: { ...claims, htu: target, org_role: 'member' }, body: undefined });
+    const { items } = body as { items: Budget[] };
+    expect(items).toHaveLength(1);
+    expect(items[0]?.blocked_count).toBe(26);
+    expect(items[0]?.blocked).toHaveLength(25);
+    expect(items[0]?.blocked[0]).toEqual({ step_run_id: 'step-1', execution_id: 'run-a', reason: 'budget reached' });
   } finally {
     await db.drop();
   }

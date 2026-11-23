@@ -5,6 +5,7 @@ import { withTransaction } from '@runbook/runner-shared/db';
 import { CoreError, coreJson, type components } from '@runbook/runner-shared/core-client';
 import { HttpError } from '@runbook/runner-shared/http';
 import { findSecretShapedValues } from '@runbook/runner-shared/secret-shape';
+import { readToolCalls, type ArchiveReader } from '../retention/read.ts';
 import { authorize } from '../authorize.ts';
 import type { PublicRequest } from '../server.ts';
 import { loadCeiling, saveAgentVersionInTransaction, validateEgress, type AgentConfig } from './agents.ts';
@@ -60,8 +61,8 @@ async function pinSkills(directory: SkillDirectory | undefined, project: string,
   return pins;
 }
 
-export function agentResources(pool: pg.Pool, sync: () => Promise<void>, directory?: SkillDirectory) {
-  return async ({ method, claims, body }: PublicRequest, projectId: string, id?: string, operation?: string, transaction?: pg.PoolClient) => {
+export function agentResources(pool: pg.Pool, sync: () => Promise<void>, directory?: SkillDirectory, archives?: ArchiveReader) {
+  return async ({ method, claims, body, target }: PublicRequest, projectId: string, id?: string, operation?: string, transaction?: pg.PoolClient) => {
     const resource = { kind: 'agent', projectId } as const;
     if (method === 'GET') {
       if (authorize(claims, 'read', resource) !== 'allow') denied();
@@ -85,10 +86,8 @@ export function agentResources(pool: pg.Pool, sync: () => Promise<void>, directo
         return { body: { items: versions.rows } };
       }
       if (operation === 'tool-calls') {
-        const rows = await pool.query(
-          'SELECT * FROM tool_calls WHERE agent_id = $1 AND project_id = $2 ORDER BY id DESC LIMIT 1000', [id, projectId],
-        );
-        return { body: { items: rows.rows } };
+        const step = new URL(target, 'http://internal').searchParams.get('step_run_id');
+        return { body: await readToolCalls(pool, projectId, id ?? '', step, archives) };
       }
       const result = await pool.query(
         `SELECT a.id, a.project_id, a.group_id, a.name, a.description, a.current_version_id, a.created_at, a.updated_at,

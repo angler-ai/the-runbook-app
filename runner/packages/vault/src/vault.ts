@@ -17,6 +17,7 @@ import { OAuthAccessService } from './oauth/access.ts';
 import { TunneledOAuthProvider, type OAuthProvider } from './oauth/provider.ts';
 import { ReleaseService } from './releases.ts';
 import type { SecretManager } from './secret-manager.ts';
+import { VertexIdentity } from './vertex-identity.ts';
 import { SecretStore } from './secrets.ts';
 
 export interface VaultOptions {
@@ -30,6 +31,7 @@ export interface VaultOptions {
   core?: CoreOptions;
   gateway?: GatewayOptions;
   oauthProvider?: OAuthProvider;
+  vertexIdentity?: VertexIdentity;
   secretManager?: Pick<SecretManager, 'access' | 'assertAllowed'>;
   /** How often to renew grants and end revoked releases (ms); 0 disables the timers (tests). */
   renewIntervalMs?: number;
@@ -52,6 +54,7 @@ export class Vault {
   private rotating?: Promise<number>;
   private readonly timers: NodeJS.Timeout[] = [];
 
+  readonly vertex: VertexIdentity;
   readonly installId?: string;
 
   private constructor(options: Resolved, displayKey: Buffer, identity: VaultIdentity) {
@@ -62,6 +65,7 @@ export class Vault {
     this.orgId = options.orgId;
     this.now = options.now;
     this.log = options.log;
+    this.vertex = options.vertexIdentity ?? new VertexIdentity({ now: this.now });
     this.ingest = new IngestKeys(this.pool, this.kek, this.now);
     this.secrets = new SecretStore({
       pool: this.pool,
@@ -97,6 +101,7 @@ export class Vault {
             core: new CoreGrants(options.core, this.now),
             gateway,
             oauth: this.oauth,
+            vertex: this.vertex,
             secrets: this.secrets,
             now: this.now,
             log: this.log,

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useExecutionDocument } from '../../api/hooks';
 import { Gauge } from 'lucide-react';
 import { EmptyState } from '../../ui/layout';
 import { StatusPill } from '../../ui/status/StatusPill';
@@ -9,6 +10,10 @@ import { Rows } from './presentation';
 import { Field } from './presentation';
 import { Problem, selectClasses, textLink } from './runnerForms';
 import type { Budget, BudgetOverview, Project } from './resources';
+
+function stepLink(execution: string, step: string) {
+  return `/x/${encodeURIComponent(execution)}?view=steps&step=${encodeURIComponent(step)}`;
+}
 
 function editLink(budget: Budget, projects: Project[]) {
   const project = projects.find(({ id }) => id === budget.project_id);
@@ -26,7 +31,9 @@ function editLink(budget: Budget, projects: Project[]) {
     case 'run':
       return `/x/${budget.id}`;
     case 'step':
-      return project ? `/p/${project.slug}/runbooks` : '/runner/policy#policy-defaults';
+      return budget.execution_id
+        ? stepLink(budget.execution_id, budget.id)
+        : '/runner/policy#policy-defaults';
     default:
       return '/runner/policy#policy-budgets';
   }
@@ -46,7 +53,7 @@ function budgetName(budget: Budget, projects: Project[]) {
   if (budget.scope === 'project')
     return projects.find((project) => project.id === budget.id)?.title ?? 'Project budget';
   if (budget.scope === 'run' || budget.scope === 'step')
-    return budget.name === budget.id ? `${scopeNames[budget.scope]} budget` : budget.name;
+    return budget.name === budget.id ? `${scopeNames[budget.scope]} ${budget.id}` : budget.name;
   return budget.name;
 }
 
@@ -58,54 +65,145 @@ const periodNames = {
   step: 'Per step',
 };
 
+function BudgetTrend({ budget, name }: { budget: Budget; name: string }) {
+  const days = budget.daily_spend;
+  const first = days[0]?.spend_usd;
+  const last = days.at(-1)?.spend_usd;
+  if (first == null || last == null || budget.period === 'concurrency') return '—';
+  const peak = Math.max(...days.map((day) => day.spend_usd));
+  const summary =
+    first === last
+      ? `Daily spend started and ended at ${dollars(first)}. Peak ${dollars(peak)}.`
+      : `Daily spend ${first < last ? 'rose' : 'fell'} from ${dollars(first)} to ${dollars(last)}. Peak ${dollars(peak)}.`;
+  return (
+    <div className="grid gap-1">
+      <Sparkline series={days.map((day) => day.spend_usd)} label={`${name} daily spend`} />
+      <details className="text-xs">
+        <summary className="cursor-pointer">{summary}</summary>
+        <ul className="mt-2 max-h-44 overflow-auto">
+          {days.map((day) => (
+            <li key={day.date}>
+              {day.date} · {dollars(day.spend_usd)}
+            </li>
+          ))}
+        </ul>
+      </details>
+    </div>
+  );
+}
+
+function NamedBlockedStep({ step }: { step: Budget['blocked'][number] }) {
+  const report = useExecutionDocument(step.execution_id);
+  return (
+    <BlockedStep
+      step={step}
+      title={
+        report.data?.sections?.find((section) => section.step_run_id === step.step_run_id)?.title
+      }
+      run={report.data?.header?.title}
+    />
+  );
+}
+
+function BlockedStep({
+  step,
+  title,
+  run,
+}: {
+  step: Budget['blocked'][number];
+  title?: string;
+  run?: string;
+}) {
+  return (
+    <li className="grid gap-0.5">
+      {step.execution_id ? (
+        <>
+          <a
+            className={textLink + ' break-words'}
+            href={stepLink(step.execution_id, step.step_run_id)}
+          >
+            {step.title ?? title ?? `Step ${step.step_run_id}`}
+          </a>
+          <a
+            className={textLink + ' break-words'}
+            href={`/x/${encodeURIComponent(step.execution_id)}`}
+          >
+            {run ?? `Run ${step.execution_id}`}
+          </a>
+        </>
+      ) : (
+        <span className="break-words">{step.title ?? title ?? `Step ${step.step_run_id}`}</span>
+      )}
+      <span>{step.reason}</span>
+    </li>
+  );
+}
+
+function BlockedBudget({ budget }: { budget: Budget }) {
+  const [expanded, setExpanded] = useState(false);
+  const count = budget.blocked_count ?? budget.blocked.length;
+  if (!count) return <span className="text-fg-muted">None</span>;
+  return (
+    <details className="min-w-32" onToggle={(event) => setExpanded(event.currentTarget.open)}>
+      <summary className="cursor-pointer">
+        <StatusPill status="waiting" label={`${count} blocked`} />
+      </summary>
+      {count > budget.blocked.length && (
+        <p className="mt-2 text-xs text-fg-muted">
+          {budget.blocked.length} of {count} blocked steps
+        </p>
+      )}
+      <ul className="mt-2 grid max-h-64 gap-2 overflow-auto text-xs">
+        {budget.blocked.map((step) =>
+          expanded && step.execution_id ? (
+            <NamedBlockedStep key={step.step_run_id} step={step} />
+          ) : (
+            <BlockedStep key={step.step_run_id} step={step} />
+          ),
+        )}
+      </ul>
+    </details>
+  );
+}
+
 export function BudgetTable({
   items,
   projects,
   timeZone,
+  filtered = false,
 }: {
   items: Budget[];
   projects: Project[];
   timeZone: string;
+  filtered?: boolean;
 }) {
-  const [scope, setScope] = useState('all');
   if (!items.length)
     return (
       <EmptyState
         icon={Gauge}
-        title="No budgets configured"
-        description="Set organization limits in Policy or add a budget to an environment."
+        title={filtered ? 'No matching budgets' : 'No budgets configured'}
+        description={
+          filtered
+            ? 'Try a different scope or include unblocked budgets.'
+            : 'Set organization limits in Policy or add a budget to an environment.'
+        }
         action={
-          <a className={textLink} href="/runner/policy">
-            Open policy
-          </a>
+          !filtered && (
+            <a className={textLink} href="/runner/policy">
+              Open policy
+            </a>
+          )
         }
       />
     );
-  const visible = items.filter((item) => scope === 'all' || item.scope === scope);
   return (
     <div className="grid gap-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <Field label="Scope">
-          <select
-            className={selectClasses + ' min-w-36'}
-            value={scope}
-            onChange={(event) => setScope(event.target.value)}
-          >
-            <option value="all">All budgets</option>
-            {[...new Set(items.map((item) => item.scope))].map((value) => (
-              <option key={value} value={value}>
-                {scopeNames[value]}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <p className="text-sm text-fg-muted">Budget periods use {timeZone}</p>
-      </div>
+      <p className="text-sm text-fg-muted">Budget periods use {timeZone}</p>
       <Rows
         label="Runner budgets"
         stackOnMobile
         columns={['Budget', 'Period', 'Used / cap', 'Last 30 days', 'Alert at', 'Blocked now']}
-        rows={visible.map((budget) => ({
+        rows={items.map((budget) => ({
           id: `${budget.scope}:${budget.id}:${budget.period}`,
           cells: [
             <>
@@ -133,29 +231,9 @@ export function BudgetTable({
                 </div>
               )}
             </div>,
-            budget.daily_spend.length ? (
-              <Sparkline
-                series={budget.daily_spend.map((day) => day.spend_usd)}
-                label={`${budgetName(budget, projects)} spend over the last 30 days`}
-              />
-            ) : (
-              '—'
-            ),
+            <BudgetTrend budget={budget} name={budgetName(budget, projects)} />,
             budget.alert_threshold_percent == null ? '—' : `${budget.alert_threshold_percent}%`,
-            budget.blocked.length ? (
-              <details className="min-w-32">
-                <summary className="cursor-pointer">
-                  <StatusPill status="waiting" label={`${budget.blocked.length} blocked`} />
-                </summary>
-                <ul className="mt-2 grid gap-1 text-xs">
-                  {budget.blocked.map((step) => (
-                    <li key={step.step_run_id}>{step.reason}</li>
-                  ))}
-                </ul>
-              </details>
-            ) : (
-              <span className="text-fg-muted">None</span>
-            ),
+            <BlockedBudget budget={budget} />,
           ],
         }))}
       />
@@ -164,7 +242,55 @@ export function BudgetTable({
 }
 
 export function Budgets({ status, projects }: { status: RunnerStatus; projects: Project[] }) {
-  const query = useRunnerQuery<BudgetOverview>(status, '/budgets');
+  const [scope, setScope] = useState('all');
+  const [blocked, setBlocked] = useState(false);
+  const query = new URLSearchParams();
+  if (scope !== 'all') query.set('scope', scope);
+  if (blocked) query.set('blocked', '1');
+  const search = query.toString();
+  return (
+    <div className="grid gap-4">
+      <div className="flex flex-wrap items-end gap-3">
+        <Field label="Scope">
+          <select
+            className={selectClasses + ' min-w-36'}
+            value={scope}
+            onChange={(event) => setScope(event.target.value)}
+          >
+            <option value="all">All budgets</option>
+            {Object.entries(scopeNames).map(([value, name]) => (
+              <option key={value} value={value}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <label className="flex min-h-10 items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="accent-accent"
+            checked={blocked}
+            onChange={(event) => setBlocked(event.target.checked)}
+          />
+          Blocked now
+        </label>
+      </div>
+      <BudgetResults key={search} status={status} projects={projects} search={search} />
+    </div>
+  );
+}
+
+function BudgetResults({
+  status,
+  projects,
+  search,
+}: {
+  status: RunnerStatus;
+  projects: Project[];
+  search: string;
+}) {
+  const path = search ? '/budgets?' + search : '/budgets';
+  const query = useRunnerQuery<BudgetOverview>(status, path);
   const [more, setMore] = useState<{ items: Budget[]; cursor: string | null } | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [moreError, setMoreError] = useState<unknown>(null);
@@ -185,7 +311,7 @@ export function Budgets({ status, projects }: { status: RunnerStatus; projects: 
     try {
       const page = await runnerRequest<BudgetOverview>(
         install,
-        `/budgets?cursor=${encodeURIComponent(cursor)}`,
+        `${path}${search ? '&' : '?'}cursor=${encodeURIComponent(cursor)}`,
         'GET',
       );
       setMore({ items: [...(more?.items ?? []), ...page.items], cursor: page.next_cursor ?? null });
@@ -197,7 +323,12 @@ export function Budgets({ status, projects }: { status: RunnerStatus; projects: 
   }
   return (
     <div className="grid gap-3">
-      <BudgetTable items={items} projects={projects} timeZone={query.data.time_zone} />
+      <BudgetTable
+        items={items}
+        projects={projects}
+        timeZone={query.data.time_zone}
+        filtered={Boolean(search)}
+      />
       {moreError ? <Problem>{runnerError(moreError)}</Problem> : null}
       {cursor ? (
         <div>

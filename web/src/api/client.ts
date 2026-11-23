@@ -10,6 +10,7 @@
 import createClient, { type Middleware } from 'openapi-fetch';
 import type { components, paths } from './schema';
 import { endSession } from './session-end';
+import { browserTraceparent } from './trace';
 import { readStepUpPrincipal, requestStepUp } from './step-up';
 import { sessionStore, tokenStore } from './token-store';
 
@@ -145,6 +146,10 @@ export function createApiRuntime(options: ApiRuntimeOptions = {}): ApiRuntime {
   const middleware: Middleware = {
     onRequest({ request }) {
       const headers = new Headers(request.headers);
+      if (!headers.has('traceparent')) {
+        const traceparent = browserTraceparent();
+        if (traceparent) headers.set('traceparent', traceparent);
+      }
       const token = getToken();
       if (token) headers.set('authorization', `Bearer ${token}`);
       if (!headers.has('x-runbook-csrf')) headers.set('x-runbook-csrf', '1');

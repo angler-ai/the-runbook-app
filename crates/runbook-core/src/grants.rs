@@ -219,6 +219,7 @@ pub async fn runner_claim<S: SessionStore>(
     request: &ClaimRequest,
     claim_id: ClaimId,
     replay: Option<&Replay>,
+    trace_id: Option<String>,
 ) -> Result<ClaimRef, ActorError> {
     let agent = target_agent(&work, step_run_id)?;
     let policy = policy_of(&work, step_run_id)?;
@@ -270,6 +271,7 @@ pub async fn runner_claim<S: SessionStore>(
             .await?;
             return Err(ActorError::rejected("claim.outside_ceiling"));
         };
+        work.runner_trace = trace_id;
         return crate::decisions::claim_decision(
             work,
             runner_id,
@@ -282,6 +284,7 @@ pub async fn runner_claim<S: SessionStore>(
         .await;
     }
     work.runner_pin = Some(entry.version_id.clone());
+    work.runner_trace = trace_id;
     crate::claims::claim_step(work, principal, step_run_id, request, claim_id, replay).await
 }
 

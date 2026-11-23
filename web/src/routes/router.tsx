@@ -372,7 +372,18 @@ const runnerPage = lazyRouteComponent(
   'RunnerSettingsPage',
 );
 function runnerRoute<const Path extends string>(path: Path) {
-  return createRoute({ getParentRoute: () => authenticatedRoute, path, component: runnerPage });
+  return createRoute({
+    getParentRoute: () => authenticatedRoute,
+    path,
+    component: runnerPage,
+    validateSearch: (
+      search: Record<string, unknown>,
+    ): { project?: string; agent?: string; connection?: string } => ({
+      project: typeof search.project === 'string' ? search.project : undefined,
+      agent: typeof search.agent === 'string' ? search.agent : undefined,
+      connection: typeof search.connection === 'string' ? search.connection : undefined,
+    }),
+  });
 }
 const runnerConnectionsDetailRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
@@ -390,8 +401,10 @@ const projectSettingsRoute = createRoute({
   component: ProjectSettingsPage,
 });
 
-const agentsSearch = (search: Record<string, unknown>): { tab?: string } =>
-  typeof search.tab === 'string' ? { tab: search.tab } : {};
+const agentsSearch = (search: Record<string, unknown>): { tab?: string; connection?: string } => ({
+  ...(typeof search.tab === 'string' && { tab: search.tab }),
+  ...(typeof search.connection === 'string' && { connection: search.connection }),
+});
 const projectAgentsRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: '/p/$project/agents',

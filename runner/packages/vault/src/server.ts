@@ -182,6 +182,14 @@ export function vaultRoutes(vault: Vault, soleRunner?: string): Route[] {
       },
     },
     {
+      method: 'POST', path: '/internal/vertex/validate', callers: ['api'],
+      async handle({ body }) {
+        const target = body as { type?: unknown; project_id?: unknown; region?: unknown } | null;
+        vault.vertex.assertTarget(target?.type, target?.project_id, target?.region);
+        return { status: 204 };
+      },
+    },
+    {
       method: 'GET',
       path: '/internal/ingest-key',
       callers: ['api'],

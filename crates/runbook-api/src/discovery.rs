@@ -14,6 +14,7 @@ pub struct DiscoveryConfig {
     pub schema: BTreeMap<String, u64>,
     /// UI-1: the theme override `/v1/meta` reports ([`theme_from_vars`]).
     pub theme: Option<ThemeView>,
+    pub trace_sample_ratio: Option<String>,
     /// The per-run step cap `/v1/meta` reports (none: no cap).
     pub step_runs: Option<u64>,
 }
@@ -52,6 +53,7 @@ impl DiscoveryConfig {
             },
             usage: None,
             theme: self.theme.clone(),
+            trace_sample_ratio: self.trace_sample_ratio.clone(),
         }
     }
 }

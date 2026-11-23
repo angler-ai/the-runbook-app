@@ -139,5 +139,5 @@ export function runnerError(error: unknown) {
   return error instanceof Error ? error.message : 'The runner returned an unexpected response.';
 }
 
-export type Items<T> = { items: T[] };
+export type Items<T> = { items: T[]; archived?: true; archived_at?: string };
 export type Row = Record<string, unknown>;

@@ -181,6 +181,7 @@ pub fn router(sign_in: bool) -> Router<Fake> {
                 version: runbook_api::VERSION.into(),
                 schema: Default::default(),
                 theme: None,
+                trace_sample_ratio: None,
                 step_runs: None,
             },
             authoring: Default::default(),

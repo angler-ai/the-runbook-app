@@ -10,7 +10,7 @@ export function geminiEndpoint(endpoint: URL) {
   return match[1]!;
 }
 
-export function geminiModel(modelId: string, endpoint: URL, token: string, fetcher: typeof fetch): LanguageModelV4 {
+export function geminiModel(modelId: string, endpoint: URL, token: string, fetcher: typeof fetch, useQuotaProjectHeader: boolean): LanguageModelV4 {
   const project = geminiEndpoint(endpoint);
   if (!/^gemini-[\w-]+$/.test(modelId)) throw new Error('invalid Gemini Vertex model');
   // The SDK's Express-mode switch bypasses its ADC lookup. The fetch adapter
@@ -22,7 +22,9 @@ export function geminiModel(modelId: string, endpoint: URL, token: string, fetch
       const headers = new Headers(init?.headers);
       headers.delete('x-goog-api-key');
       headers.set('authorization', `Bearer ${token}`);
-      headers.set('x-goog-user-project', project);
+      // Attached inference uses the project in the resource path. Sending
+      // an explicit quota-project override also requires serviceusage.services.use.
+      if (useQuotaProjectHeader) headers.set('x-goog-user-project', project);
       // The installed Vertex SDK omits IDs on requests even when the model
       // returns them. Restore them in the same order as the converted parts.
       const ids = call.prompt.flatMap((message) => typeof message.content === 'string' ? [] :

@@ -5,6 +5,7 @@ import { runnerError, type Row } from '../runner/api';
 import { validateAgentName } from './AgentConfiguration';
 import type { Credential } from '../runner/Credentials';
 import type { Environment } from '../runner/resources';
+import { FieldError, RunnerForm } from '../runner/runnerForms';
 import { Field, panel } from '../runner/presentation';
 
 const templates = {
@@ -54,7 +55,7 @@ export function TemplateForm({
   );
 
   return (
-    <form
+    <RunnerForm
       className={panel}
       onSubmit={async (event) => {
         event.preventDefault();
@@ -66,14 +67,25 @@ export function TemplateForm({
           const profile = fields.get('profile');
           const name = String(fields.get('name') ?? '').trim();
           validateAgentName(name);
-          if (!fields.get('group')) throw new Error('Runner group must be selected.');
+          if (!fields.get('group')) throw new FieldError('group', 'Runner group must be selected.');
           const grants = fields.getAll('environment-credential');
           if (required.some((id) => !available.some((item) => item.id === id)))
-            throw new Error(
+            throw new FieldError(
+              'environment',
               'Environment requires a proxy credential that is not shared with this project.',
             );
-          if (required.some((id) => !grants.includes(id)))
-            throw new Error('Select each required proxy credential to use this environment.');
+          const missing = available.flatMap((item, index) =>
+            grants.includes(item.id)
+              ? []
+              : [
+                  {
+                    name: 'environment-credential',
+                    index,
+                    message: `Grant ${item.name} to use this environment.`,
+                  },
+                ],
+          );
+          if (missing.length) throw new FieldError(missing);
           await create({
             name,
             ...(environmentId && { environment_id: environmentId }),
@@ -87,6 +99,7 @@ export function TemplateForm({
             status: profile ? 'active' : 'draft',
           });
         } catch (error) {
+          if (error instanceof FieldError) throw error;
           setError(runnerError(error));
         } finally {
           setPending(false);
@@ -186,6 +199,6 @@ export function TemplateForm({
           {error}
         </p>
       )}
-    </form>
+    </RunnerForm>
   );
 }

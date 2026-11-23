@@ -294,6 +294,10 @@ pub enum Event {
         step_run_id: StepRunId,
         note: runbook_model::ApprovalAgentNote,
     },
+    RunnerTraceRecorded {
+        step_run_id: StepRunId,
+        trace_id: String,
+    },
     StepCostReported {
         step_run_id: StepRunId,
         cost: crate::RecordedCost,
@@ -423,6 +427,7 @@ impl Event {
             Self::StepWaiting { .. } => "StepWaiting",
             Self::CredentialReleased { .. } => "CredentialReleased",
             Self::CredentialRevoked { .. } => "CredentialRevoked",
+            Self::RunnerTraceRecorded { .. } => "RunnerTraceRecorded",
             Self::StepCostReported { .. } => "StepCostReported",
         }
     }

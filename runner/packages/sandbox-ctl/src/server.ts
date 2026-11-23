@@ -1,3 +1,4 @@
+import { fetchWithTrace, inSpan, setLabels } from '@runbook/runner-shared/telemetry';
 import { randomUUID } from 'node:crypto';
 import { CREDENTIAL_PLACEHOLDER_PREFIX } from '@runbook/runner-shared/credential-source';
 import { sandboxIdForClaim, type CapabilityVerifier } from '@runbook/runner-shared/capability';
@@ -41,7 +42,7 @@ export function sandboxService(backend: DockerSandboxBackend | KubernetesSandbox
 
   async function gateway(method: 'POST' | 'DELETE', path: string, body: object) {
     try {
-      return await fetch(`${config.urls.gateway}/internal/sandboxes${path}`, {
+      return await fetchWithTrace(`${config.urls.gateway}/internal/sandboxes${path}`, {
         method, headers: { 'content-type': 'application/json', authorization: `Bearer ${config.outboundTokens.gateway}` },
         body: JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(4000),
       });
@@ -86,6 +87,7 @@ export function sandboxService(backend: DockerSandboxBackend | KubernetesSandbox
   async function verify(id: string | undefined, capability: unknown) {
     if (typeof capability !== 'string') throw new HttpError(401, 'capability.invalid', 'the step capability is invalid');
     const claims = await verifier.verifyCapability(capability);
+    setLabels({ project: claims.project_id, step_run: claims.sub });
     if (id !== undefined && id !== sandboxIdForClaim(claims)) throw missing();
     return { capability, claims };
   }
@@ -117,7 +119,7 @@ export function sandboxService(backend: DockerSandboxBackend | KubernetesSandbox
   const callers = ['worker'] as const;
   const routes: Route[] = [{
     method: 'POST', path: '/internal/sandboxes', callers,
-    async handle({ body, request }) {
+    handle: ({ body, request }) => inSpan('sandbox.create', async () => {
       const input = body as { capability?: unknown; size?: SandboxSize; image?: unknown } | undefined;
       let { claims, capability } = await verify(undefined, input?.capability);
       const environment = options.environments ? await compute.environment(capability) : undefined;
@@ -228,7 +230,7 @@ export function sandboxService(backend: DockerSandboxBackend | KubernetesSandbox
       } finally {
         creating.delete(id);
       }
-    },
+    }),
   }, {
     method: 'POST', path: '/internal/sandboxes/{id}/renew', callers,
     async handle(ctx) {
@@ -296,7 +298,8 @@ export function sandboxService(backend: DockerSandboxBackend | KubernetesSandbox
       const id = ctx.params.id ?? '';
       await verify(id, ctx.request?.headers['x-runbook-capability']);
       creating.get(id)?.abort();
-      await destroy(await forRoute(ctx));
+      const entry = await forRoute(ctx);
+      await inSpan('sandbox.destroy', () => destroy(entry));
       return { status: 204 };
     },
   }];

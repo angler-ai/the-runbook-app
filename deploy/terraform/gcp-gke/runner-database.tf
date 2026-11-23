@@ -30,7 +30,9 @@ locals {
   # Each pod also has a dedicated LISTEN socket. Include Kubernetes's
   # default 25% rollout surge (rounded up) and leave space for maintenance.
   runner_core_connections = (var.replicas + ceil(var.replicas / 4)) * (var.database_pool_size + var.auth_database_pool_size + 1)
-  runner_sql_headroom     = local.runner_sql_max_connections <= 25 ? 4 : 5
+  runner_sql_headroom     = local.runner_sql_max_connections <= 25 ? 4 - local.runner_archive_connections : 5
+  # Archive uploads hold the leader session without occupying the API pool.
+  runner_archive_connections = var.runner_retention_live_days == "off" ? 0 : 1
   # The migration's control connection and its advisory-lock connection.
   runner_bootstrap_connections = 2
   # Give the IAM logins a spare connection each on larger tiers (operator
@@ -38,11 +40,11 @@ locals {
   runner_login_spare = local.runner_sql_max_connections > 25 ? 1 : 0
   runner_db_pool_size = min(var.runner_database_pool_size, floor((
     local.runner_sql_max_connections - local.runner_core_connections - local.runner_sql_headroom -
-    local.runner_bootstrap_connections - 2 * local.runner_login_spare
+    local.runner_bootstrap_connections - local.runner_archive_connections - 2 * local.runner_login_spare
   ) / 3))
   # PostgreSQL counts CONNECTION LIMIT against the login, even after SET ROLE.
   runner_db_limits = {
-    api       = 2 * local.runner_db_pool_size + local.runner_login_spare
+    api       = 2 * local.runner_db_pool_size + local.runner_archive_connections + local.runner_login_spare
     vault     = local.runner_db_pool_size + local.runner_login_spare
     bootstrap = local.runner_bootstrap_connections
   }
@@ -89,7 +91,7 @@ resource "kubernetes_manifest" "runner_database_migration" {
     apiVersion = "batch/v1"
     kind       = "Job"
     metadata = merge({
-      name      = "${var.name_prefix}runner-migration-${substr(sha256(jsonencode(concat([var.runner_image, var.runner_install.role_prefix, local.runner_proxy.image, local.core_database_name, local.runner_database_name, var.runner_install.group_id, var.runner_install.runner_id, var.runner_worker_capacity, local.runner_db_limits, local.runner_sql_max_connections, local.runner_core_connections], length(var.labels) == 0 ? [] : [var.labels]))), 0, 16)}"
+      name      = "${var.name_prefix}runner-migration-${substr(sha256(jsonencode(concat([var.runner_image, var.runner_install.role_prefix, local.runner_proxy.image, local.core_database_name, local.runner_database_name, var.runner_install.group_id, var.runner_install.runner_id, var.runner_worker_capacity, local.runner_db_limits, local.runner_sql_max_connections, local.runner_core_connections, local.runner_proxy_flags], length(var.labels) == 0 ? [] : [var.labels], length(local.runner_google_api_host_aliases) == 0 ? [] : [local.runner_google_api_host_aliases]))), 0, 16)}"
       namespace = local.runner_namespace
     }, length(var.labels) == 0 ? {} : { labels = var.labels })
     spec = {
@@ -97,7 +99,7 @@ resource "kubernetes_manifest" "runner_database_migration" {
       activeDeadlineSeconds = 300
       template = {
         metadata = { labels = merge(var.labels, { "runbook.dev/process" = "bootstrap" }) }
-        spec = {
+        spec = merge({
           serviceAccountName           = kubernetes_service_account_v1.runner["bootstrap"].metadata[0].name
           automountServiceAccountToken = false
           restartPolicy                = "Never"
@@ -127,7 +129,7 @@ resource "kubernetes_manifest" "runner_database_migration" {
               { name = "RUNNER_INSTALL_WORKER_CAPACITY", value = tostring(var.runner_worker_capacity) },
             ]
           }]
-        }
+        }, local.runner_google_api_host_aliases)
       }
     }
   }

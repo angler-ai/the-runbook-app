@@ -1,3 +1,4 @@
+import { traceFetch } from '@runbook/runner-shared/telemetry';
 // The vault's client for the gateway's internal routes: material is pushed
 // there (and deleted there), never returned to a caller (design §7.5).
 import type { ClaimFence, GatewayTestRequest, GatewayTestResponse, MaterialPush, McpDiscoveryRequest } from '@runbook/runner-shared/contracts/internal';
@@ -18,7 +19,7 @@ export class GatewayClient {
   private async call(method: string, path: string, body?: unknown, timeout = 15_000): Promise<Response> {
     const doFetch = this.o.fetch ?? fetch;
     try {
-      return await doFetch(this.o.baseUrl + path, {
+      return await traceFetch(doFetch, this.o.baseUrl + path, {
         method,
         headers: {
           authorization: `Bearer ${this.o.token}`,

@@ -1,3 +1,4 @@
+import { fetchWithTrace } from '@runbook/runner-shared/telemetry';
 import { HttpError } from '@runbook/runner-shared/http';
 import { loadConfig } from '@runbook/runner-shared/config';
 import { createLogger } from '@runbook/runner-shared/log';
@@ -26,7 +27,7 @@ export async function main(): Promise<void> {
     stepRedactionRoute(verifier, store, redaction, soleRunner, Date.now, sandboxes.hasSandbox),
     stepRedactionRoute(verifier, store, redaction, soleRunner, Date.now, sandboxes.hasSandbox, async (record, signal) => {
       const timeout = AbortSignal.timeout(10_000);
-      const result = await fetch(`${config.urls.api}/internal/transcripts`, {
+      const result = await fetchWithTrace(`${config.urls.api}/internal/transcripts`, {
         method: 'POST', redirect: 'error', body: JSON.stringify(record),
         headers: { authorization: `Bearer ${config.outboundTokens.api}`, 'content-type': 'application/json' },
         signal: signal ? AbortSignal.any([timeout, signal]) : timeout,

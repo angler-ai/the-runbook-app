@@ -1,3 +1,4 @@
+import { fetchExternal } from '@runbook/runner-shared/telemetry';
 import { Agent } from 'undici';
 import { pinnedAddress } from './rules.ts';
 
@@ -24,7 +25,7 @@ export const pinnedFetch = async (input: Parameters<typeof fetch>[0], init?: Req
     // describes an older Undici revision with a different FormData type.
     const options: RequestInit = { ...init, dispatcher: dispatcher as unknown as RequestInit['dispatcher'], redirect: 'error' };
     dispatched?.();
-    const response = await fetch(input, options);
+    const response = await fetchExternal(input, options);
     // This waits for the response body to be consumed before closing sockets.
     void dispatcher.close().catch(() => undefined);
     return response;

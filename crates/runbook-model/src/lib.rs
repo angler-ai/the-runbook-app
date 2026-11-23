@@ -497,6 +497,9 @@ pub struct StepView {
 pub struct StepRunnerView {
     pub agent_id: String,
     pub agent_name: String,
+    /// The most recent sampled runner claim's W3C trace ID (32 lowercase hex digits).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_id: Option<String>,
     /// The model profile the step asked for, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,

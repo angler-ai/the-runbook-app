@@ -30,10 +30,44 @@ fn read_timeout(default: Duration) -> Duration {
 fn agent(read: Duration) -> ureq::Agent {
     ureq::AgentBuilder::new()
         .redirects(0)
+        .middleware(propagate_traceparent)
         .timeout_connect(CONNECT_TIMEOUT.min(read.max(Duration::from_millis(100))))
         .timeout_read(read)
         .timeout_write(read)
         .build()
+}
+
+// A CLI invoked inside a traced job may receive the job's W3C context.
+#[allow(clippy::result_large_err)] // ureq fixes the middleware return type.
+fn propagate_traceparent(
+    mut request: ureq::Request,
+    next: ureq::MiddlewareNext<'_>,
+) -> Result<ureq::Response, ureq::Error> {
+    if let Ok(value) = std::env::var("TRACEPARENT")
+        && valid_traceparent(&value)
+    {
+        request = request.set("traceparent", &value);
+    }
+    next.handle(request)
+}
+
+fn valid_traceparent(value: &str) -> bool {
+    let mut parts = value.split('-');
+    let hex = |part: &str, length| {
+        part.len() == length
+            && part
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    };
+    parts.next() == Some("00")
+        && parts
+            .next()
+            .is_some_and(|v| hex(v, 32) && v.bytes().any(|b| b != b'0'))
+        && parts
+            .next()
+            .is_some_and(|v| hex(v, 16) && v.bytes().any(|b| b != b'0'))
+        && parts.next().is_some_and(|v| hex(v, 2))
+        && parts.next().is_none()
 }
 
 impl fmt::Debug for ApiClient {

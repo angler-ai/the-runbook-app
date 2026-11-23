@@ -3216,6 +3216,8 @@ export interface components {
             header: components["schemas"]["ExecutionView"];
             /** @description In execution step-path order, including iteration/attempt paths; not a map. */
             sections: components["schemas"]["StepSection"][];
+            /** @description Google Cloud project used to link this run's traces. */
+            trace_project?: string | null;
         };
         ExecutionId: string;
         /** @description LANG4: the `call` step that started a child execution. */
@@ -3708,6 +3710,8 @@ export interface components {
              *     absent when no theme variable is set.
              */
             theme?: components["schemas"]["ThemeView"] | null;
+            /** @description Root trace sampling ratio for browser API calls (decimal from 0 to 1). */
+            trace_sample_ratio?: string | null;
             usage?: {
                 [key: string]: number;
             } | null;
@@ -4554,6 +4558,8 @@ export interface components {
             released_never_reported?: boolean;
             /** @description Credentials released to the step's claims (never values). */
             releases?: components["schemas"]["StepCredentialRelease"][];
+            /** @description The most recent sampled runner claim's W3C trace ID (32 lowercase hex digits). */
+            trace_id?: string | null;
             /** @description The runner's words for people about the wait, if it gave any. */
             waiting_detail?: string | null;
             /** @description Why the step waits for its runner, until it is claimed. */

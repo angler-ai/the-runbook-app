@@ -13,7 +13,7 @@ import { Overview } from './Overview';
 import { OrgAgents } from './OrgAgents';
 import { Budgets } from './Budgets';
 import { EnvironmentPage, Environments } from './Environments';
-import { OfflineBanner, SetupCard } from './presentation';
+import { SetupCard } from './presentation';
 import { Problem, selectClasses, textLink } from './runnerForms';
 
 const pages = [
@@ -23,11 +23,22 @@ const pages = [
   ['environments', 'Environments', 'Configure the sandboxes in which your agents work.'],
   ['budgets', 'Budgets', 'Track spend, concurrency and blocked work across every budget.'],
   ['policy', 'Policy', 'Set organization limits and agent defaults.'],
-  ['agents', 'Agents', 'See runner agents across your projects.'],
+  ['agents', 'All agents', 'See runner agents across your projects.'],
   ['credentials', 'Credentials', 'Manage the credentials your runner uses to sign in.'],
   ['audit', 'Audit', 'Review changes to runner configuration and access.'],
   ['proposals', 'Proposals', 'Review changes proposed by agents.'],
 ] as const;
+
+const sections = [
+  ['Monitoring', ['overview', 'budgets', 'audit', 'agents']],
+  ['Integrations', ['connections', 'credentials']],
+  ['Configuration', ['models', 'environments', 'policy']],
+  ['Review', ['proposals']],
+] as const;
+
+function labelFor(id: string) {
+  return pages.find(([page]) => page === id)?.[1];
+}
 
 export function RunnerSettingsPage() {
   const navigate = useNavigate();
@@ -41,7 +52,17 @@ export function RunnerSettingsPage() {
     environment?: string;
     connection?: string;
   };
-  const { tab } = useSearch({ strict: false }) as { tab?: string };
+  const {
+    tab,
+    project,
+    agent,
+    connection: setupConnection,
+  } = useSearch({ strict: false }) as {
+    tab?: string;
+    project?: string;
+    agent?: string;
+    connection?: string;
+  };
   const [page, title, description] =
     pages.find(([id]) => id === pathname.split('/')[2]) ?? pages[0];
   const admin = me.data?.org.role === 'admin' || me.data?.org.role === 'owner';
@@ -51,15 +72,33 @@ export function RunnerSettingsPage() {
   );
   if (me.isPending || (readable && query.isPending)) return <p role="status">Loading runner…</p>;
   if (!readable || !org) return <Problem>You do not have access to the runner.</Problem>;
-  if (query.error) return <Problem>{runnerError(query.error)}</Problem>;
+  if (query.error)
+    return (
+      <Problem>
+        {runnerError(query.error)}{' '}
+        <button type="button" className={textLink} onClick={() => void query.refetch()}>
+          Retry runner status
+        </button>
+      </Problem>
+    );
   if (!status?.install_id || status.status === 'none') return <SetupCard admin={admin} />;
   const content = () => {
     if (status.status !== 'online' && page !== 'overview') return null;
     switch (page) {
       case 'overview':
-        return <Overview status={status} org={org} projects={projects} editable={editable} />;
+        return (
+          <Overview
+            status={status}
+            org={org}
+            projects={projects}
+            editable={editable}
+            setupProject={project}
+            setupAgent={agent}
+            setupConnection={setupConnection}
+          />
+        );
       case 'models':
-        return <Models status={status} editable={editable} projects={projects} />;
+        return <Models status={status} org={org} editable={editable} projects={projects} />;
       case 'connections':
         return connection ? (
           <ConnectionPage
@@ -127,10 +166,14 @@ export function RunnerSettingsPage() {
             if (choice) void navigate({ to: `/runner/${choice[0]}` });
           }}
         >
-          {pages.map(([id, label]) => (
-            <option key={id} value={id}>
-              {label}
-            </option>
+          {sections.map(([section, ids]) => (
+            <optgroup label={section} key={section}>
+              {ids.map((id) => (
+                <option key={id} value={id}>
+                  {labelFor(id)}
+                </option>
+              ))}
+            </optgroup>
           ))}
         </select>
       </label>
@@ -138,15 +181,29 @@ export function RunnerSettingsPage() {
         aria-label="Runner pages"
         className="mb-5 hidden flex-wrap gap-x-1 border-b border-border sm:flex"
       >
-        {pages.map(([id, label]) => (
-          <Link
-            key={id}
-            to={`/runner/${id}`}
-            aria-current={id === page ? 'page' : undefined}
-            className={`shrink-0 border-b-2 px-3 py-2.5 text-sm font-medium ${id === page ? 'border-accent text-accent' : 'border-transparent text-fg-muted hover:text-fg'}`}
+        {sections.map(([section, ids]) => (
+          <div
+            role="group"
+            aria-label={section}
+            key={section}
+            className="min-w-0 border-r border-border pr-2 last:border-r-0"
           >
-            {label}
-          </Link>
+            <p aria-hidden="true" className="px-2 pt-1 text-xs text-fg-muted">
+              {section}
+            </p>
+            <div className="flex flex-wrap">
+              {ids.map((id) => (
+                <Link
+                  key={id}
+                  to={`/runner/${id}`}
+                  aria-current={id === page ? 'page' : undefined}
+                  className={`border-b-2 px-2 py-2 text-sm font-medium ${id === page ? 'border-accent text-accent' : 'border-transparent text-fg-muted hover:text-fg'}`}
+                >
+                  {labelFor(id)}
+                </Link>
+              ))}
+            </div>
+          </div>
         ))}
       </nav>
       {environment && (
@@ -154,7 +211,22 @@ export function RunnerSettingsPage() {
           All environments
         </Link>
       )}
-      {status.status === 'offline' && <OfflineBanner offline>{null}</OfflineBanner>}
+      {status.status === 'offline' && page !== 'overview' && (
+        <p role="status" className="rounded-md border border-border bg-surface p-3 text-warn">
+          Runner offline. {title} details are unavailable until it reconnects.{' '}
+          <Link className={textLink} to="/runner/overview" hash="runner-heartbeat">
+            View last heartbeat
+          </Link>
+        </p>
+      )}
+      {status.status === 'online' && !editable && (
+        <p
+          className="mb-4 rounded-md border border-border bg-surface p-3 text-sm text-fg-muted"
+          role="status"
+        >
+          View only. A runner administrator can change access.
+        </p>
+      )}
       {content()}
     </div>
   );

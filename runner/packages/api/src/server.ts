@@ -1,3 +1,4 @@
+import { tracedServer, setLabels } from '@runbook/runner-shared/telemetry';
 import http from 'node:http';
 import type { UserAssertionClaims } from '@runbook/runner-shared/contracts/core';
 import { HttpError, sameToken } from '@runbook/runner-shared/http';
@@ -18,7 +19,7 @@ export function createApiServer(
   metrics?: () => Promise<string>,
   metricsToken?: string,
 ): http.Server {
-  return http.createServer(async (req, res) => {
+  return http.createServer(tracedServer(async (req, res) => {
     const target = req.url ?? '';
     if (metrics && req.method === 'GET' && target === '/metrics') {
       if (!metricsToken || !req.headers.authorization || !sameToken(req.headers.authorization, `Bearer ${metricsToken}`)) {
@@ -55,6 +56,7 @@ export function createApiServer(
       }
       const bytes = Buffer.concat(chunks);
       const claims = await verifier.verifyAssertion({ token, method: req.method, target, body: bytes });
+      setLabels({ org: claims.org_id });
       let body: unknown;
       if (bytes.length) {
         try {
@@ -69,5 +71,5 @@ export function createApiServer(
       if (error instanceof HttpError) send(error.status, { error: { code: error.code, message: error.message } });
       else send(500, { error: { code: 'internal', message: 'internal error' } });
     }
-  });
+  }));
 }

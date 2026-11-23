@@ -21,6 +21,7 @@ pub mod runner_proxy;
 pub mod session;
 pub mod signing;
 mod slack_http;
+mod telemetry;
 pub mod web_assets;
 pub mod webhooks;
 use std::fmt;

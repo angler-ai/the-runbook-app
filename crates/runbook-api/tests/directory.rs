@@ -34,6 +34,7 @@ fn replay_expires_at_twenty_four_hours() {
                 version: runbook_api::VERSION.into(),
                 schema: Default::default(),
                 theme: None,
+                trace_sample_ratio: None,
                 step_runs: None,
             },
         );

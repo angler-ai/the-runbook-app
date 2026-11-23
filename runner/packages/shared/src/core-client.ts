@@ -1,3 +1,4 @@
+import { traceFetch } from './telemetry.ts';
 // The core server's contract as seen from the runner: types generated from
 // api/openapi.draft.json (`npm run gen:core`, same openapi-typescript version
 // as web/) for the routes that exist today, and the hand-written R0a types in
@@ -54,7 +55,7 @@ export async function coreJson<T>(
 ): Promise<T> {
   const doFetch = options.fetch ?? fetch;
   const timeout = AbortSignal.timeout(options.timeoutMs ?? 10_000);
-  const res = await doFetch(options.baseUrl + path, {
+  const res = await traceFetch(doFetch, options.baseUrl + path, {
     method,
     headers: {
       authorization: `Bearer ${options.token}`,
@@ -65,7 +66,7 @@ export async function coreJson<T>(
     body: body === undefined ? null : JSON.stringify(body),
     redirect: 'error',
     signal: options.signal ? AbortSignal.any([options.signal, timeout]) : timeout,
-  });
+  }, 'core.http.client');
   const text = await res.text();
   if (!res.ok) {
     let code = 'core.error';

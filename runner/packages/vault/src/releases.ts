@@ -1,3 +1,4 @@
+import { currentSpan, identifier, inSpan, setLabels } from '@runbook/runner-shared/telemetry';
 // Capabilities, releases and connection tests (design §7.5, §7.6, §7.4).
 //
 // - POST /internal/capability (worker): ask the core for a capability grant
@@ -22,6 +23,7 @@ import type {
   TestRequest,
   TestResponse,
 } from '@runbook/runner-shared/contracts/internal';
+import { ATTACHED_VERTEX_PREFIX, type VertexBinding } from '@runbook/runner-shared/vertex-binding';
 import { withTransaction } from '@runbook/runner-shared/db';
 import { JwtError } from '@runbook/runner-shared/jwt';
 import { errorFields, type Logger } from '@runbook/runner-shared/log';
@@ -35,6 +37,7 @@ import type { OAuthAccess, OAuthAccessService } from './oauth/access.ts';
 import { getConnection, unavailable } from './oauth/state.ts';
 import type { SecretStore } from './secrets.ts';
 import { groupAllowed, typeImpl } from './types/index.ts';
+import { ATTACHED_VERTEX_FIELD, checkVertexPolicy, type VertexIdentity } from './vertex-identity.ts';
 
 const ID = /^[A-Za-z0-9_.:-]{1,128}$/;
 /** How long a connection test's material lives at the gateway. */
@@ -46,6 +49,7 @@ export interface ReleaseDeps {
   gateway: GatewayClient;
   secrets: SecretStore;
   oauth?: OAuthAccessService;
+  vertex?: VertexIdentity;
   now: () => Date;
   log: Logger;
 }
@@ -96,7 +100,7 @@ export class ReleaseService {
       { kind: 'capability', claim_id: body.claim_id, generation: body.generation as number, runner_id: body.runner_id },
       { claim_id: body.claim_id, generation: body.generation as number, runner_id: body.runner_id, group_id: group },
     );
-    this.d.log.info('capability issued', { step_run_id: claims.sub, runner_id: claims.runner_id, expires_at: claims.exp });
+    this.d.log.debug('capability issued', { step_run_id: claims.sub, runner_id: claims.runner_id, expires_at: claims.exp });
     return { capability: token, expires_at: iso(claims.exp) };
   }
 
@@ -179,30 +183,44 @@ export class ReleaseService {
   }
 
   async release(body: Partial<ReleaseRequest>, runnerId: string): Promise<ReleaseResponse> {
+    return inSpan('credential.release', () => this.releaseCredential(body, runnerId));
+  }
+
+  private async releaseCredential(body: Partial<ReleaseRequest>, runnerId: string): Promise<ReleaseResponse> {
     const cap = await this.verifyCapability(body?.capability);
+    setLabels({ project: cap.project_id, step_run: cap.sub });
     if (cap.runner_id !== runnerId) throw new VaultError(403, 'release.runner_denied', 'runner mismatch');
     if (typeof body?.credential_id !== 'string' || !ID.test(body.credential_id)) bad('credential_id');
     if (!DELIVERIES.includes(body.delivery as Delivery)) bad('delivery');
     const delivery = body.delivery as Delivery;
     const credentialId = body.credential_id;
+    const safeId = identifier(credentialId);
+    if (safeId) currentSpan()?.setAttribute('runbook.credential.id', safeId);
 
     // 1. Runner policy, before anything is asked of the core.
+    const attached = credentialId.startsWith(ATTACHED_VERTEX_PREFIX);
     let field: string;
     let version: number;
     try {
-      const credential = await this.d.secrets.credential(credentialId).catch(() => {
-        throw notAllowed();
-      });
-      await checkRunnerPolicy(this.d.pool, cap, credential, delivery);
-      const impl = typeImpl(credential.type);
-      const oauth = credential.type === 'mcp-oauth';
-      if (!oauth && impl.secretFields.length !== 1) throw new VaultError(400, 'release.unsupported_type', 'type not releasable in v1');
-      field = oauth ? 'access_token' : impl.secretFields[0] as string;
-      if (oauth && credential.status !== 'active') throw unavailable();
-      const latest = oauth ? (await getConnection(this.d.pool, credentialId))?.generation :
-        await this.d.secrets.latestVersion(credentialId, field);
-      if (latest === undefined) throw new VaultError(409, 'secret.not_set', 'the credential has no secret yet');
-      version = latest;
+      if (attached) {
+        await checkVertexPolicy(this.d.vertex, this.d.pool, cap, credentialId, delivery);
+        field = ATTACHED_VERTEX_FIELD;
+        version = 1;
+      } else {
+        const credential = await this.d.secrets.credential(credentialId).catch(() => {
+          throw notAllowed();
+        });
+        await checkRunnerPolicy(this.d.pool, cap, credential, delivery);
+        const impl = typeImpl(credential.type);
+        const oauth = credential.type === 'mcp-oauth';
+        if (!oauth && impl.secretFields.length !== 1) throw new VaultError(400, 'release.unsupported_type', 'type not releasable in v1');
+        field = oauth ? 'access_token' : impl.secretFields[0] as string;
+        if (oauth && credential.status !== 'active') throw unavailable();
+        const latest = oauth ? (await getConnection(this.d.pool, credentialId))?.generation :
+          await this.d.secrets.latestVersion(credentialId, field);
+        if (latest === undefined) throw new VaultError(409, 'secret.not_set', 'the credential has no secret yet');
+        version = latest;
+      }
     } catch (e) {
       const code = e instanceof VaultError ? e.code : 'internal';
       this.d.log.warn('release denied', { step_run_id: cap.sub, credential_id: credentialId, code });
@@ -244,6 +262,7 @@ export class ReleaseService {
     let pushed = false;
     let gatewayEpoch: string | undefined;
     let materialExpiry = claims.exp * 1000;
+    let vertex: VertexBinding | undefined;
     try {
       const deliver = async (material: OAuthAccess['material'], binding: Record<string, unknown>, expiry: number, db: pg.Pool | pg.PoolClient) => {
         materialExpiry = expiry;
@@ -271,7 +290,10 @@ export class ReleaseService {
           ],
         );
         try {
-          await checkRunnerPolicy(db, claims, await this.d.secrets.credential(credentialId, db), delivery);
+          if (attached) {
+            const current = await checkVertexPolicy(this.d.vertex, db, claims, credentialId, delivery);
+            if (current.binding.endpoint !== binding.endpoint) throw notAllowed();
+          } else await checkRunnerPolicy(db, claims, await this.d.secrets.credential(credentialId, db), delivery);
           gatewayEpoch = await this.d.gateway.push({
             release_id: releaseId,
             step_run_id: claims.sub,
@@ -294,7 +316,13 @@ export class ReleaseService {
         }
         pushed = true;
       };
-      if (field === 'access_token') {
+      if (attached) {
+        if (!this.d.vertex) throw notAllowed();
+        const { binding, serviceAccount } = await checkVertexPolicy(this.d.vertex, this.d.pool, claims, credentialId, delivery);
+        const access = await this.d.vertex.access(serviceAccount, materialExpiry);
+        vertex = binding;
+        await deliver(access.material, { ...binding }, access.expiresAt, this.d.pool);
+      } else if (field === 'access_token') {
         if (!this.d.oauth) throw unavailable();
         await this.d.oauth.ensureAccess(credentialId, 'release');
         await this.d.core.grant(claims.sub, {
@@ -324,6 +352,7 @@ export class ReleaseService {
         delivery,
         agent_id: claims.agent_id,
         agent_version: claims.agent_version,
+        ...(vertex && { vertex: { project_id: vertex.project_id, region: vertex.region, publisher: vertex.publisher } }),
       });
     } catch (e) {
       const reason = e instanceof VaultError && e.code === 'release.gateway_unavailable' ? 'delivery_failed' : e instanceof VaultError ? e.code : 'internal';
@@ -360,6 +389,7 @@ export class ReleaseService {
         agent_version: claims.agent_version,
         project_id: claims.project_id,
       },
+      ...(attached && { vertexClaims: claims }),
       issuedAt: claims.iat,
       expiresAt: claims.exp,
       materialExpiry,

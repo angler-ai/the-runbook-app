@@ -46,7 +46,10 @@ export function OrgAgents({ status, projects }: { status: RunnerStatus; projects
           <a className={textLink} href={`/p/${project.slug}/agents/${agent.id}`}>
             {agent.name}
           </a>,
-          project.title,
+          <a className={textLink} href={`/p/${project.slug}/agents/${agent.id}?tab=configuration`}>
+            {project.title}
+            <span className="block text-xs">Project configuration</span>
+          </a>,
           <StatusPill
             status={agent.status === 'active' ? 'succeeded' : 'paused'}
             label={sentenceCase(agent.status)}

@@ -32,7 +32,15 @@ test('shows spend, alert threshold and the reason an environment budget blocked 
           percentage: 100,
           alert_threshold_percent: 80,
           daily_spend: [{ date: '2026-11-22', spend_usd: 20 }],
-          blocked: [{ step_run_id: 'step1', reason: 'Angler data daily budget reached' }],
+          blocked_count: 26,
+          blocked: [
+            {
+              step_run_id: 'step1',
+              execution_id: 'run1',
+              title: 'Fetch data',
+              reason: 'Angler data daily budget reached',
+            },
+          ],
         },
       ]}
       projects={[]}
@@ -45,6 +53,12 @@ test('shows spend, alert threshold and the reason an environment budget blocked 
   expect(screen.getByText('100%')).toBeVisible();
   expect(screen.getByText('80%')).toBeVisible();
   expect(screen.getByText('Angler data daily budget reached')).toBeInTheDocument();
+  expect(screen.getByText('1 of 26 blocked steps')).toBeInTheDocument();
+  expect(screen.getByText('Fetch data').closest('a')).toHaveAttribute(
+    'href',
+    '/x/run1?view=steps&step=step1',
+  );
+  expect(screen.getByText(/Daily spend started and ended at/)).toBeInTheDocument();
 });
 
 test('rejects reserved environment variables before saving', () => {
@@ -242,4 +256,224 @@ test('the budgets page follows the cursor to show more budgets', async () => {
   fireEvent.click(more);
   await waitFor(() => expect(rows()).toBe(before + rest.length));
   expect(screen.queryByRole('button', { name: 'Show more budgets' })).toBeNull();
+});
+
+test('R01 bulk read labeling cannot prevent blocking a write tool', async () => {
+  openPage('/runner/connections/warehouse?tab=tools', undefined, {
+    ...proxyReads,
+    '/mcp-servers/warehouse': { ...fixture.existingConnections[1], never_allowed: [] },
+  });
+  const tool = await screen.findByLabelText('Classification for update_page');
+  fireEvent.click(screen.getByRole('button', { name: 'Label all read' }));
+  expect(tool).toHaveValue('write');
+  fireEvent.change(tool, { target: { value: 'read' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Block all writes' }));
+  expect(screen.getByRole('checkbox', { name: 'Allow update_page' })).not.toBeChecked();
+  fireEvent.click(screen.getByRole('button', { name: 'Save tool access' }));
+  expect(screen.getByRole('dialog', { name: 'Review tool access' })).toHaveTextContent(
+    'update_page · Allowed → Blocked',
+  );
+});
+
+test('R03 and R15 keep the preset group mounted and protocol controls in Advanced', async () => {
+  openPage('/runner/connections/new');
+  const notion = await screen.findByRole('radio', { name: /Notion/ });
+  const meta = screen.getByRole('radio', { name: /Meta Ads/ });
+  fireEvent.click(meta);
+  expect(notion).toBeInTheDocument();
+  expect(meta).toBeChecked();
+  expect(screen.getByText('Advanced')).toBeVisible();
+  expect(screen.getByLabelText('Transport').closest('details')).not.toHaveAttribute('open');
+});
+
+test('R05 previews a project cap removal before saving', async () => {
+  openPage('/runner/policy');
+  const cap = await screen.findByRole('textbox', { name: 'Operations monthly cap' });
+  fireEvent.change(cap, { target: { value: '' } });
+  fireEvent.click(screen.getAllByRole('button', { name: 'Save limits' })[0]!);
+  expect(await screen.findByRole('dialog', { name: 'Review budget increases' })).toHaveTextContent(
+    'Operations',
+  );
+});
+
+test('R06 previews registry additions and removals', async () => {
+  openPage('/runner/environments');
+  fireEvent.change(await screen.findByLabelText('Registry hostnames'), {
+    target: { value: 'next.example.test' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save registries' }));
+  const dialog = await screen.findByRole('dialog', { name: 'Review registry access' });
+  expect(dialog).toHaveTextContent('Add next.example.test');
+  expect(dialog).toHaveTextContent('Remove registry.example.test');
+});
+
+test('R08 associates and focuses the invalid scoped budget field', async () => {
+  openPage('/runner/policy');
+  const cap = await screen.findByRole('textbox', { name: 'Operations daily cap' });
+  fireEvent.change(cap, { target: { value: '-1' } });
+  fireEvent.click(screen.getAllByRole('button', { name: 'Save limits' })[0]!);
+  await waitFor(() => expect(cap).toHaveFocus());
+  expect(cap).toHaveAttribute('aria-invalid', 'true');
+  expect(cap).toHaveAccessibleDescription(/Operations.*Daily cap.*between 0/i);
+});
+
+test('R09 groups Runner destinations', async () => {
+  openPage('/runner/overview');
+  const nav = await screen.findByRole('navigation', { name: 'Runner pages' });
+  expect(within(nav).getByRole('group', { name: 'Monitoring' })).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'All agents' })).toHaveAttribute(
+    'href',
+    '/runner/agents',
+  );
+});
+
+test('R10 filters pinned tools by name without changing tool access', async () => {
+  openPage('/runner/connections/warehouse?tab=tools');
+  const search = await screen.findByRole('searchbox', { name: 'Search tools' });
+  fireEvent.change(search, { target: { value: 'update_page' } });
+  expect(screen.getByRole('checkbox', { name: 'Allow update_page' })).toBeInTheDocument();
+  expect(screen.queryByRole('checkbox', { name: 'Allow search' })).toBeNull();
+});
+
+test('R11 shows a retry when the connection credential inventory fails', async () => {
+  openPage('/runner/connections', undefined, { ...proxyReads, '/credentials': undefined });
+  expect(await screen.findByText('Host connections could not be loaded.')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Retry credentials' })).toBeVisible();
+  expect(screen.getByRole('heading', { name: 'Warehouse catalog' })).toBeVisible();
+});
+
+test('R13 offers the pending digest for the cluster operator', async () => {
+  openPage(`/runner/environments/${fixture.environment.id}`);
+  expect(
+    await screen.findByRole('button', { name: 'Copy digest for cluster operator' }),
+  ).toBeVisible();
+  expect(screen.getByText(/before running/)).toBeVisible();
+});
+
+test('R16 gives environment budgets a local link and a persistent save action', async () => {
+  openPage(`/runner/environments/${fixture.environment.id}`);
+  const sections = await screen.findByRole('navigation', { name: 'Environment sections' });
+  expect(within(sections).getByRole('link', { name: 'Budgets' })).toHaveAttribute(
+    'href',
+    '#environment-budgets',
+  );
+  expect(screen.getByRole('button', { name: 'Save environment' }).parentElement).toHaveClass(
+    'sticky',
+  );
+});
+
+test('R04 carries the provider destination into the inline key form and preserves its draft', async () => {
+  openPage('/runner/models');
+  fireEvent.click(await screen.findByRole('button', { name: 'Add provider' }));
+  fireEvent.change(screen.getByLabelText('Provider name'), {
+    target: { value: 'Operations models' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Add provider key' }));
+  const dialog = await screen.findByRole('dialog', { name: 'Add provider key' });
+  expect(dialog).toHaveTextContent('https://api.anthropic.com');
+  expect(within(dialog).getByLabelText('API key')).toBeVisible();
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
+  expect(screen.getByLabelText('Provider name')).toHaveValue('Operations models');
+});
+
+test('R12 shows which workspace and project an OAuth disconnect affects', async () => {
+  const credential = {
+    ...fixture.credentialRow,
+    id: 'oauth-warehouse',
+    name: 'Warehouse OAuth',
+    type: 'mcp-oauth',
+    status: 'active',
+    sharing: { projects: [fixture.project.id] },
+    config: { url: 'https://warehouse.example.test/mcp', issuer: 'https://warehouse.example.test' },
+    oauth_status: { connected_account: 'Northstar workspace' },
+  };
+  openPage('/runner/connections/warehouse', undefined, {
+    ...proxyReads,
+    '/mcp-servers/warehouse': { ...fixture.existingConnections[1], credential_id: credential.id },
+    [`/credentials/${credential.id}`]: credential,
+  });
+  fireEvent.click(await screen.findByRole('button', { name: 'Disconnect' }));
+  const impact = screen.getByRole('group', { name: 'Disconnect impact' });
+  expect(impact).toHaveTextContent('Northstar workspace');
+  expect(impact).toHaveTextContent('Operations');
+  expect(impact).toHaveTextContent('Future calls that need this sign-in will fail');
+});
+
+test('R02 requires and saves the guided tool and credential, then links to its checklist', async () => {
+  const connection = { ...fixture.existingConnections[1], credential_id: fixture.credentialRow.id };
+  const credential = {
+    ...fixture.credentialRow,
+    name: 'Warehouse sign-in',
+    delivery: ['mcp', 'proxy'],
+  };
+  const agent = { ...fixture.agent, config: { ...fixture.agent.config, mcp: [] } };
+  const detail = `/projects/${fixture.project.id}/agents/${agent.id}`;
+  openPage('/p/operations/agents/agent_sample?tab=configuration&connection=warehouse', undefined, {
+    ...proxyReads,
+    [detail]: agent,
+    '/mcp-servers': { items: [connection] },
+    '/credentials': { items: [credential] },
+    [detail + '/tool-calls']: { items: [] },
+  });
+  let saved: unknown;
+  server.use(
+    http.patch('*/v1/runners/:install/proxy/runner/v1' + detail, async ({ request }) => {
+      saved = await request.json();
+      return HttpResponse.json(agent);
+    }),
+  );
+  await screen.findByRole('heading', { name: 'Set up Warehouse catalog for warehouse-checker' });
+  fireEvent.click(await screen.findByRole('checkbox', { name: /search/ }));
+  const grant = await screen.findByRole('checkbox', { name: /Warehouse sign-in · MCP/ });
+  fireEvent.click(screen.getByRole('button', { name: 'Save configuration' }));
+  await waitFor(() => expect(grant).toHaveFocus());
+  expect(saved).toBeUndefined();
+  fireEvent.click(grant);
+  fireEvent.click(screen.getByRole('button', { name: 'Save configuration' }));
+  expect(
+    await screen.findByText('Agent warehouse-checker can now use Warehouse catalog search.'),
+  ).toBeVisible();
+  expect(saved).toMatchObject({
+    mcp: [{ server_id: 'warehouse', tool: 'search' }],
+    credentials: expect.arrayContaining([{ credential_id: credential.id, delivery: 'mcp' }]),
+  });
+});
+
+test('shows archived transcript entries with the read-only date', async () => {
+  openPage('/p/operations/agents/transcripts/step_archive', undefined, {
+    ...proxyReads,
+    '/transcripts/step_archive': {
+      items: [{ seq: 1, claim_id: 'claim', entry: 'Archived output' }],
+      archived: true,
+      archived_at: '2026-11-23',
+    },
+  });
+  expect(await screen.findByText('Archived output')).toBeVisible();
+  expect(screen.getByText('Archived on 2026-11-23; read-only.')).toBeVisible();
+});
+
+test('shows archived tool calls on the agent Tools tab with their step links', async () => {
+  const path = `/projects/${fixture.project.id}/agents/${fixture.agent.id}/tool-calls`;
+  openPage('/p/operations/agents/agent_sample?tab=tools', undefined, {
+    ...proxyReads,
+    [path]: {
+      archived: true,
+      archived_at: '2026-11-23',
+      items: [{
+        id: '42',
+        server_id: 'warehouse',
+        tool: 'search',
+        step_run_id: 'step_archive',
+        created_at: '2026-10-21T00:00:00Z',
+        archived: true,
+        archived_at: '2026-11-23',
+      }],
+    },
+  });
+  const history = await screen.findByRole('region', { name: 'Archived tool calls' });
+  expect(within(history).getByText('Archived on 2026-11-23; read-only.')).toBeVisible();
+  expect(within(history).getByRole('link', { name: 'step_archive' })).toHaveAttribute(
+    'href',
+    '/p/operations/agents/transcripts/step_archive',
+  );
 });

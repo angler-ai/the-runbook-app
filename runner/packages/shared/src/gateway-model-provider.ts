@@ -1,3 +1,4 @@
+import { traceFetch } from './telemetry.ts';
 import type { LanguageModelV4, LanguageModelV4CallOptions, LanguageModelV4GenerateResult, LanguageModelV4StreamPart } from '@ai-sdk/provider';
 
 interface GatewayModelOptions {
@@ -20,7 +21,7 @@ export function gatewayModel(profile: string, options: GatewayModelOptions): Lan
       return { role: message.role, content: text };
     });
     if (call.tools?.length) throw new Error('gateway model does not accept provider tools');
-    const response = await (options.fetch ?? fetch)(`${options.gatewayUrl}/model/generate`, {
+    const response = await traceFetch(options.fetch ?? fetch, `${options.gatewayUrl}/model/generate`, {
       method: 'POST',
       redirect: 'error',
       headers: { authorization: `Bearer ${options.processToken}`, 'content-type': 'application/json' },
@@ -57,7 +58,7 @@ export function gatewayModel(profile: string, options: GatewayModelOptions): Lan
     const { abortSignal, headers, ...request } = call;
     const metadata = headers?.['x-runbook-model-attempts'];
     const endgame = headers?.['x-runbook-model-endgame'];
-    const response = await (options.fetch ?? fetch)(`${options.gatewayUrl}/model/stream`, {
+    const response = await traceFetch(options.fetch ?? fetch, `${options.gatewayUrl}/model/stream`, {
       method: 'POST', redirect: 'error', signal: abortSignal,
       headers: { authorization: `Bearer ${options.processToken}`, 'content-type': 'application/json' },
       body: JSON.stringify({ capability: options.capability(), profile,

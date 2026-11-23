@@ -92,6 +92,7 @@ pub fn router_config(server: &crate::config::ServerConfig) -> runbook_api::route
             version: runbook_api::VERSION.into(),
             schema: [("postgres".to_owned(), u64::from(server.schema_version))].into(),
             theme: server.theme.clone(),
+            trace_sample_ratio: crate::telemetry::advertised_ratio(),
             step_runs: server.database.step_cap(),
         },
         authoring: server.authoring.clone(),
@@ -192,12 +193,26 @@ impl Backends for PostgresBackends {
     fn runners(&self) -> runbook_store_postgres::PostgresRunners {
         runbook_store_postgres::PostgresRunners::new(self.config.clone())
     }
+    async fn trace_authenticated_runner<T>(&self, work: impl std::future::Future<Output = T>) -> T {
+        crate::telemetry::authenticated_runner(work).await
+    }
+    fn label_execution_trace(
+        &self,
+        scope: &runbook_core::catalog::TenantScope,
+        run: &runbook_model::ExecutionId,
+        step: &runbook_model::StepRunId,
+    ) {
+        crate::telemetry::label_execution(scope, run, step);
+    }
+    fn trace_id(&self) -> Option<String> {
+        crate::telemetry::active_trace_id()
+    }
     fn runner_private_networks(&self) -> bool {
         self.runner.private_networks
     }
     async fn runner_fetch(
         &self,
-        request: runbook_api::runner_proxy::RunnerHttpRequest,
+        mut request: runbook_api::runner_proxy::RunnerHttpRequest,
     ) -> Result<runbook_api::runner_proxy::RunnerHttpResponse, &'static str> {
         let config = self.runner.clone();
         // A system DNS lookup may outlive a request timeout. Its blocking
@@ -207,15 +222,23 @@ impl Backends for PostgresBackends {
             .clone()
             .try_acquire_owned()
             .map_err(|_| "runner.unreachable")?;
+        let trace = crate::telemetry::client_context();
+        crate::telemetry::inject(&trace, &mut request.headers);
         let fetch = tokio::task::spawn_blocking(move || {
             let _slot = slot;
             crate::runner_proxy::fetch(&config, request)
         });
         let deadline = std::time::Duration::from_millis(runbook_api::runner_proxy::TIMEOUT_MS);
-        tokio::time::timeout(deadline, fetch)
-            .await
-            .map_err(|_| "runner.timeout")?
-            .unwrap_or(Err("runner.unreachable"))
+        let result = match tokio::time::timeout(deadline, fetch).await {
+            Ok(answer) => answer.unwrap_or(Err("runner.unreachable")),
+            Err(_) => Err("runner.timeout"),
+        };
+        crate::telemetry::finish(
+            &trace,
+            result.as_ref().ok().map(|answer| answer.status),
+            false,
+        );
+        result
     }
     fn archives(&self) -> crate::daily_archives::PostgresArchiveBackend {
         crate::daily_archives::PostgresArchiveBackend {

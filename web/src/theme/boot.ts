@@ -72,6 +72,7 @@ export function applyOverrideCss(css: string, doc: Document = document) {
 
 interface MetaWithTheme {
   theme?: ThemeOverride | null;
+  trace_sample_ratio?: string;
 }
 
 /**
@@ -82,7 +83,12 @@ interface MetaWithTheme {
 export async function loadThemeOverride({
   fetchImpl = fetch,
   timeoutMs = 1500,
-}: { fetchImpl?: typeof fetch; timeoutMs?: number } = {}): Promise<void> {
+  configureTracing,
+}: {
+  fetchImpl?: typeof fetch;
+  timeoutMs?: number;
+  configureTracing?: (ratio: string | undefined) => void;
+} = {}): Promise<void> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -92,6 +98,7 @@ export async function loadThemeOverride({
     });
     if (!response.ok) return;
     const meta = (await response.json()) as MetaWithTheme;
+    configureTracing?.(meta.trace_sample_ratio);
     const vars = sanitizeThemeVars(meta.theme ? deriveOverrideVars(meta.theme) : null);
     const css = cssFromVars(vars);
     applyOverrideCss(css);

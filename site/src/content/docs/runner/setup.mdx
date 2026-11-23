@@ -59,6 +59,34 @@ The installer stores the core directory token as `CORE_DIRECTORY_TOKEN` in `depl
 
 If the runner origin resolves to a private address, set `RUNBOOK_RUNNER_PRIVATE_NETWORKS=true` on the core. Keep the generated `deploy/runner-config/` directory and runner database backups secure. Compose uses a separate Postgres database and a local key-encryption key held by the vault. [Review the Docker trust boundary](/runner/security/).
 
+### Give the Docker vault a Google identity
+
+For [attached Vertex providers](/runner/models/#vertex-ai-with-the-runners-google-identity), mount an Application Default Credentials (ADC) file read-only into `runner-vault` and set `GOOGLE_APPLICATION_CREDENTIALS` to its **container** path. Prefer a Workload Identity Federation configuration for production. If the federation configuration reads a local subject token file, mount that file into the vault at the path referenced in the configuration.
+
+Create a separate Vertex service account. In each allowed model project, attach a custom role containing only `aiplatform.endpoints.predict` to that account. Enable the IAM Service Account Credentials API (`iamcredentials.googleapis.com`) in the vault's Google API consumer project. Grant the vault's ADC principal `roles/iam.serviceAccountTokenCreator` on the Vertex service account itself. Keep the `gcp-kms` KEK and other vault permissions on the vault identity. The gateway receives the inference account’s short-lived token, which Google accepts wherever that service account has permission.
+
+Set `RUNNER_VERTEX_TARGETS` on the vault to a JSON array with one `project`, `locations` list, and `service_account` email per entry. The empty array disables attached Vertex. Recreate the vault after changing the allowlist.
+
+The default Docker vault networks are internal. Give the vault outbound HTTPS to the endpoints used by your ADC configuration, such as Google STS, IAM Credentials, or the OAuth token service. Use a controlled egress network or HTTPS proxy and keep the internal routes to the runner database, gateway, and core. The gateway already has outbound HTTPS for model requests. Only the vault needs the ADC file and any federation subject-token mount.
+
+For example, add an override like this to the Compose command with `-f /path/to/vault-adc.yml`. This example adds a vault-only egress bridge. Apply your host's egress rules to that bridge and use the absolute host path for the ADC file.
+
+```yaml title="vault-adc.yml"
+services:
+  runner-vault:
+    environment:
+      GOOGLE_APPLICATION_CREDENTIALS: /run/google/adc.json
+      RUNNER_VERTEX_TARGETS: '[{"project":"my-model-project","locations":["global"],"service_account":"runbook-vertex@my-project.iam.gserviceaccount.com"}]'
+    volumes:
+      - /absolute/path/to/adc.json:/run/google/adc.json:ro
+    networks:
+      runner-vault-google: {}
+networks:
+  runner-vault-google: {}
+```
+
+Make the file readable by the UID running `runner-vault`, and recreate the vault with the override. [Application Default Credentials](https://docs.cloud.google.com/docs/authentication/application-default-credentials) · [Workload Identity Federation](https://docs.cloud.google.com/iam/docs/workload-identity-federation).
+
 ### Verify the vault identity
 
 Fresh setup enrolls the vault identity with the core and prints its SHA-256 fingerprint. Compare it with `vault_identity_fingerprint` from `runbook runner status --org "$ORG_ID" --json` or the fingerprint in **Settings › Organization › Runner › Overview** before entering credentials. If it differs, investigate on the trusted vault host before proceeding.
@@ -90,7 +118,7 @@ Use the organization ID from your install and project and group IDs from your de
 1. **Check readiness.** `runbook runner status` should show an online runner with a recent heartbeat and a ready worker.
 2. **Allow a project.** Find the group with `runbook runner group list`. Run `runbook runner group projects "$GROUP_ID" --file projects.json` with `{"project_ids":["PROJECT_ID"]}`, including every project you want to keep. Use `runbook runner group update` for group limits.
 3. **Set limits.** Review `runbook runner policy get`, then apply the desired settings with `runbook runner policy update --file policy.json`. For example, `{"org_cost_per_day_usd":5}` sets a $5 daily organization cap. Give a first step a [small budget that leaves room for a working turn and a final answer](/runner/limits/).
-4. **Set up a model.** Use `runbook runner credential types`, then [create, seal and test a model-provider credential](/runner/credentials/#enter-a-secret-with-the-cli). Use the resulting credential ID in `runbook runner provider create --file provider.json`, then pass the resulting provider ID to `runbook runner profile create --file profile.json`. Share the credential, provider and profile with the project.
+4. **Set up a model.** For Vertex AI, you can [use a dedicated Vertex inference identity](/runner/models/#vertex-ai-with-the-runners-google-identity). For a stored key, use `runbook runner credential types`, then [create, seal and test a model-provider credential](/runner/credentials/#enter-a-secret-with-the-cli). Use the resulting credential ID in `runbook runner provider create --file provider.json`, then pass the resulting provider ID to `runbook runner profile create --file profile.json`. Share the credential, provider and profile with the project.
 5. **Add MCP tools if needed.** Run `runbook runner mcp-server create --file mcp.json` with the server's `name`, `url`, `transport`, and `sharing`. For an authenticated server, include the `credential_id` of a tested `mcp-bearer` credential bound to the same URL. Run `runbook runner mcp-server discover "$SERVER_ID" --json`, review the tools, then run `runbook runner mcp-server pin "$SERVER_ID" "$SNAPSHOT_ID"`. Set labels with `runbook runner mcp-server label-tools "$SERVER_ID" --file labels.json` using a `tool_labels` map. Use `never_allowed` on the server to exclude tools entirely.
 6. **Run a first step.** [Create an agent](/runner/agents/#create-an-agent) and grant the profile and any integrations it needs. If using the CLI to publish, add `runbooks:read`, `runbooks:write` and `runbooks:publish` to your login scopes. For a new runbook, use `runbook push first-step.yaml --project "$PROJECT_ID" --draft` followed by `runbook publish "$RUNBOOK_ID" --project "$PROJECT_ID"` with the draft's runbook ID. If starting from the CLI, request `executions:start` and `executions:read` as well. Start the published runbook and check the step result, transcript, usage and any wait reason on the run page.
 

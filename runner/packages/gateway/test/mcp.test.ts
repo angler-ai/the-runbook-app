@@ -127,7 +127,6 @@ it('discovers tools with a bound test release and refuses a different destinatio
 });
 
 it('aborts the release during catalog refresh and refuses tools/call', async () => {
-  vi.useFakeTimers();
   const now = Date.now();
   const claims = { sub: 'step', kind: 'capability', runner_id: 'r', claim_id: 'claim', generation: 1,
     exp: Math.floor(now / 1000) + 60 } as GrantClaims;
@@ -148,8 +147,8 @@ it('aborts the release during catalog refresh and refuses tools/call', async () 
     return {
       async list() {
         await authorize();
-        setTimeout(() => store.revokeCredential('cred'), 10);
-        await vi.advanceTimersByTimeAsync(10);
+        // Revoke after authorization and before returning the refreshed catalog.
+        store.revokeCredential('cred');
         return [allowed];
       },
       async call() { await authorize(); return call(); },
@@ -178,7 +177,6 @@ it('aborts the release during catalog refresh and refuses tools/call', async () 
   } finally {
     store.clear();
     vi.unstubAllGlobals();
-    vi.useRealTimers();
   }
 });
 

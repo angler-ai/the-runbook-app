@@ -1,3 +1,4 @@
+import { fetchWithTrace } from '@runbook/runner-shared/telemetry';
 import type { SandboxEnvironment } from '@runbook/runner-shared/contracts/environments';
 import type { Config } from '@runbook/runner-shared/config';
 import type { SandboxSize } from '@runbook/runner-shared/contracts/internal';
@@ -22,7 +23,7 @@ export function computeClient(config: Config) {
   const unavailable = () => new HttpError(503, 'sandbox.ledger_unavailable', 'compute ledger unavailable');
   async function post(path: string, body: object) {
     try {
-      return await fetch(`${config.urls.api}/internal/${path}`, {
+      return await fetchWithTrace(`${config.urls.api}/internal/${path}`, {
         method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${config.outboundTokens.api}` },
         body: JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(5000),
       });

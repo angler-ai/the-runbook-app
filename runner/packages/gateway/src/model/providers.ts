@@ -1,5 +1,6 @@
 import { boundedProviderFetch } from './stream-fetch.ts';
 import { geminiModel } from './gemini.ts';
+import { vertexBinding } from '@runbook/runner-shared/vertex-binding';
 import { pinnedFetch } from '../egress/fetch.ts';
 import { createVertexAnthropic } from '@ai-sdk/google-vertex/anthropic';
 import { createAnthropic } from '@ai-sdk/anthropic';
@@ -18,16 +19,24 @@ export function providerModel(profile: ModelProfile, fields: Record<string, stri
   if ((endpoint.protocol !== 'https:' && !(profile.provider === 'openai-compatible' && endpoint.protocol === 'http:' &&
       process.env.RUNNER_ALLOW_HTTP_MODEL_ENDPOINTS === 'true')) ||
       endpoint.username || endpoint.password || endpoint.search || endpoint.hash) throw new Error('invalid model endpoint');
-  const key = profile.provider === 'vertex' ? fields.access_token : fields.api_key;
+  const attached = profile.vertexBinding;
+  if (attached && (vertexBinding(profile.provider, attached.project_id, attached.region)?.endpoint !== profile.endpoint ||
+      attached.endpoint !== profile.endpoint)) throw new Error('invalid Vertex model endpoint');
+  const key = profile.provider === 'vertex' || attached ? fields.access_token : fields.api_key;
   if (!key) throw new Error('model credential unavailable');
   const guardedFetch: typeof fetch = async (input, init) => {
     const url = new URL(input instanceof Request ? input.url : input);
     if (url.origin !== endpoint.origin) throw new Error('invalid model destination');
+    if (attached) {
+      const modelPath = `${endpoint.pathname}/${profile.model}:`;
+      const methods = profile.provider === 'vertex' ? ['rawPredict', 'streamRawPredict'] : ['generateContent', 'streamGenerateContent'];
+      if (!methods.some((method) => url.pathname === modelPath + method)) throw new Error('invalid Vertex model destination');
+    }
     const headers = new Headers(init?.headers);
     return pinnedFetch(url, { ...init, headers, redirect: 'error' }, dispatched);
   };
   const options = { baseURL: profile.provider === 'anthropic' ? `${profile.endpoint}/v1` : profile.endpoint, fetch: wrapFetch(guardedFetch) };
-  if (profile.provider === 'vertex-gemini') return geminiModel(profile.model, endpoint, key, options.fetch);
+  if (profile.provider === 'vertex-gemini') return geminiModel(profile.model, endpoint, key, options.fetch, !attached);
   if (profile.provider === 'vertex') {
     if (!/^\/v1\/projects\/[\w-]+\/locations\/[\w-]+\/publishers\/anthropic\/models\/?$/.test(endpoint.pathname) ||
         !/^(?:[a-z0-9-]+-)?aiplatform(?:\.(?:eu|us)\.rep)?\.googleapis\.com$/.test(endpoint.hostname) || endpoint.port ||

@@ -72,6 +72,7 @@ export function OAuthCredentialActions({
   org,
   disabled,
   handoff,
+  impact,
   notify,
   errors,
 }: {
@@ -80,6 +81,7 @@ export function OAuthCredentialActions({
   org: string;
   disabled: boolean;
   handoff?: OAuthReturn;
+  impact?: string;
   notify(message: string): void;
   errors(message: string): void;
 }) {
@@ -261,23 +263,43 @@ export function OAuthCredentialActions({
           This OAuth grant expires within 14 days. Reconnect to keep using it.
         </p>
       )}
-      {issuerHost && serverHost && issuerHost !== serverHost && (
-        <p role="status">
-          The OAuth issuer ({issuerHost}) differs from the MCP server host ({serverHost}). Confirm
-          that you trust both for this connection.
+      {issuerHost && (
+        <p className="text-sm">
+          Sign in at <strong>{oauthHost(config.authorization_endpoint) || issuerHost}</strong>. This
+          grants access to {serverHost || 'the MCP server'}.
+        </p>
+      )}
+      {issuerHost &&
+        serverHost &&
+        [issuerHost, oauthHost(config.authorization_endpoint)].some(
+          (host) =>
+            host &&
+            host !== serverHost &&
+            !(serverHost === 'mcp.notion.com' && host === 'api.notion.com'),
+        ) && (
+          <p role="status">
+            Check this sign-in domain with your workspace administrator before continuing.
+          </p>
+        )}
+      {pendingDiscovery && !confirmed && (
+        <p className="text-sm text-fg-muted">
+          Confirm that you trust the sign-in domain for this server before continuing.
         </p>
       )}
       {Boolean(config.issuer) && (
-        <dl className="grid gap-1 text-sm">
-          {destinations
-            .filter(([key]) => config[key])
-            .map(([key, label]) => (
-              <div key={key} className="grid gap-1">
-                <dt className="font-medium">{label}</dt>
-                <dd className="break-all text-fg-muted">{String(config[key])}</dd>
-              </div>
-            ))}
-        </dl>
+        <details className="rounded-md border border-border p-3">
+          <summary className="cursor-pointer font-medium">Advanced endpoint details</summary>
+          <dl className="mt-2 grid gap-1 text-sm">
+            {destinations
+              .filter(([key]) => config[key])
+              .map(([key, label]) => (
+                <div key={key} className="grid gap-1">
+                  <dt className="font-medium">{label}</dt>
+                  <dd className="break-all text-fg-muted">{String(config[key])}</dd>
+                </div>
+              ))}
+          </dl>
+        </details>
       )}
       {handoff?.pin && (
         <p className="text-sm">
@@ -433,34 +455,57 @@ export function OAuthCredentialActions({
           </Button>
         )}
         {disconnect && (
-          <>
-            <Button
-              variant="destructive"
-              disabled={disabled || busy}
-              onClick={() =>
-                void operation(async () => {
-                  const result = await runnerRequest<{
-                    revoked: boolean;
-                    pending_purge: boolean;
-                    access_token_remaining_ms: number;
-                  }>(install, `${path}/disconnect`, 'POST', {});
-                  setDisconnect(false);
-                  notify(
-                    result.pending_purge
-                      ? `Pending gateway purge. Released access may last up to ${Math.ceil(result.access_token_remaining_ms / 60_000)} more minutes.`
-                      : result.revoked
-                        ? 'Disconnected.'
-                        : 'Disconnected locally. Revoke the grant at the provider.',
-                  );
-                })
-              }
-            >
-              Confirm disconnect
-            </Button>
-            <Button variant="secondary" disabled={busy} onClick={() => setDisconnect(false)}>
-              Cancel
-            </Button>
-          </>
+          <div
+            role="group"
+            aria-label="Disconnect impact"
+            className="grid w-full gap-3 rounded-md border border-border p-3"
+          >
+            <div>
+              <p className="font-medium">
+                Disconnect {credential.name}
+                {info?.connected_account ? ` from ${info.connected_account}` : ''}?
+              </p>
+              <p className="text-sm text-fg-muted">
+                Project access:{' '}
+                {impact ??
+                  (Array.isArray(credential.sharing.projects)
+                    ? `${credential.sharing.projects.length} selected projects`
+                    : credential.sharing.projects === 'all'
+                      ? 'All projects'
+                      : 'Private')}
+                . Future calls that need this sign-in will fail. Revoke access at the provider if it
+                cannot be revoked here.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="destructive"
+                disabled={disabled || busy}
+                onClick={() =>
+                  void operation(async () => {
+                    const result = await runnerRequest<{
+                      revoked: boolean;
+                      pending_purge: boolean;
+                      access_token_remaining_ms: number;
+                    }>(install, `${path}/disconnect`, 'POST', {});
+                    setDisconnect(false);
+                    notify(
+                      result.pending_purge
+                        ? `Pending gateway purge. Released access may last up to ${Math.ceil(result.access_token_remaining_ms / 60_000)} more minutes.`
+                        : result.revoked
+                          ? 'Disconnected.'
+                          : 'Disconnected locally. Revoke the grant at the provider.',
+                    );
+                  })
+                }
+              >
+                Confirm disconnect
+              </Button>
+              <Button variant="secondary" disabled={busy} onClick={() => setDisconnect(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
         )}
       </div>
     </section>

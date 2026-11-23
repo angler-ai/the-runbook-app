@@ -318,3 +318,45 @@ async fn renewals_record_one_release_per_claim() {
     })
     .await;
 }
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL; owned databases only"]
+async fn sampled_runner_claim_links_trace_in_authenticated_run_view() {
+    use opentelemetry_sdk::trace::{Sampler, SdkTracerProvider};
+    let provider = SdkTracerProvider::builder()
+        .with_sampler(Sampler::ParentBased(Box::new(Sampler::AlwaysOff)))
+        .build();
+    opentelemetry::global::set_tracer_provider(provider);
+    with_fixture(async |f| {
+        let run = setup(f).await;
+        let meta = f.request("GET", "/v1/meta", None, &[], Value::Null).await;
+        assert_eq!(meta.status, 200);
+        assert!(meta.body.get("trace_project").is_none());
+        assert_eq!(
+            meta.body["runner_contract_version"],
+            json!(runbook_model::RUNNER_CONTRACT_VERSIONS.last()),
+        );
+        let trace = "9bb2e80dd128474db24a5cebdc6358de";
+        let parent = format!("00-{trace}-1178a72115434811-01");
+        let claimed = f
+            .request(
+                "POST",
+                &format!("/v1/step-runs/{}/claim", run.check),
+                Some(&run.reg.claim),
+                &[("traceparent", &parent)],
+                json!({"session_id": "s1", "actor": {"kind": "agent", "agent_name": "deploy-checker"}}),
+            )
+            .await;
+        assert_eq!(claimed.status, 200, "{}", claimed.body);
+        let view = step(f, &run, "check").await;
+        assert_eq!(view["runner"]["trace_id"], trace);
+        let path = format!("/v1/executions/{}/report", run.exe);
+        let report = f.request("GET", &path, None, &[], Value::Null).await;
+        assert_eq!(report.status, 401);
+        assert!(report.body.get("trace_project").is_none());
+        let report = f.request("GET", &path, Some(&f.token), &[], Value::Null).await;
+        assert_eq!(report.status, 200, "{}", report.body);
+        assert_eq!(report.body["trace_project"], json!(std::env::var("GOOGLE_CLOUD_PROJECT").ok()));
+    })
+    .await;
+}

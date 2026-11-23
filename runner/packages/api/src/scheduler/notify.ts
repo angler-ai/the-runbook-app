@@ -1,3 +1,4 @@
+import { fetchWithTrace } from '@runbook/runner-shared/telemetry';
 import type pg from 'pg';
 import type { Logger } from '@runbook/runner-shared/log';
 
@@ -28,7 +29,7 @@ export function workerNotifier(pool: pg.Pool, log: Logger, env = process.env) {
       const notifier = notifiers.get(runner_id);
       if (!notifier) return;
       try {
-        const response = await fetch(`${notifier.url}/internal/wake`, {
+        const response = await fetchWithTrace(`${notifier.url}/internal/wake`, {
           method: 'POST', headers: { authorization: `Bearer ${notifier.token}` },
           signal: AbortSignal.timeout(3000), redirect: 'error',
         });

@@ -9,6 +9,7 @@ fn discovery_uses_configured_origin() {
             version: runbook_api::VERSION.into(),
             schema: [("postgres".to_owned(), 30)].into(),
             theme: None,
+            trace_sample_ratio: None,
             step_runs: None,
         };
         let d = config.discovery();
@@ -41,6 +42,7 @@ fn meta_reports_the_release_version_and_schema() {
         version: runbook_api::VERSION.into(),
         schema: [("d1".to_owned(), 1014), ("execution_do".to_owned(), 5)].into(),
         theme: None,
+        trace_sample_ratio: None,
         step_runs: None,
     };
     let meta = config.meta();
@@ -103,6 +105,7 @@ fn theme_variables_resolve_per_theme() {
         version: runbook_api::VERSION.into(),
         schema: Default::default(),
         theme: None,
+        trace_sample_ratio: None,
         step_runs: None,
     };
     assert!(

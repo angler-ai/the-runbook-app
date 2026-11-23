@@ -99,6 +99,15 @@ per-step proxy listener and no direct route to cloud metadata or the model
 and MCP endpoints. It receives tool responses, which can contain sensitive
 data even with redaction.
 
+For attached Vertex, the gateway receives an inference token minted for a
+Vertex-only service account. The vault generates it per release and renewal
+with a lifetime under 15 minutes. The vault's Google credential stays in
+the vault and the installer controls the allowed Vertex projects and
+locations. A copied inference token remains usable within the service
+account's IAM permissions until Google expires it. The vault checks live
+attached releases on each renewal pass and removes gateway material when
+the binding or policy no longer allows the release.
+
 When a lease ends or is taken over, the runner fences releases and tears
 down its sandbox. The gateway stops accepting expired grants. A request
 already dispatched to an upstream may still finish. Rotate the value at the

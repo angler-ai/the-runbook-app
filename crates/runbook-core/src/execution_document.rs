@@ -39,7 +39,11 @@ pub fn build_document(
             Some(section(state, step, id, &log_href))
         })
         .collect();
-    ExecutionDocumentView { header, sections }
+    ExecutionDocumentView {
+        header,
+        sections,
+        trace_project: None,
+    }
 }
 
 /// The step records in runbook order: the order the steps are written in
@@ -260,6 +264,7 @@ pub fn runner_of(
     Some(runbook_model::StepRunnerView {
         agent_id: agent_id.clone(),
         agent_name: name.clone(),
+        trace_id: runner.trace_id.clone(),
         model: limits.as_ref().and_then(|l| l.model.clone()),
         agent_version_id: runner.agent_version_id.clone(),
         waiting_reason: runner.waiting_reason.clone(),

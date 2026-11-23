@@ -10,6 +10,10 @@ function page(target: string) {
   const query = new URL(target, 'http://runner.internal').searchParams;
   const limit = Number(query.get('limit') ?? 100);
   const cursor = query.get('cursor');
+  const scope = query.get('scope');
+  const blocked = query.get('blocked') === '1';
+  if (scope && !['org','group','environment','project','agent','run','step'].includes(scope))
+    throw new HttpError(400, 'budgets.invalid_scope', 'invalid budget scope');
   let after: Identity | undefined;
   if (cursor && /^[a-zA-Z0-9_-]{1,1024}$/.test(cursor)) {
     try {
@@ -23,12 +27,12 @@ function page(target: string) {
   }
   if (!Number.isInteger(limit) || limit < 1 || limit > 100 || (cursor !== null && !after))
     throw new HttpError(400, 'budgets.invalid_page', 'invalid budget page');
-  return { limit, after };
+  return { limit, after, scope: scope || null, blocked };
 }
 
 export async function budgetsOverview(db: pg.Pool, claims: UserAssertionClaims) {
   const admin = claims.org_role === 'owner' || claims.org_role === 'admin';
-  const { limit, after } = page(claims.htu ?? '/runner/v1/budgets');
+  const { limit, after, scope, blocked } = page(claims.htu ?? '/runner/v1/budgets');
   const projects = admin ? null : Object.keys(claims.project_roles);
   const { rows } = await db.query<BudgetRow & { time_zone: string }>(`
     WITH settings AS (
@@ -87,7 +91,12 @@ export async function budgetsOverview(db: pg.Pool, claims: UserAssertionClaims) 
       ) w ON true
       WHERE COALESCE(b.cap_usd,w.cap) IS NOT NULL
     ), selected AS MATERIALIZED (
-      SELECT * FROM budgets WHERE $4::text IS NULL OR (scope,id,period) > ($4,$5,$6)
+      SELECT * FROM budgets b
+      WHERE ($4::text IS NULL OR (b.scope,b.id,b.period) > ($4,$5,$6))
+        AND ($8::text IS NULL OR b.scope=$8)
+        AND (NOT $9::boolean OR EXISTS (
+          SELECT 1 FROM active_waits w WHERE w.scope=b.scope AND w.budget_key=b.id AND w.period=b.period
+        ))
       ORDER BY scope,id,period LIMIT $7
     )
     SELECT s.scope,s.id,s.name,s.project_id,s.period,p.time_zone,
@@ -101,15 +110,26 @@ export async function budgetsOverview(db: pg.Pool, claims: UserAssertionClaims) 
           WHEN 'environment' THEN a.environment_id=s.id WHEN 'project' THEN a.project_id=s.id
           WHEN 'agent' THEN a.agent_id=s.id ELSE false END
       ) ELSE COALESCE(current.spent_usd + current.overrun_usd,0) END AS spend,
-      COALESCE(w.blocked, '[]'::jsonb) AS blocked, history.daily_spend
+      COALESCE(w.blocked, '[]'::jsonb) AS blocked, w.blocked_count, history.daily_spend,
+      CASE s.scope WHEN 'run' THEN s.id
+        WHEN 'step' THEN COALESCE(
+          (SELECT a.execution_id FROM slots a WHERE a.step_run_id=s.id AND a.project_id=s.project_id
+            AND a.execution_id IS NOT NULL ORDER BY a.created_at DESC LIMIT 1),
+          (SELECT a.execution_id FROM active_waits a WHERE a.step_run_id=s.id AND a.project_id=s.project_id)
+        )
+      END AS execution_id
     FROM selected s CROSS JOIN settings p
     LEFT JOIN ledger_buckets current ON current.level=s.scope AND current.key=s.id AND current.period=s.period
       AND current.period_start IS NOT DISTINCT FROM
         CASE s.period WHEN 'day' THEN p.today WHEN 'month' THEN date_trunc('month',p.today::timestamp)::date END
     CROSS JOIN LATERAL (
-      SELECT jsonb_agg(jsonb_build_object('step_run_id',step_run_id,'reason',detail) ORDER BY step_run_id) AS blocked
-      FROM (SELECT step_run_id,detail FROM active_waits
-        WHERE scope=s.scope AND budget_key=s.id AND period=s.period ORDER BY step_run_id LIMIT 25) w
+      SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
+        'step_run_id',step_run_id,'reason',detail,'execution_id',execution_id
+      )) ORDER BY step_run_id) AS blocked, COALESCE(max(total), 0)::int AS blocked_count
+      FROM (SELECT step_run_id,detail,
+          COALESCE(execution_id, CASE WHEN scope='run' THEN budget_key END) AS execution_id,
+          count(*) OVER () AS total
+        FROM active_waits WHERE scope=s.scope AND budget_key=s.id AND period=s.period ORDER BY step_run_id LIMIT 25) w
     ) w
     CROSS JOIN LATERAL (
       SELECT jsonb_agg(jsonb_build_object('date', (p.today-n)::text,'spend_usd', COALESCE(b.spend,0)) ORDER BY n DESC) AS daily_spend
@@ -119,22 +139,28 @@ export async function budgetsOverview(db: pg.Pool, claims: UserAssertionClaims) 
         WHERE s.scope NOT IN ('run','step') AND level=s.scope AND key=s.id AND period='day'
           AND period_start BETWEEN p.today-29 AND p.today
         UNION ALL
-        SELECT (u.created_at AT TIME ZONE p.time_zone)::date, sum(u.cost_usd)
-        FROM usage_events u LEFT JOIN ledger_reservations r ON r.id=u.reservation_id
-        LEFT JOIN slots a ON a.id=r.slot_id
-        WHERE s.scope IN ('run','step') AND u.project_id=s.project_id
-          AND (s.scope='step' AND u.step_run_id=s.id OR s.scope='run' AND a.execution_id=s.id)
-          AND u.created_at >= ((p.today-29)::timestamp AT TIME ZONE p.time_zone)
-        GROUP BY 1
+        SELECT day, sum(cost_usd) FROM (
+          SELECT (u.created_at AT TIME ZONE p.time_zone)::date AS day, u.cost_usd
+          FROM usage_events u LEFT JOIN ledger_reservations r ON r.id=u.reservation_id
+          LEFT JOIN slots a ON a.id=r.slot_id
+          WHERE s.scope IN ('run','step') AND u.project_id=s.project_id
+            AND (s.scope='step' AND u.step_run_id=s.id OR s.scope='run' AND a.execution_id=s.id)
+            AND u.created_at >= ((p.today-29)::timestamp AT TIME ZONE p.time_zone)
+          UNION ALL
+          SELECT day, cost_usd FROM runner_archive_daily_usage u
+          WHERE s.scope IN ('run','step') AND u.project_id=s.project_id
+            AND (s.scope='step' AND u.step_run_id=s.id OR s.scope='run' AND u.execution_id=s.id)
+            AND u.day BETWEEN p.today-29 AND p.today
+        ) usage GROUP BY day
       ) b ON b.day=p.today-n
     ) history
-    ORDER BY s.scope,s.id,s.period`, [projects, admin, claims.org_id, ...(after ?? [null, null, null]), limit + 1]);
+    ORDER BY s.scope,s.id,s.period`, [projects, admin, claims.org_id, ...(after ?? [null, null, null]), limit + 1, scope, blocked]);
 
   const time_zone = rows[0]?.time_zone ?? (await db.query<{ time_zone: string }>('SELECT time_zone FROM policy WHERE id=1')).rows[0]?.time_zone ?? 'UTC';
-  const items = rows.slice(0, limit).map(({ time_zone: _zone, cap: value, spend: total, ...row }): Budget => {
+  const items = rows.slice(0, limit).map(({ time_zone: _zone, cap: value, spend: total, execution_id, ...row }): Budget => {
     const cap = Number(value);
     const spend = Number(total);
-    return { ...row, cap, spend, percentage: cap > 0 ? spend * 100 / cap : null };
+    return { ...row, ...(execution_id && { execution_id }), cap, spend, percentage: cap > 0 ? spend * 100 / cap : null };
   });
   const last = items.at(-1);
   const next_cursor = rows.length > limit && last

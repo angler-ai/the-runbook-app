@@ -318,6 +318,7 @@ fn summary_with_special_characters_is_escaped_and_stripped() {
     );
 
     let doc = ExecutionDocumentView {
+        trace_project: None,
         header: ExecutionView {
             overdue_steps: vec![],
             url: String::new(),
@@ -386,6 +387,7 @@ fn summary_with_special_characters_is_escaped_and_stripped() {
 #[test]
 fn failures_and_skipped_counts_match() {
     let doc = ExecutionDocumentView {
+        trace_project: None,
         header: ExecutionView {
             overdue_steps: vec![],
             url: String::new(),
@@ -514,6 +516,7 @@ fn output_order_is_deterministic() {
     outputs.insert("gamma".into(), serde_json::json!([1, 2, 3]));
 
     let doc = ExecutionDocumentView {
+        trace_project: None,
         header: ExecutionView {
             overdue_steps: vec![],
             url: String::new(),

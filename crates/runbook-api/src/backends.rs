@@ -137,6 +137,25 @@ pub trait Backends: Clone {
     fn authoring(&self) -> Self::Authoring;
     fn archives(&self) -> Self::Archives;
     fn runners(&self) -> Self::Runners;
+    /// Run a handler after the runner token and route have been authorized.
+    fn trace_authenticated_runner<T>(
+        &self,
+        work: impl Future<Output = T>,
+    ) -> impl Future<Output = T> {
+        work
+    }
+    /// Attach the authenticated tenant and execution to the host's active span.
+    fn label_execution_trace(
+        &self,
+        _scope: &runbook_core::catalog::TenantScope,
+        _run: &runbook_model::ExecutionId,
+        _step: &runbook_model::StepRunId,
+    ) {
+    }
+    /// The active sampled trace, when the host records spans.
+    fn trace_id(&self) -> Option<String> {
+        None
+    }
     /// R0-2: runner URLs may be private addresses
     /// (`RUNBOOK_RUNNER_PRIVATE_NETWORKS=true`).
     fn runner_private_networks(&self) -> bool {

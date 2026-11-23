@@ -19,7 +19,13 @@ import { Field, Rows, list } from './presentation';
 import {
   BudgetFields,
   EgressFields,
+  FieldError,
   FormSection,
+  RunnerForm,
+  ReviewChanges,
+  ReviewBudgetChanges,
+  increasedCaps,
+  type CapChange,
   Problem,
   numberField,
   readBudgets,
@@ -41,34 +47,51 @@ const byteLength = (value: string) => new TextEncoder().encode(value).length;
 
 export function readVariables(data: FormData, prefix: string, available?: Set<string>) {
   const values = data.getAll(prefix + ':value').map(String);
-  if (values.length > 64) throw new Error('Each variable list supports up to 64 entries.');
+  if (values.length > 64)
+    throw new FieldError(prefix + ':name', 'Each variable list supports up to 64 entries.');
   const entries = data.getAll(prefix + ':name').map((raw, index) => {
     const name = String(raw).trim();
     if (!variableName.test(name) || name.length > CREDENTIAL_ENV.max_name_length)
-      throw new Error(
+      throw new FieldError(
+        prefix + ':name',
         `Variable name in row ${index + 1} must match [A-Z_][A-Z0-9_]* and contain at most 128 characters.`,
+        index,
       );
     if (
       reservedNames.has(name) ||
       CREDENTIAL_ENV.reserved_prefixes.some((prefix) => name.startsWith(prefix))
     )
-      throw new Error(`Variable name ${name} is reserved by the sandbox.`);
+      throw new FieldError(
+        prefix + ':name',
+        `Variable name ${name} is reserved by the sandbox.`,
+        index,
+      );
     const value = values[index] ?? '';
     if (!available && (byteLength(value) > 4096 || value.includes('\0')))
-      throw new Error(
+      throw new FieldError(
+        prefix + ':value',
         `Value for ${name} must be at most 4,096 bytes and contain no null characters.`,
+        index,
       );
     if (available && !available.has(value))
-      throw new Error(`Credential for ${name} must use proxy delivery.`);
+      throw new FieldError(
+        prefix + ':value',
+        `Credential for ${name} must use proxy delivery.`,
+        index,
+      );
     if (!available && findSecretShapedValues(value).length)
-      throw new Error(`Value for ${name} looks like a secret. Use a credential placeholder.`);
+      throw new FieldError(
+        prefix + ':value',
+        `Value for ${name} looks like a secret. Use a credential placeholder.`,
+        index,
+      );
     return [name, value] as const;
   });
   if (new Set(entries.map(([name]) => name)).size !== entries.length)
-    throw new Error('Variable names must be unique.');
+    throw new FieldError(prefix + ':name', 'Variable names must be unique.');
   const variables = Object.fromEntries(entries);
   if (byteLength(JSON.stringify(variables)) > 32768)
-    throw new Error('The variable list must be at most 32 KiB.');
+    throw new FieldError(prefix + ':name', 'The variable list must be at most 32 KiB.');
   return variables;
 }
 
@@ -142,6 +165,23 @@ function RegistryEditor({ status, editable }: { status: RunnerStatus; editable: 
   const mutation = useRunnerMutation(status);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [review, setReview] = useState<{ items: string[]; before: string[] }>();
+  async function save(items: string[]) {
+    try {
+      await mutation.mutateAsync({
+        path: '/environment-registries',
+        method: 'PUT',
+        body: { items },
+      });
+      setMessage('Registry list saved.');
+    } catch (problem) {
+      setError(runnerError(problem));
+    } finally {
+      setReview(undefined);
+    }
+  }
+  const additions = review?.items.filter((host) => !review.before.includes(host)) ?? [];
+  const removals = review?.before.filter((host) => !review.items.includes(host)) ?? [];
   return (
     <FormSection
       title="Allowed image registries"
@@ -151,7 +191,7 @@ function RegistryEditor({ status, editable }: { status: RunnerStatus; editable: 
         <Problem>{runnerError(registries.error)}</Problem>
       ) : registries.data ? (
         editable ? (
-          <form
+          <RunnerForm
             className="grid gap-3"
             onSubmit={async (event) => {
               event.preventDefault();
@@ -160,28 +200,53 @@ function RegistryEditor({ status, editable }: { status: RunnerStatus; editable: 
               const items = list(
                 readText(new FormData(event.currentTarget), 'registries').replaceAll('\n', ','),
               );
-              try {
-                if (
-                  items.some(
-                    (item) =>
-                      !registryPattern.test(item.toLowerCase()) ||
-                      Number(item.split(':')[1] ?? 443) > 65535,
-                  )
+              if (
+                items.some(
+                  (item) =>
+                    !registryPattern.test(item.toLowerCase()) ||
+                    Number(item.split(':')[1] ?? 443) > 65535,
                 )
-                  throw new Error(
-                    'Registries must be exact hostnames with an optional port, without a protocol or path.',
-                  );
-                await mutation.mutateAsync({
-                  path: '/environment-registries',
-                  method: 'PUT',
-                  body: { items: [...new Set(items.map((item) => item.toLowerCase()))] },
-                });
-                setMessage('Registry list saved.');
-              } catch (problem) {
-                setError(runnerError(problem));
+              ) {
+                throw new FieldError(
+                  'registries',
+                  'Registries must be exact hostnames with an optional port, without a protocol or path.',
+                );
               }
+              const next = [...new Set(items.map((item) => item.toLowerCase()))];
+              const before = registries.data.items;
+              if (next.some((host) => !before.includes(host))) setReview({ items: next, before });
+              else await save(next);
             }}
           >
+            {review && (
+              <ReviewChanges
+                title="Review registry access"
+                description="This organization can use images from added registries. Image digest resolution and cluster approval still apply."
+                confirm="Allow registry changes"
+                close={() => setReview(undefined)}
+                onConfirm={() => save(review.items)}
+                pending={mutation.isPending}
+              >
+                <dl className="grid gap-2 text-sm">
+                  <div>
+                    <dt>Current hosts</dt>
+                    <dd>{review.before.join(', ') || 'None'}</dd>
+                  </div>
+                  <div>
+                    <dt>New hosts</dt>
+                    <dd>{review.items.join(', ') || 'None'}</dd>
+                  </div>
+                </dl>
+                <ul className="grid gap-1 text-sm">
+                  {additions.map((host) => (
+                    <li key={host}>Add {host}</li>
+                  ))}
+                  {removals.map((host) => (
+                    <li key={host}>Remove {host}</li>
+                  ))}
+                </ul>
+              </ReviewChanges>
+            )}
             <Field label="Registry hostnames">
               <textarea
                 name="registries"
@@ -204,7 +269,7 @@ function RegistryEditor({ status, editable }: { status: RunnerStatus; editable: 
                 {message}
               </p>
             )}
-          </form>
+          </RunnerForm>
         ) : (
           <p className="text-sm text-fg-muted">
             {registries.data.items.join(', ') || 'No custom registries allowed.'}
@@ -338,38 +403,45 @@ function EnvironmentForm({
   const [deleting, setDeleting] = useState(false);
   const path = environment ? `/environments/${environment.id}` : '/environments';
 
-  async function save(data: FormData) {
+  const [review, setReview] = useState<{ body: EnvironmentInput; changes: CapChange[] }>();
+  const [copied, setCopied] = useState(false);
+  function readEnvironment(data: FormData) {
     const image = custom ? requiredText(data, 'image', 'Image reference', 512) : null;
     if (image && image !== environment?.image) {
       const registry = imagePattern.exec(image)?.[1];
       if (!registry)
-        throw new Error(
+        throw new FieldError(
+          'image',
           'Image reference must use registry/repository with an optional tag or SHA-256 digest.',
         );
       if (!registries?.includes(registry))
-        throw new Error('Image reference must use a registry in the allowed list.');
+        throw new FieldError('image', 'Image reference must use a registry in the allowed list.');
     }
     const env = readVariables(data, 'env');
     const credential_env = credentials
       ? readVariables(data, 'credential', new Set(credentials.map((item) => item.id)))
       : (environment?.credential_env ?? {});
     if (Object.keys(env).some((name) => Object.hasOwn(credential_env, name)))
-      throw new Error(
+      throw new FieldError(
+        'credential:name',
         'Variable names must be unique across variables and credential placeholders.',
       );
     const setup = String(data.get('setup') ?? '');
     if (setup.includes('\0') || byteLength(setup) > 65536 || findSecretShapedValues(setup).length)
-      throw new Error(
+      throw new FieldError(
+        'setup',
         'Setup script must be at most 64 KiB and contain no secrets or null characters.',
       );
     const description = readText(data, 'description');
-    if (byteLength(description) > 2048) throw new Error('Description must be at most 2,048 bytes.');
+    if (byteLength(description) > 2048)
+      throw new FieldError('description', 'Description must be at most 2,048 bytes.');
     const name = requiredText(data, 'name', 'Environment name');
     if (
       byteLength(name) > 128 ||
       [...name].some((ch) => ch.charCodeAt(0) < 32 || ch.charCodeAt(0) === 127)
     )
-      throw new Error(
+      throw new FieldError(
+        'name',
         'Environment name must be at most 128 bytes and contain no control characters.',
       );
     const body: EnvironmentInput = {
@@ -393,37 +465,74 @@ function EnvironmentForm({
       env,
       credential_env,
       egress: overrideEgress ? readEgress(data) : null,
-      budgets: readBudgets(data),
+      budgets: readBudgets(data, '', undefined, name),
     };
     // Keep an unchanged reference pinned. Resolving a mutable tag is a separate action.
     if (environment && image === environment.image) delete body.image;
-    const result = (await mutation.mutateAsync({
-      path,
-      method: environment ? 'PATCH' : 'POST',
-      body,
-    })) as Environment;
-    if (!environment)
-      await navigate({
-        to: '/runner/environments/$environment',
-        params: { environment: result.id },
-        replace: true,
-      });
+    return body;
+  }
+
+  async function save(body: EnvironmentInput) {
+    setError('');
+    try {
+      const result = (await mutation.mutateAsync({
+        path,
+        method: environment ? 'PATCH' : 'POST',
+        body,
+      })) as Environment;
+      if (!environment)
+        await navigate({
+          to: '/runner/environments/$environment',
+          params: { environment: result.id },
+          replace: true,
+        });
+      setMessage('Environment saved.');
+    } catch (problem) {
+      setError(runnerError(problem));
+    } finally {
+      setReview(undefined);
+    }
   }
 
   return (
-    <form
+    <RunnerForm
       className="grid gap-4"
       onSubmit={async (event) => {
         event.preventDefault();
         setError('');
-        try {
-          await save(new FormData(event.currentTarget));
-          setMessage('Environment saved.');
-        } catch (problem) {
-          setError(runnerError(problem));
-        }
+        setMessage('');
+        const body = readEnvironment(new FormData(event.currentTarget));
+        const changes = increasedCaps(
+          environment?.name ?? body.name,
+          environment?.budgets ?? {},
+          body.budgets ?? {},
+        );
+        if (changes.length) setReview({ body, changes });
+        else await save(body);
       }}
     >
+      {review && (
+        <ReviewBudgetChanges
+          changes={review.changes}
+          close={() => setReview(undefined)}
+          onConfirm={() => save(review.body)}
+          pending={mutation.isPending}
+        />
+      )}
+      <nav aria-label="Environment sections" className="flex flex-wrap gap-3 text-sm">
+        <a className={textLink} href="#environment-image">
+          Image
+        </a>
+        <a className={textLink} href="#environment-setup">
+          Setup
+        </a>
+        <a className={textLink} href="#environment-credentials">
+          Credentials
+        </a>
+        <a className={textLink} href="#environment-budgets">
+          Budgets
+        </a>
+      </nav>
       <fieldset disabled={!editable || mutation.isPending} className="grid min-w-0 gap-4">
         <FormSection title="Environment details">
           <Field label="Environment name">
@@ -434,6 +543,7 @@ function EnvironmentForm({
           </Field>
         </FormSection>
         <FormSection
+          id="environment-image"
           title="Sandbox image"
           description="Agents use the saved image digest. Updating a tag creates a new environment version."
         >
@@ -475,6 +585,29 @@ function EnvironmentForm({
               {environment.image && !environment.image_approved && (
                 <div>
                   <StatusPill status="waiting" label="Not yet approved for this cluster" />
+                  <p className="my-2 text-xs text-fg-muted">
+                    Ask your cluster operator to approve this digest.
+                  </p>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(environment.image_digest!);
+                        setCopied(true);
+                      } catch {
+                        setError('Select the pinned digest to copy it manually.');
+                      }
+                    }}
+                  >
+                    Copy digest for cluster operator
+                  </Button>
+                  {copied && (
+                    <span role="status" className="ml-2 text-xs">
+                      Copied
+                    </span>
+                  )}
                 </div>
               )}
               {editable && environment.image && (
@@ -501,6 +634,7 @@ function EnvironmentForm({
           )}
         </FormSection>
         <FormSection
+          id="environment-setup"
           title="Sandbox setup"
           description="The script runs as the sandbox user before the first agent command."
         >
@@ -528,9 +662,14 @@ function EnvironmentForm({
           <VariableFields name="env" initial={environment?.env} />
         </FormSection>
         <FormSection
+          id="environment-credentials"
           title="Credential placeholders"
           description="The CLI receives a placeholder. The proxy supplies the real credential only for its bound hosts."
         >
+          <p className="text-xs text-fg-muted">
+            For example, map <code>GH_TOKEN</code> to a GitHub credential bound to{' '}
+            <code>api.github.com</code> before running <code>gh repo view</code>.
+          </p>
           {credentials ? (
             <VariableFields
               name="credential"
@@ -586,44 +725,46 @@ function EnvironmentForm({
         >
           <BudgetFields initial={environment?.budgets} />
         </FormSection>
-        {editable && (
-          <div className="flex flex-wrap gap-2">
-            <Button type="submit">{environment ? 'Save environment' : 'Create environment'}</Button>
-            {environment && !environment.is_default && (
-              <Button
-                type="button"
-                variant={deleting ? 'destructive' : 'secondary'}
-                onClick={async () => {
-                  if (!deleting) {
-                    setDeleting(true);
-                    return;
-                  }
-                  setError('');
-                  try {
-                    await mutation.mutateAsync({ path, method: 'DELETE' });
-                    await navigate({ to: '/runner/environments' });
-                  } catch (problem) {
-                    setError(runnerError(problem));
-                  }
-                }}
-              >
-                {deleting ? 'Confirm delete' : 'Delete environment'}
-              </Button>
-            )}
-            {deleting && (
-              <Button type="button" variant="secondary" onClick={() => setDeleting(false)}>
-                Cancel
-              </Button>
-            )}
-          </div>
-        )}
       </fieldset>
+      {editable && (
+        <div className="sticky bottom-0 z-10 flex flex-wrap gap-2 border-t border-border bg-bg py-2">
+          <Button type="submit" disabled={mutation.isPending}>
+            {environment ? 'Save environment' : 'Create environment'}
+          </Button>
+          {environment && !environment.is_default && (
+            <Button
+              type="button"
+              variant={deleting ? 'destructive' : 'secondary'}
+              onClick={async () => {
+                if (!deleting) {
+                  setDeleting(true);
+                  return;
+                }
+                setError('');
+                try {
+                  await mutation.mutateAsync({ path, method: 'DELETE' });
+                  await navigate({ to: '/runner/environments' });
+                } catch (problem) {
+                  setError(runnerError(problem));
+                }
+              }}
+            >
+              {deleting ? 'Confirm delete' : 'Delete environment'}
+            </Button>
+          )}
+          {deleting && (
+            <Button type="button" variant="secondary" onClick={() => setDeleting(false)}>
+              Cancel
+            </Button>
+          )}
+        </div>
+      )}
       <Problem>{error}</Problem>
       {message && (
         <p role="status" className="text-sm text-success">
           {message}
         </p>
       )}
-    </form>
+    </RunnerForm>
   );
 }

@@ -53,6 +53,7 @@ services:
     entrypoint: ["/usr/bin/tini", "--", "node", "/runner-install/api.mjs"]
     volumes:
       - ./runner-install/api.mjs:/runner-install/api.mjs:ro
+      - runner-archives:/var/lib/runbook/runner-archives
     expose: ["8094"]
     ports:
       - "${RUNNER_API_BIND:-127.0.0.1}:${RUNNER_API_PORT:-8090}:8090"
@@ -143,3 +144,4 @@ networks:
 
 volumes:
   runner-pgdata:
+  runner-archives:

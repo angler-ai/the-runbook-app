@@ -100,8 +100,9 @@ export function computeCeiling(config: AgentConfig, catalog: Catalog, projectId:
 export async function loadCeiling(db: pg.Pool | pg.PoolClient, config: AgentConfig, projectId: string, orgId: string,
   omitUnavailable = false): Promise<AgentCeiling> {
   const [profiles, credentials, servers] = await Promise.all([
-    db.query<{ id: string; name: string; model: string; sharing: unknown; provider_sharing: unknown; credential_id: string | null }>(
-      `SELECT p.id, p.name, p.model, p.sharing, v.sharing AS provider_sharing, v.credential_id
+    db.query<{ id: string; name: string; model: string; sharing: unknown; provider_sharing: unknown;
+      credential_id: string | null; attached_binding_id: string | null; provider_name: string }>(
+      `SELECT p.id, p.name, p.model, p.sharing, v.sharing AS provider_sharing, v.credential_id, v.attached_binding_id, v.name AS provider_name
        FROM profiles p JOIN providers v ON v.id = p.provider_id WHERE p.id = ANY($1)`, [config.profiles]),
 
     db.query<Credential>(
@@ -139,7 +140,14 @@ export async function loadCeiling(db: pg.Pool | pg.PoolClient, config: AgentConf
         tools.some(({ server_id: server, name }) => server === server_id && name === tool)),
     };
   }
-  return computeCeiling(config, catalog, projectId);
+  const ceiling = computeCeiling(config, catalog, projectId);
+  for (const profile of availableProfiles) {
+    const id = profile.attached_binding_id;
+    if (id && !ceiling.credentials.some((credential) => credential.id === id)) {
+      ceiling.credentials.push({ id, name: profile.provider_name, label: 'read', delivery: ['model'] });
+    }
+  }
+  return ceiling;
 }
 
 interface AgentVersionInput {

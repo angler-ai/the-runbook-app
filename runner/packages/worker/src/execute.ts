@@ -1,3 +1,4 @@
+import { setLabels } from '@runbook/runner-shared/telemetry';
 import { isDeepStrictEqual } from 'node:util';
 import { geminiThinking } from '@runbook/runner-shared/gemini-settings';
 import { claudeSettings, type ClaudeEffort } from '@runbook/runner-shared/claude-settings';
@@ -56,6 +57,7 @@ export function claimExecutor(config: Config, clients: ReturnType<typeof workerC
           Boolean(decision) !== (claims.reach === 'read') || Boolean(decision) !== (ctx.kind === 'decision')) {
         throw new StepStopped('capability_mismatch');
       }
+      setLabels({ project: claims.project_id });
       const profile = decision?.model_profile ?? step?.runner_limits?.model;
       const runner = await clients.request<RunnerStep>('api', '/internal/worker/step', {
         body: { capability: ctx.capability(), ...(profile && { profile }) },
@@ -121,6 +123,7 @@ export function claimExecutor(config: Config, clients: ReturnType<typeof workerC
           tools.push(...mcp.tools);
         }
         const orientation = await clients.context<RunOrientation>(ctx.stepRunId, ctx.claim, 'run', signal);
+        if (orientation.id) setLabels({ run: orientation.id });
         const prompt = decisionPrompt(decision, runner.instructions, orientation, runner.skill_pins);
         const system = prompt.systemBlocks.join('\n\n');
         await transcript.record('system', system, { clipPrompt: true });
@@ -191,6 +194,7 @@ export function claimExecutor(config: Config, clients: ReturnType<typeof workerC
         tools.push(...(workspace ? mcp.tools : mcp.tools.filter(({ name }) => !builtIns.has(name))));
       }
       const orientation = await clients.context<RunOrientation>(ctx.stepRunId, ctx.claim, 'run', signal);
+      if (orientation.id) setLabels({ run: orientation.id });
       const model = gatewayModel(runner.profile, {
         gatewayUrl: config.urls.gateway!, processToken: config.outboundTokens.gateway!,
         capability: ctx.capability, maxOutputTokens: runner.max_output_tokens, streaming: Boolean(workspace),

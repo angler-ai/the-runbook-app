@@ -45,7 +45,7 @@ locals {
   runner_vault_key_id = one(concat(google_kms_crypto_key.runner_vault[*].id, google_kms_crypto_key.runner_vault_temporary[*].id))
 
   service_account_names = {
-    for name in concat(["runbook-gsa"], [for role in local.runner_google_identities : "runbook-runner-${role}"]) :
+    for name in concat(["runbook-gsa", "runbook-vertex"], [for role in local.runner_google_identities : "runbook-runner-${role}"]) :
     name => "${var.name_prefix}${name}"
   }
   # Keep the prefix, and hash the full name if it exceeds IAM's 30-character limit.
@@ -71,16 +71,51 @@ resource "google_kms_crypto_key_iam_member" "runner_vault" {
   member        = "serviceAccount:${google_service_account.runner["vault"].email}"
 }
 
-# Off until attached-identity model use exists in the runner (review X19):
-# a project-wide Vertex role the vault doesn't use is only exposure.
-resource "google_project_iam_member" "runner_vault_vertex" {
-  count = var.runner_enabled && var.runner_vault_vertex_enabled ? 1 : 0
+locals {
+  runner_vertex_enabled  = var.runner_enabled && var.runner_vault_vertex_enabled
+  runner_vertex_projects = local.runner_vertex_enabled ? var.runner_vertex_targets : {}
+  runner_vertex_targets = [
+    for project, locations in local.runner_vertex_projects : {
+      project         = project
+      locations       = sort(tolist(locations))
+      service_account = google_service_account.runner_vertex[0].email
+    }
+  ]
+}
 
-  project = var.project_id
-  role    = "roles/aiplatform.user"
-  member  = "serviceAccount:${google_service_account.runner["vault"].email}"
+resource "google_service_account" "runner_vertex" {
+  count = local.runner_vertex_enabled ? 1 : 0
+
+  project      = var.project_id
+  account_id   = local.service_account_ids["runbook-vertex"]
+  display_name = "Runbook Vertex inference"
+}
+
+resource "google_service_account_iam_member" "runner_vertex_minter" {
+  count = local.runner_vertex_enabled ? 1 : 0
+
+  service_account_id = google_service_account.runner_vertex[0].name
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = "serviceAccount:${google_service_account.runner["vault"].email}"
 
   depends_on = [google_project_service.apis]
+}
+
+resource "google_project_iam_custom_role" "runner_vertex" {
+  for_each = local.runner_vertex_projects
+
+  project     = each.key
+  role_id     = replace(local.service_account_ids["runbook-vertex"], "-", "_")
+  title       = "Runbook Vertex inference"
+  permissions = ["aiplatform.endpoints.predict"]
+}
+
+resource "google_project_iam_member" "runner_vertex" {
+  for_each = local.runner_vertex_projects
+
+  project = each.key
+  role    = google_project_iam_custom_role.runner_vertex[each.key].name
+  member  = "serviceAccount:${google_service_account.runner_vertex[0].email}"
 }
 
 output "runner_vault_kms_key" {

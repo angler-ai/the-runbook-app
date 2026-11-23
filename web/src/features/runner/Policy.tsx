@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useLocation } from '@tanstack/react-router';
 import { Button } from '../../ui/primitives/button';
 import { Input } from '../../ui/primitives/input';
@@ -13,7 +13,12 @@ import { Field, Rows } from './presentation';
 import {
   BudgetFields,
   EgressFields,
+  FieldError,
   FormSection,
+  RunnerForm,
+  ReviewBudgetChanges,
+  increasedCaps,
+  type CapChange,
   Problem,
   numberField,
   readBudgets,
@@ -43,37 +48,75 @@ const caps: (keyof Limits)[] = [
   'alert_threshold_percent',
 ];
 
-function PolicyForm({
+function organizationCaps(policy: Policy): Limits {
+  return {
+    cost_per_day_usd: policy.org_cost_per_day_usd,
+    cost_per_month_usd: policy.org_cost_per_month_usd,
+    concurrency: policy.org_concurrency,
+    alert_threshold_percent: policy.alert_threshold_percent,
+  };
+}
+
+function defaultCaps(policy: Policy): Limits {
+  return {
+    concurrency: policy.agent_concurrency,
+    max_step_cost_usd: policy.agent_max_cost_usd,
+    max_run_cost_usd: policy.run_max_cost_usd,
+  };
+}
+
+function PolicyForm<T>({
   status,
   editable,
   path,
   children,
   body,
   method = 'PUT',
+  review,
 }: {
   status: RunnerStatus;
   editable: boolean;
   path: string;
   children: ReactNode;
-  body(data: FormData): unknown;
+  body(data: FormData): T;
+  review(body: T): CapChange[];
   method?: 'PUT' | 'PATCH';
 }) {
   const mutation = useRunnerMutation(status);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  async function save(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  const [confirmation, setConfirmation] = useState<{ input: T; changes: CapChange[] }>();
+  async function save(input: T) {
     setError('');
-    setMessage('');
     try {
-      await mutation.mutateAsync({ path, method, body: body(new FormData(event.currentTarget)) });
+      await mutation.mutateAsync({ path, method, body: input });
+      setConfirmation(undefined);
       setMessage('Limits saved.');
     } catch (problem) {
+      setConfirmation(undefined);
       setError(runnerError(problem));
     }
   }
   return (
-    <form className="grid gap-3" onSubmit={(event) => void save(event)}>
+    <RunnerForm
+      className="grid gap-3"
+      onSubmit={async (event) => {
+        setError('');
+        setMessage('');
+        const input = body(new FormData(event.currentTarget));
+        const changes = review(input);
+        if (changes.length) setConfirmation({ input, changes });
+        else await save(input);
+      }}
+    >
+      {confirmation && (
+        <ReviewBudgetChanges
+          changes={confirmation.changes}
+          close={() => setConfirmation(undefined)}
+          onConfirm={() => save(confirmation.input)}
+          pending={mutation.isPending}
+        />
+      )}
       <fieldset className="grid min-w-0 gap-4" disabled={!editable || mutation.isPending}>
         {children}
       </fieldset>
@@ -88,7 +131,7 @@ function PolicyForm({
           {message}
         </p>
       )}
-    </form>
+    </RunnerForm>
   );
 }
 
@@ -116,13 +159,25 @@ export function PolicyPage({
         status={status}
         editable={editable}
         path="/policy"
+        review={(next: Policy) => [
+          ...increasedCaps('Organization', organizationCaps(data), organizationCaps(next)),
+          ...increasedCaps('Agent and step defaults', defaultCaps(data), defaultCaps(next)),
+          ...projects.flatMap((project) =>
+            increasedCaps(
+              project.title,
+              data.project_limits[project.id] ?? {},
+              next.project_limits[project.id] ?? {},
+            ),
+          ),
+        ]}
         body={(form) => {
-          const limits = readBudgets(form, 'org:', caps);
+          const limits = readBudgets(form, 'org:', caps, 'Organization');
           const timeZone = requiredText(form, 'time_zone', 'Budget time zone');
           try {
             new Intl.DateTimeFormat('en', { timeZone });
           } catch {
-            throw new Error(
+            throw new FieldError(
+              'time_zone',
               'Budget time zone must be an IANA time zone, such as America/Los_Angeles.',
             );
           }
@@ -135,10 +190,10 @@ export function PolicyPage({
               integer: true,
               max: 2_147_483_647,
               required: true,
-            }),
+            })!,
             agent_max_cost_usd: numberField(form, 'agent_max_cost_usd', 'Default step cap (USD)', {
               required: true,
-            }),
+            })!,
             run_max_cost_usd: numberField(form, 'run_max_cost_usd', 'Default run cap (USD)'),
             credential_max_age_days: numberField(
               form,
@@ -152,7 +207,7 @@ export function PolicyPage({
               ...data.project_limits,
               ...Object.fromEntries(
                 projects.map((project) => {
-                  const set = readBudgets(form, project.id + ':', caps);
+                  const set = readBudgets(form, project.id + ':', caps, project.title);
                   return [
                     project.id,
                     Object.fromEntries(Object.entries(set).filter(([, value]) => value != null)),
@@ -168,16 +223,7 @@ export function PolicyPage({
           title="Organization budgets"
           description="These limits apply across the organization."
         >
-          <BudgetFields
-            prefix="org:"
-            keys={caps}
-            initial={{
-              cost_per_day_usd: data.org_cost_per_day_usd,
-              cost_per_month_usd: data.org_cost_per_month_usd,
-              concurrency: data.org_concurrency,
-              alert_threshold_percent: data.alert_threshold_percent,
-            }}
-          />
+          <BudgetFields prefix="org:" keys={caps} initial={organizationCaps(data)} />
           <Field label="Budget time zone">
             <Input
               name="time_zone"
@@ -271,7 +317,8 @@ export function PolicyPage({
             editable={editable}
             path={`/groups/${group.group_id}`}
             method="PATCH"
-            body={(form) => readBudgets(form, '', caps)}
+            body={(form) => readBudgets(form, '', caps, group.name)}
+            review={(next) => increasedCaps(`${group.name} runner group`, group, next)}
           >
             <BudgetFields keys={caps} initial={group} />
           </PolicyForm>

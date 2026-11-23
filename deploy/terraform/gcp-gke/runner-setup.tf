@@ -32,6 +32,10 @@ resource "terraform_data" "runner_setup" {
       error_message = "The runner requires GKE Dataplane V2."
     }
     precondition {
+      condition     = var.create_cluster ? true : try(data.google_container_cluster.existing[0].secret_manager_config[0].enabled, false)
+      error_message = "The runner requires the GKE Secret Manager add-on (gcloud container clusters update CLUSTER --enable-secret-manager)."
+    }
+    precondition {
       condition     = local.runner_supports_end_port
       error_message = "The runner requires GKE 1.32 or later."
     }

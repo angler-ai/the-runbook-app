@@ -113,7 +113,7 @@ test('publishes checked tools only after their named credential grant is selecte
   expect(screen.queryByRole('checkbox', { name: /update_page/ })).toBeNull();
   fireEvent.click(screen.getByRole('checkbox', { name: /search/ }));
   fireEvent.click(screen.getByRole('button', { name: 'Save configuration' }));
-  expect(await screen.findByRole('alert')).toHaveTextContent('Select each required credential');
+  expect(await screen.findByRole('alert')).toHaveTextContent('Grant Workspace credential');
   expect(save).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('checkbox', { name: /Workspace credential/ }));
   fireEvent.click(screen.getByRole('button', { name: 'Save configuration' }));

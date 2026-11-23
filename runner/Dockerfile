@@ -78,6 +78,7 @@ COPY --from=build /src/runner/packages/gateway/dist ./packages/gateway/dist
 # (design §7.3: no crash dumps in the vault or gateway); nothing here asks.
 ENV NODE_ENV=production \
     HOME=/home/runner
+RUN install -d -m 0700 -o runner -g runner /var/lib/runbook/runner-archives
 USER 10001:10001
 RUN node --input-type=module -e 'for (const role of ["worker", "sandbox-ctl", "api", "gateway", "vault"]) await import("./packages/" + role + "/dist/main.js")'
 ENTRYPOINT ["/usr/bin/tini", "--", "node", "/app/bin/runner.mjs"]

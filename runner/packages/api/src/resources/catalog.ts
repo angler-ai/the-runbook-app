@@ -1,3 +1,4 @@
+import { fetchWithTrace } from '@runbook/runner-shared/telemetry';
 import { oauthUrl } from '@runbook/runner-shared/oauth-binding';
 import { groupActivity } from './activity.ts';
 import { createHash, randomUUID } from 'node:crypto';
@@ -10,6 +11,7 @@ import { withTransaction } from '@runbook/runner-shared/db';
 import { HttpError } from '@runbook/runner-shared/http';
 import { createLogger } from '@runbook/runner-shared/log';
 import { findSecretShapedValues } from '@runbook/runner-shared/secret-shape';
+import { ATTACHED_VERTEX_PREFIX, isVertexEndpoint, vertexBinding, type VertexBinding } from '@runbook/runner-shared/vertex-binding';
 import { authorize } from '../authorize.ts';
 import type { PublicRequest } from '../server.ts';
 import { createProposal } from './proposals.ts';
@@ -19,7 +21,7 @@ import { pinnedTools, toolDrift, toolSummaries } from './catalog-tools.ts';
 
 const catalogs = {
   groups: { table: 'groups', id: 'group_id', fields: ['name', 'projects', 'concurrency', 'cost_per_day_usd', 'cost_per_month_usd', 'alert_threshold_percent', 'sandbox', 'compute_rate'] },
-  providers: { table: 'providers', id: 'id', fields: ['name', 'type', 'auth', 'credential_id', 'endpoint', 'region', 'models', 'sharing'] },
+  providers: { table: 'providers', id: 'id', fields: ['name', 'type', 'auth', 'credential_id', 'endpoint', 'region', 'project_id', 'confirm_binding', 'models', 'sharing'] },
   profiles: { table: 'profiles', id: 'id', fields: ['name', 'provider_id', 'model', 'options', 'sharing'] },
   'mcp-servers': { table: 'mcp_servers', id: 'id', fields: ['name', 'url', 'transport', 'credential_id', 'tool_labels', 'never_allowed', 'sharing'] },
   policy: { table: 'policy', id: 'id', fields: ['org_concurrency', 'org_cost_per_day_usd', 'org_cost_per_month_usd', 'agent_concurrency',
@@ -102,7 +104,34 @@ function validateToolAccess(change: Row) {
   if ('never_allowed' in change && (!Array.isArray(change.never_allowed) || !change.never_allowed.every(name))) invalid();
 }
 
-async function validate(client: pg.PoolClient, catalog: Catalog, change: Row, current: Row, orgId: string) {
+function attachedAuditBinding(row?: Row) {
+  const binding = row?.auth === 'attached' && vertexBinding(row.type, row.project_id, row.region);
+  return binding && row?.attached_binding_id ? {
+    id: row.attached_binding_id, project_id: binding.project_id, region: binding.region, publisher: binding.publisher,
+  } : null;
+}
+
+async function validateVertexTarget(config: Config, binding: VertexBinding) {
+  const unavailable = () => new HttpError(502, 'catalog.vault_unavailable', 'vault Vertex validation unavailable');
+  if (!config.urls.vault || !config.outboundTokens.vault) throw unavailable();
+  let response: Response;
+  try {
+    response = await fetchWithTrace(config.urls.vault + '/internal/vertex/validate', {
+      method: 'POST', redirect: 'error', signal: AbortSignal.timeout(5000),
+      headers: { authorization: `Bearer ${config.outboundTokens.vault}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ type: binding.provider, project_id: binding.project_id, region: binding.region }),
+    });
+    await response.body?.cancel();
+  } catch {
+    throw unavailable();
+  }
+  if (response.status === 403) {
+    throw new HttpError(422, 'catalog.attached_identity_disabled', 'the vault does not allow attached Vertex for this project and location');
+  }
+  if (response.status !== 204) throw unavailable();
+}
+
+async function validate(client: pg.PoolClient, catalog: Catalog, change: Row, current: Row, orgId: string, config: Config) {
   const row = { ...current, ...change };
   if (catalog !== 'policy' && !name(row.name)) invalid();
   if ('sharing' in change) sharing(change.sharing);
@@ -133,19 +162,47 @@ async function validate(client: pg.PoolClient, catalog: Catalog, change: Row, cu
       }
     }
   } else if (catalog === 'providers') {
-    if (row.auth === 'attached' || row.type === 'vertex' || row.type === 'bedrock') {
+    if (row.type === 'bedrock') {
       throw new HttpError(422, 'catalog.attached_identity_disabled', 'attached model identity is unavailable until the vault supports it');
     }
-    if (!['anthropic', 'openai-compatible', 'vertex-gemini'].includes(String(row.type)) || row.auth !== 'stored' ||
-        !identifier(row.credential_id) || !Array.isArray(row.models) || row.models.length === 0) invalid();
-    const endpoint = url(row.endpoint, row.type === 'openai-compatible' && process.env.RUNNER_ALLOW_HTTP_MODEL_ENDPOINTS === 'true');
-    if ('endpoint' in change) change.endpoint = endpoint;
-    if (row.region != null && !identifier(row.region)) invalid();
+    if (!Array.isArray(row.models) || row.models.length === 0) invalid();
+    const attached = row.auth === 'attached';
+    const binding = attached ? vertexBinding(row.type, row.project_id, row.region) : undefined;
+    const confirmation = change.confirm_binding;
+    delete change.confirm_binding;
+    if (attached) {
+      if (!binding || row.credential_id != null ||
+          ('endpoint' in change && change.endpoint !== binding.endpoint)) invalid();
+      const rebound = current.auth !== 'attached' || current.endpoint !== binding.endpoint || !current.attached_binding_id;
+      if (current.id && rebound && confirmation !== binding.endpoint) {
+        throw new HttpError(409, 'catalog.binding_confirmation_required', 'confirm the new Vertex endpoint before saving');
+      }
+      if (rebound) {
+        change.attached_binding_id = ATTACHED_VERTEX_PREFIX + randomUUID();
+        change.endpoint = binding.endpoint;
+      }
+    } else {
+      if (!['anthropic', 'openai-compatible', 'vertex-gemini'].includes(String(row.type)) || row.auth !== 'stored' ||
+          !identifier(row.credential_id) || ('project_id' in change && change.project_id != null) ||
+          (row.region != null && !identifier(row.region))) invalid();
+      if (current.auth === 'attached') {
+        change.attached_binding_id = null;
+        change.project_id = null;
+      }
+    }
     const models = row.models.map(record);
     if (new Set(models.map((model) => model.id)).size !== models.length ||
         models.some((model) => (model.cache_write_usd_per_million !== undefined && !cost(model.cache_write_usd_per_million)) || !name(model.id) || !cost(model.input_usd_per_million) || !cost(model.output_usd_per_million) ||
           ('cached_usd_per_million' in model && !cost(model.cached_usd_per_million)) ||
           Object.keys(model).some((key) => !['id', 'input_usd_per_million', 'output_usd_per_million', 'cached_usd_per_million', 'cache_write_usd_per_million'].includes(key)))) invalid();
+    if (binding) {
+      const modelId = binding.provider === 'vertex' ? /^claude-[\w-]+(?:@\d{8})?$/ : /^gemini-[\w-]+$/;
+      if (models.some(({ id }) => typeof id !== 'string' || !modelId.test(id))) invalid();
+      await validateVertexTarget(config, binding);
+      return;
+    }
+    const endpoint = url(row.endpoint, row.type === 'openai-compatible' && process.env.RUNNER_ALLOW_HTTP_MODEL_ENDPOINTS === 'true');
+    if ('endpoint' in change) change.endpoint = endpoint;
     const found = await client.query(
       `SELECT id FROM credentials WHERE id = $1 AND org_id = $2 AND type = 'model-provider' AND status <> 'revoked'
        AND binding->>'provider' = $3 AND binding->>'endpoint' = $4`, [row.credential_id, orgId, row.type, endpoint],
@@ -235,7 +292,7 @@ export function catalogResources(pool: pg.Pool, config: Config, sync: () => Prom
     const path = oauth ? `/internal/mcp/${serverId}/oauth-discover` : '/internal/mcp/discover';
     let payload: unknown;
     try {
-      const response = await fetch(config.urls.vault + path, {
+      const response = await fetchWithTrace(config.urls.vault + path, {
         method: 'POST', headers: { authorization: `Bearer ${config.outboundTokens.vault}`, 'content-type': 'application/json',
           ...(oauth && { 'runbook-assertion': assertion!.token }) },
         body: oauth ? new Uint8Array(assertion!.rawBody) : JSON.stringify(source),
@@ -257,8 +314,10 @@ export function catalogResources(pool: pg.Pool, config: Config, sync: () => Prom
     const fields: readonly string[] = schema.fields;
     function readChange() {
       const input = record(body);
+      const checked = catalog === 'providers' ? Object.fromEntries(Object.entries(input).filter(([key, value]) =>
+        !(['endpoint', 'confirm_binding'].includes(key) && isVertexEndpoint(value)))) : input;
       if (Object.keys(input).some((key) => !fields.includes(key) && !(catalog === 'groups' && !id && key === 'group_id')) ||
-          findSecretShapedValues(input).length) invalid();
+          findSecretShapedValues(checked).length) invalid();
       return input;
     }
     if (authorization === 'proposal') {
@@ -279,7 +338,8 @@ export function catalogResources(pool: pg.Pool, config: Config, sync: () => Prom
       }
       const read = catalog === 'profiles'
         ? `SELECT profiles.*, CASE WHEN profiles.verified_at >= profiles.updated_at
-             AND profiles.verified_at >= providers.updated_at AND profile_credential.status = 'active'
+             AND profiles.verified_at >= providers.updated_at
+             AND (providers.attached_binding_id IS NOT NULL OR profile_credential.status = 'active')
              THEN profiles.verified_at END AS verified_at
            FROM profiles JOIN providers ON providers.id = profiles.provider_id
            LEFT JOIN credentials profile_credential ON profile_credential.id = providers.credential_id`
@@ -319,10 +379,10 @@ export function catalogResources(pool: pg.Pool, config: Config, sync: () => Prom
       return id ? { status: visible.length ? 200 : 404, body: visible[0] } : { body: { items: visible } };
     }
 
-    const audit = async (db: pg.PoolClient, action: string, resourceId: string) => {
+    const audit = async (db: pg.PoolClient, action: string, resourceId: string, detail: Row = {}) => {
       await db.query(
-        'INSERT INTO audit_log(id, actor, action, resource_type, resource_id) VALUES ($1,$2,$3,$4,$5)',
-        [randomUUID(), JSON.stringify({ kind: 'user', id: claims.user_id }), `catalog.${action}`, catalog, resourceId],
+        'INSERT INTO audit_log(id, actor, action, resource_type, resource_id, detail) VALUES ($1,$2,$3,$4,$5,$6)',
+        [randomUUID(), JSON.stringify({ kind: 'user', id: claims.user_id }), `catalog.${action}`, catalog, resourceId, JSON.stringify(detail)],
       );
     };
     if (id && operation === 'discover') {
@@ -371,9 +431,10 @@ export function catalogResources(pool: pg.Pool, config: Config, sync: () => Prom
       if (id && method === 'DELETE') {
         const deletion = await client.query(catalog === 'mcp-servers'
           ? `UPDATE mcp_servers SET deleted_at = now(), pinned_snapshot_id = NULL WHERE ${byId}`
-          : `DELETE FROM ${schema.table} WHERE ${byId}`, [id]);
+          : `DELETE FROM ${schema.table} WHERE ${byId}${catalog === 'providers' ? ' RETURNING *' : ''}`, [id]);
         if (!deletion.rowCount) absent();
-        await audit(client, 'deleted', id);
+        const oldBinding = catalog === 'providers' ? attachedAuditBinding(deletion.rows[0]) : null;
+        await audit(client, 'deleted', id, oldBinding ? { old_binding: oldBinding, new_binding: null } : undefined);
         return { status: 204 };
       }
       const input = readChange();
@@ -383,7 +444,7 @@ export function catalogResources(pool: pg.Pool, config: Config, sync: () => Prom
       const change = Object.fromEntries(Object.entries(input).filter(([key]) => key !== 'group_id'));
       const { rows: [current] } = id || policy ? await client.query<Row>(`${select} WHERE ${byId} FOR UPDATE`, [resourceId]) : { rows: [] };
       if ((id || policy) && !current) absent();
-      await validate(client, catalog, change, current ?? {}, claims.org_id);
+      await validate(client, catalog, change, current ?? {}, claims.org_id, config);
       // Older clients also send this field to the runner. Only the core's
       // registry snapshot can change the mirrored assignments.
       if (catalog === 'groups') delete change.projects;
@@ -398,7 +459,10 @@ export function catalogResources(pool: pg.Pool, config: Config, sync: () => Prom
            updated_at = now() WHERE ${byId} RETURNING *`
         : `INSERT INTO ${schema.table}(${schema.id}, ${keys.join(', ')}) VALUES (${values.map((_, i) => `$${i + 1}`).join(', ')}) RETURNING *`,
       values);
-      await audit(client, current ? 'updated' : 'created', String(resourceId));
+      const oldBinding = catalog === 'providers' ? attachedAuditBinding(current) : null;
+      const newBinding = catalog === 'providers' ? attachedAuditBinding(saved.rows[0]) : null;
+      const bindingChange = oldBinding?.id !== newBinding?.id ? { old_binding: oldBinding, new_binding: newBinding } : undefined;
+      await audit(client, current ? 'updated' : 'created', String(resourceId), bindingChange);
       return { status: current ? 200 : 201, body: saved.rows[0] };
     };
     const result = await (transaction ? write(transaction) : withTransaction(pool, write)).catch((error: unknown) => {

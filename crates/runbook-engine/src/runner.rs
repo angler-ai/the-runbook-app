@@ -40,6 +40,7 @@ pub struct CredentialRelease {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct RunnerStepState {
     pub target: Option<AgentTargetRef>,
+    pub trace_id: Option<String>,
     /// The agent version pinned by the current (or last) claim.
     pub agent_version_id: Option<String>,
     /// Why the step waits for its runner (`agent_paused`,

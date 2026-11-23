@@ -246,6 +246,15 @@ pub(crate) async fn claim_decision<S: SessionStore>(
         },
         owner.actor.clone(),
     )?;
+    if let Some(trace_id) = work.runner_trace.take() {
+        work.append(
+            runbook_engine::Event::RunnerTraceRecorded {
+                step_run_id: step_run_id.clone(),
+                trace_id,
+            },
+            owner.actor.clone(),
+        )?;
+    }
     work.settle()?;
     let write = ClaimWrite {
         execution_id: work.runtime.state.id.clone(),

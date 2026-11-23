@@ -8,6 +8,7 @@ import { createLogger } from '@runbook/runner-shared/log';
 import { createKek } from './kek/index.ts';
 import { SecretManager, secretManagerResources } from './secret-manager.ts';
 import { createVaultServer } from './server.ts';
+import { VertexIdentity, vertexTargets } from './vertex-identity.ts';
 import { Vault } from './vault.ts';
 
 export async function main(): Promise<void> {
@@ -19,6 +20,7 @@ export async function main(): Promise<void> {
   const config = loadConfig('vault');
   const log = createLogger('vault');
   const secretManager = new SecretManager(secretManagerResources(process.env.RUNNER_SECRET_MANAGER_RESOURCES));
+  const vertexIdentity = new VertexIdentity({ targets: vertexTargets(process.env.RUNNER_VERTEX_TARGETS) });
   const kek = await createKek(required(config.kek, 'RUNNER_KEK_PROVIDER'));
   const pool = openPool('vault', required(config.databaseUrl, 'RUNNER_DATABASE_URL'));
   const issuer = required(config.coreUrl, 'CORE_URL');
@@ -28,6 +30,7 @@ export async function main(): Promise<void> {
     kek,
     orgId: required(config.orgId, 'RUNNER_ORG_ID'),
     secretManager,
+    vertexIdentity,
     log,
     assertion: {
       coreUrl: issuer,

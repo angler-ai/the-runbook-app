@@ -3,6 +3,8 @@ import { expect, it, vi } from 'vitest';
 import type { Tool } from '@runbook/runner-shared/contracts/catalog';
 import type { UserAssertionClaims } from '@runbook/runner-shared/contracts/core';
 import { createTestDatabase, hasTestDatabase } from '@runbook/runner-shared/test-utils/pg';
+import { loadCeiling, type AgentConfig } from '../src/resources/agents.ts';
+import { gatewayResources } from '../src/resources/gateway.ts';
 import { publicResources } from '../src/resources/public.ts';
 
 it.skipIf(!hasTestDatabase)('authors the catalog, discovers through the gateway path and pins only reviewed snapshots', async () => {
@@ -163,6 +165,106 @@ it.skipIf(!hasTestDatabase)('authors the catalog, discovers through the gateway 
     expect((await call('DELETE', '/groups/g')).status).toBe(204);
   } finally {
     vi.unstubAllGlobals();
+    await db.drop();
+  }
+});
+
+it.skipIf(!hasTestDatabase)('derives and confirms the attached Vertex destination, rebinding only on destination changes', async () => {
+  const db = await createTestDatabase();
+  const claims: UserAssertionClaims = {
+    aud: 'runner:install', iss: 'core', jti: 'test', iat: 0, exp: 60, org_id: 'org', user_id: 'human',
+    org_role: 'admin', principal: 'human', project_roles: {}, scopes: ['runner:admin'], htm: 'POST', htu: '', bh: '',
+  };
+  const handle = publicResources(db.pool('api'), {
+    role: 'api', listen: { host: '', port: 0 }, urls: { vault: 'https://vault.example' },
+    inboundTokens: {}, outboundTokens: { vault: 'vault-process-token' },
+  }, async () => {});
+  let allowed = false;
+  const outbound = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+    expect(url).toBe('https://vault.example/internal/vertex/validate');
+    expect(init?.headers).toMatchObject({ authorization: 'Bearer vault-process-token' });
+    const { project_id, region } = JSON.parse(String(init?.body));
+    return new Response(null, { status: allowed && project_id === 'angler-dev' && ['global', 'us-east5'].includes(region) ? 204 : 403 });
+  });
+  const save = (body: unknown, id?: string) => handle({
+    method: id ? 'PATCH' : 'POST', target: '/runner/v1/providers' + (id ? '/' + id : ''), claims, body,
+  });
+  const binding = (id: string) => db.admin().query<{ attached_binding_id: string }>(
+    'SELECT attached_binding_id FROM providers WHERE id = $1', [id]).then(({ rows }) => rows[0]!.attached_binding_id);
+  const base = { name: 'Google identity', type: 'vertex-gemini', auth: 'attached', project_id: 'angler-dev', region: 'global',
+    models: [{ id: 'gemini-4-hydrogen', input_usd_per_million: 1.5, output_usd_per_million: 7.5 }] };
+  try {
+    for (const patch of [
+      { project_id: 'angler-dev/path' }, { region: 'us' }, { region: 'us-east5.example' },
+      { endpoint: 'https://example.com' }, { endpoint: 'https://us-east5-aiplatform.googleapis.com' }, { credential_id: 'stored' },
+      { models: [{ ...base.models[0], output_usd_per_million: -1 }] }, { models: [base.models[0], base.models[0]] },
+      { models: [{ ...base.models[0], id: '../model' }] }, { type: 'bedrock' },
+    ]) await expect(save({ ...base, ...patch })).rejects.toMatchObject({ status: 422 });
+    await expect(save(base)).rejects.toMatchObject({ code: 'catalog.attached_identity_disabled' });
+    allowed = true;
+    await expect(save({ ...base, region: 'us-east1' })).rejects.toMatchObject({ code: 'catalog.attached_identity_disabled' });
+    const saved = await save(base);
+    const { id } = saved.body as { id: string };
+    expect(saved.body).toMatchObject({ credential_id: null,
+      endpoint: 'https://aiplatform.googleapis.com/v1/projects/angler-dev/locations/global/publishers/google/models' });
+    const original = await binding(id);
+    await save({ name: 'Vertex model' }, id);
+    expect(await binding(id)).toBe(original);
+    const endpoint = 'https://us-east5-aiplatform.googleapis.com/v1/projects/angler-dev/locations/us-east5/publishers/anthropic/models';
+    const change = { type: 'vertex', region: 'us-east5',
+      models: [{ id: 'claude-sonnet-5-5', input_usd_per_million: 2, output_usd_per_million: 10 }] };
+    await expect(save(change, id)).rejects.toMatchObject({ code: 'catalog.binding_confirmation_required' });
+    await expect(save({ ...change, confirm_binding: 'stale' }, id)).rejects.toMatchObject({ code: 'catalog.binding_confirmation_required' });
+    expect((await save({ ...change, confirm_binding: endpoint }, id)).body).toMatchObject({ endpoint, type: 'vertex' });
+    expect(await binding(id)).not.toBe(original);
+    const bindingId = await binding(id);
+    await expect(save({ project_id: 'other-project' }, id)).rejects.toMatchObject({ code: 'catalog.binding_confirmation_required' });
+    const unlisted = 'https://us-east5-aiplatform.googleapis.com/v1/projects/other-project/locations/us-east5/publishers/anthropic/models';
+    await expect(save({ project_id: 'other-project', confirm_binding: unlisted }, id))
+      .rejects.toMatchObject({ code: 'catalog.attached_identity_disabled' });
+    const proposal = await handle({
+      method: 'PATCH', target: '/runner/v1/providers/' + id,
+      claims: { ...claims, user_id: 'agent', principal: 'agent' },
+      body: { project_id: 'other-project', confirm_binding: unlisted },
+    });
+    expect(proposal.status).toBe(202);
+    await expect(handle({
+      method: 'POST', target: '/runner/v1/proposals/' + (proposal.body as { id: string }).id + '/approve', claims, body: undefined,
+    })).rejects.toMatchObject({ code: 'catalog.attached_identity_disabled' });
+    expect(await binding(id)).toBe(bindingId);
+    const events = await db.admin().query("SELECT detail FROM audit_log WHERE resource_id = $1 AND action = 'catalog.updated'", [id]);
+    expect(events.rows.map(({ detail }) => detail)).toContainEqual({
+      old_binding: { id: original, project_id: 'angler-dev', region: 'global', publisher: 'google' },
+      new_binding: { id: bindingId, project_id: 'angler-dev', region: 'us-east5', publisher: 'anthropic' },
+    });
+    await save({ sharing: { projects: ['p'] } }, id);
+    const profile = await handle({ method: 'POST', target: '/runner/v1/profiles', claims,
+      body: { name: 'default', provider_id: id, model: 'claude-sonnet-5-5', sharing: { projects: ['p'] } } });
+    const profileId = (profile.body as { id: string }).id;
+    const config: AgentConfig = { profiles: [profileId], credentials: [], limits: { max_tokens: 100, max_cost_usd: 1, timeout_s: 60 } };
+    const pool = db.pool('api');
+    const ceiling = await loadCeiling(pool, config, 'p', 'org');
+    expect(ceiling.credentials).toEqual([{ id: bindingId, name: 'Vertex model', delivery: ['model'], label: 'read' }]);
+    expect(ceiling.profile_models).toEqual({ default: 'claude-sonnet-5-5' });
+    await pool.query(`INSERT INTO groups (group_id, name) VALUES ('g', 'default');
+      INSERT INTO agents (id, project_id, group_id, name, status) VALUES ('a', 'p', 'g', 'agent', 'active')`);
+    await pool.query(`INSERT INTO agent_versions (id, agent_id, version, config, ceiling, created_by)
+      VALUES ('v', 'a', 1, $1, $2, 'human')`, [config, ceiling]);
+    const verifier = {
+      verifyCapability: async () => ({ project_id: 'p', group_id: 'g', agent_id: 'a',
+        agent_version: 'v', runner_id: 'r', model_profile: 'default' }),
+    } as unknown as Parameters<typeof gatewayResources>[1];
+    const routes = gatewayResources(pool, verifier, 'org');
+    const model = routes.find(({ path }) => path === '/internal/model/profile')!;
+    const resolved = await model.handle({ caller: 'gateway', params: {}, body: { capability: 'fixture', profile: 'default' } });
+    expect(resolved.body).toMatchObject({ credentialId: bindingId, inputUsdPerMillion: 2.2, outputUsdPerMillion: 11,
+      vertexBinding: { provider: 'vertex', project_id: 'angler-dev', region: 'us-east5', publisher: 'anthropic', endpoint } });
+    const worker = routes.find(({ path }) => path === '/internal/worker/step')!;
+    expect((await worker.handle({ caller: 'worker', runnerId: 'r', params: {}, body: { capability: 'fixture' } })).body)
+      .toMatchObject({ credentials: [{ credential_id: bindingId, delivery: 'model' }] });
+
+  } finally {
+    outbound.mockRestore();
     await db.drop();
   }
 });

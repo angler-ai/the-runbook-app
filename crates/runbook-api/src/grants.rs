@@ -50,14 +50,12 @@ pub(crate) async fn step_scope<B: Backends>(
         .await
         .map_err(crate::runners::storage)?
         .ok_or((404, "resource.not_found"))?;
-    Ok((
-        sr,
-        TenantScope {
-            org_id: runner.org_id.clone(),
-            project_id: project,
-        },
-        execution,
-    ))
+    let scope = TenantScope {
+        org_id: runner.org_id.clone(),
+        project_id: project,
+    };
+    backends.label_execution_trace(&scope, &execution, &sr);
+    Ok((sr, scope, execution))
 }
 
 pub(crate) async fn work<B: Backends>(
@@ -192,6 +190,7 @@ pub(crate) async fn step_operation<B: Backends>(
                 &claim,
                 id,
                 Some(&replay),
+                backends.trace_id(),
             )
             .await
             .map_err(|e| api(actor_error(e)))?;

@@ -33,9 +33,23 @@ export function costText(cost: StepCost): string {
     : dollars(total);
 }
 
-export function RunnerStep({ step, project }: { step: StepView | undefined; project?: string }) {
+export function RunnerStep({
+  step,
+  project,
+  traceProject,
+}: {
+  step: StepView | undefined;
+  project?: string;
+  traceProject?: string | null;
+}) {
   const runner = step?.runner;
   const cost = step?.cost;
+  const traceId = runner?.trace_id;
+  const validTrace = traceId && /^[0-9a-f]{32}$/.test(traceId) ? traceId : undefined;
+  const traceUrl =
+    validTrace && traceProject && /^[a-z][a-z0-9-]{4,29}$/.test(traceProject)
+      ? `https://console.cloud.google.com/traces/list?tid=${validTrace}&project=${traceProject}`
+      : undefined;
   if (!runner && !cost) return null;
   const waiting =
     runner?.waiting_reason && step?.status === 'ready'
@@ -80,6 +94,18 @@ export function RunnerStep({ step, project }: { step: StepView | undefined; proj
             >
               Transcript
             </a>
+          )}
+          {validTrace && (
+            <span>
+              Trace{' '}
+              {traceUrl ? (
+                <a className="font-mono text-accent underline" href={traceUrl}>
+                  {validTrace}
+                </a>
+              ) : (
+                <span className="font-mono">{validTrace}</span>
+              )}
+            </span>
           )}
           {cost ? <span>Cost {costText(cost)}</span> : null}
         </div>

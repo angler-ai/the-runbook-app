@@ -1,3 +1,4 @@
+import { createLogger, errorFields, initLogRedaction } from '@runbook/runner-shared/log';
 import pg from 'pg';
 import { installRoleNames, migrate, sqlIdentifier } from '@runbook/runner-shared/db';
 
@@ -6,7 +7,10 @@ const required = (name) => {
   return process.env[name];
 };
 
+const log = createLogger('gke-migrate');
+
 async function main() {
+  await initLogRedaction();
   const url = required('RUNNER_MIGRATE_DATABASE_URL');
   const coreDatabase = required('RUNNER_DB_CORE_NAME');
   const runnerDatabase = required('RUNNER_DB_NAME');
@@ -55,7 +59,7 @@ async function main() {
                      ON CONFLICT (runner_id) DO UPDATE SET capacity = EXCLUDED.capacity, group_id = EXCLUDED.group_id`,
       [runner, group, capacity]);
     await db.query('COMMIT');
-    console.log('Runner database migrated');
+    log.info('runner database migrated');
   } finally {
     await db.end();
   }
@@ -63,6 +67,6 @@ async function main() {
 
 main().catch((error) => {
   // PostgreSQL errors can include SQL text and connection details.
-  console.error('Runner database migration failed', error.code ?? (error.constructor === Error ? error.message : error.name));
+  log.error('runner database migration failed', errorFields(error));
   process.exitCode = 1;
 });

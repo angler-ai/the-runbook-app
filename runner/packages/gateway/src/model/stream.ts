@@ -1,3 +1,4 @@
+import { identifier, inSpan } from '@runbook/runner-shared/telemetry';
 import { definitiveProviderRejection } from './stream-fetch.ts';
 import type { LanguageModelV4CallOptions, LanguageModelV4StreamPart, LanguageModelV4Usage } from '@ai-sdk/provider';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -203,7 +204,7 @@ export async function streamModel(input: StreamInput, profile: ModelProfile, dep
   const signal = AbortSignal.any([deps.signal, abort.signal]);
   const encode = new TextEncoder();
   const body = new ReadableStream<Uint8Array>({
-    async start(controller) {
+    start: (controller) => inSpan('model.call', async (span) => {
       let usage: LanguageModelV4Usage | undefined;
       let served = profile.model;
       let reportedModel: string | undefined;
@@ -233,8 +234,8 @@ export async function streamModel(input: StreamInput, profile: ModelProfile, dep
       };
       const parts: { data: LanguageModelV4StreamPart; check: string; channel: string }[] = [];
       const closedChannels = new Set<string>();
-      const patterns = [...new Set(deps.secrets.flatMap(releasedForms))];
-      const window = Math.max(0, ...patterns.map((value) => value.length));
+      let patterns: string[] = [];
+      let window = 0;
       const emit = (part: LanguageModelV4StreamPart) => {
         if (part.type === 'error') throw part.error;
         if (part.type === 'finish') usage = mergeUsage(usage, part.usage);
@@ -273,6 +274,8 @@ export async function streamModel(input: StreamInput, profile: ModelProfile, dep
               usage = mergeUsage(usage, partial);
             }, () => { dispatched = true; }, (status) => { responseStatus = status; });
             dispatched = true;
+            patterns = [...new Set(deps.secrets.flatMap(releasedForms))];
+            window = Math.max(0, ...patterns.map((value) => value.length));
             const reader = stream.getReader();
             const cancel = () => { void reader.cancel().catch(() => undefined); };
             signal.addEventListener('abort', cancel, { once: true });
@@ -332,6 +335,11 @@ export async function streamModel(input: StreamInput, profile: ModelProfile, dep
         !observed || !price || (observed.inputTokens.total === undefined && !observed.outputTokens.total));
       if (pending) log.warn('Model usage pending reconciliation', { reservation_id: reservation.reservation_id });
       const measured = observed && price ? usageCost(price, observed) : 0;
+      const model = identifier(price?.model ?? profile.model);
+      if (model) span.setAttribute('gen_ai.response.model', model);
+      span.setAttribute('gen_ai.usage.input_tokens', observed?.inputTokens.total ?? 0);
+      span.setAttribute('gen_ai.usage.output_tokens', observed?.outputTokens.total ?? 0);
+      span.setAttribute('runbook.model.cost_usd', pending ? Math.max(reserved, measured) : measured);
       try {
         await deps.settle({ reservation_id: reservation.reservation_id,
           actual_usd: pending ? Math.max(reserved, measured) : measured,
@@ -351,7 +359,7 @@ export async function streamModel(input: StreamInput, profile: ModelProfile, dep
         send('error', 'model.settlement_failed');
       }
       if (!abort.signal.aborted) controller.close();
-    },
+    }),
     cancel() { abort.abort(); },
   });
   return { body, headers: { 'content-type': 'text/event-stream', 'x-content-type-options': 'nosniff' } };

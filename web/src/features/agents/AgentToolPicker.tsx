@@ -1,7 +1,8 @@
 import { useState } from 'react';
+import { Input } from '../../ui/primitives/input';
 import { Button } from '../../ui/primitives/button';
 import { runnerError, useRunnerQuery, type Items, type RunnerStatus } from '../runner/api';
-import { panel, sentenceCase } from '../runner/presentation';
+import { Field, panel, sentenceCase } from '../runner/presentation';
 import { Problem } from '../runner/runnerForms';
 import type { ToolConnection } from '../runner/resources';
 
@@ -12,14 +13,17 @@ export function AgentToolPicker({
   selected,
   onChange,
   status,
+  guidedConnection,
 }: {
   projectId: string;
   selected: ToolBinding[];
   onChange(value: ToolBinding[]): void;
   status: RunnerStatus;
+  guidedConnection?: string;
 }) {
   const query = useRunnerQuery<Items<ToolConnection>>(status, `/projects/${projectId}/mcp-tools`);
   const connections = query.data?.items ?? [];
+  const [search, setSearch] = useState('');
   const [expanded, setExpanded] = useState(() => selected.map((tool) => tool.server_id));
 
   if (query.error) return <Problem>{runnerError(query.error)}</Problem>;
@@ -33,8 +37,16 @@ export function AgentToolPicker({
   const unavailable = selected.filter(
     ({ server_id, tool }) => !byId.get(server_id)?.tools.some(({ name }) => name === tool),
   );
+  const shown = guidedConnection
+    ? connections.filter(({ id }) => id === guidedConnection)
+    : connections;
   return (
     <div className="grid gap-2">
+      {shown.length > 0 && (
+        <Field label="Search agent tools">
+          <Input type="search" value={search} onChange={(event) => setSearch(event.target.value)} />
+        </Field>
+      )}
       {!connections.length && (
         <p className="text-sm text-fg-muted">No connections are shared with this project.</p>
       )}
@@ -67,33 +79,44 @@ export function AgentToolPicker({
           </ul>
         </section>
       )}
-      {connections.map((connection) => {
-        const enabled = expanded.includes(connection.id);
+      {shown.map((connection) => {
+        const enabled = guidedConnection === connection.id || expanded.includes(connection.id);
+        const matching = connection.tools.filter(({ name }) =>
+          name.toLowerCase().includes(search.trim().toLowerCase()),
+        );
+        const count = selected.filter(({ server_id }) => server_id === connection.id).length;
         return (
           <div className={panel + ' grid gap-2'} key={connection.id}>
             <label className="flex items-center gap-2 font-medium">
-              <input
-                type="checkbox"
-                className="accent-accent"
-                checked={enabled}
-                onChange={(event) => {
-                  if (event.target.checked) setExpanded([...expanded, connection.id]);
-                  else {
-                    setExpanded(expanded.filter((id) => id !== connection.id));
-                    onChange(selected.filter((binding) => binding.server_id !== connection.id));
-                  }
-                }}
-              />
+              {guidedConnection !== connection.id && (
+                <input
+                  type="checkbox"
+                  name="connection-tools"
+                  className="accent-accent"
+                  checked={enabled}
+                  onChange={(event) => {
+                    if (event.target.checked) setExpanded([...expanded, connection.id]);
+                    else {
+                      setExpanded(expanded.filter((id) => id !== connection.id));
+                      onChange(selected.filter((binding) => binding.server_id !== connection.id));
+                    }
+                  }}
+                />
+              )}
               {connection.name}
+              <span className="text-xs font-normal text-fg-muted" aria-hidden="true">
+                · {count} selected
+              </span>
             </label>
             {enabled &&
-              (connection.tools.length > 0 ? (
+              (matching.length > 0 ? (
                 <ul className="ml-2 grid gap-2 border-l border-border pl-4">
-                  {connection.tools.map((tool) => (
+                  {matching.map((tool) => (
                     <li key={tool.name}>
                       <label className="flex flex-wrap items-center gap-2 text-sm">
                         <input
                           type="checkbox"
+                          name="connection-tools"
                           className="accent-accent"
                           checked={selected.some(
                             (binding) =>
@@ -121,9 +144,11 @@ export function AgentToolPicker({
                 </ul>
               ) : (
                 <p className="text-sm text-fg-muted">
-                  {connection.pinned_snapshot_id
-                    ? 'No allowed tools are available from the current pin.'
-                    : 'Ask a runner admin to pin tools for this connection.'}
+                  {search && connection.tools.length
+                    ? 'No matching tools.'
+                    : connection.pinned_snapshot_id
+                      ? 'No allowed tools are available from the current pin.'
+                      : 'Ask a runner admin to pin tools for this connection.'}
                 </p>
               ))}
           </div>

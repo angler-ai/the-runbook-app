@@ -1,4 +1,5 @@
 import { expect, it, vi } from 'vitest';
+import { vertexBinding } from '@runbook/runner-shared/vertex-binding';
 import { generateModel } from '../src/model/endpoint.ts';
 import { anthropicPrompt, invokeModel } from '../src/model/providers.ts';
 
@@ -72,11 +73,11 @@ it('model_http_requires_explicit_operator_opt_in', async () => {
   }
 });
 
-it('refuses attached model identity before reserving or invoking', async () => {
+it('refuses missing Vertex material before reserving or invoking', async () => {
   const { deps } = setup();
   const resolve = async () => ({ ...profile, provider: 'vertex' as const });
   await expect(generateModel({ ...deps, resolve }, input))
-    .rejects.toMatchObject({ code: 'model.attached_identity_disabled' });
+    .rejects.toMatchObject({ code: 'model.material_denied' });
   expect(deps.reserve).not.toHaveBeenCalled();
   expect(deps.invoke).not.toHaveBeenCalled();
 });
@@ -222,4 +223,92 @@ it('settles a non-streaming provider 503 at zero', async () => {
     throw new Error('provider unavailable');
   } }, input)).rejects.toMatchObject({ code: 'model.call_failed' });
   expect(deps.settle).toHaveBeenCalledWith({ reservation_id: 'reservation', actual_usd: 0, usage: {} });
+});
+
+it('streams Vertex Claude with cache control, tools and a renewed token, then settles usage', async () => {
+  const { modelRoute } = await import('../src/model/routes.ts');
+  const { MaterialStore } = await import('../src/material.ts');
+  const { loadRedaction } = await import('@runbook/runner-shared/redact');
+  const fetcher = await import('../src/egress/fetch.ts');
+  const now = Date.now();
+  const claims = { kind: 'capability', sub: 'step', claim_id: 'claim', generation: 1, runner_id: 'runner',
+    exp: Math.floor(now / 1000) + 60, model_profile: 'default' } as Awaited<ReturnType<Parameters<typeof modelRoute>[1]['verifyCapability']>>;
+  const binding = vertexBinding('vertex', 'angler-dev', 'us-east5')!;
+  const selected = { ...profile, provider: 'vertex', model: 'claude-sonnet-5-5', endpoint: binding.endpoint,
+    vertexBinding: binding, inputUsdPerMillion: 2.2, outputUsdPerMillion: 11, cacheReadUsdPerMillion: 0.11, cacheWriteUsdPerMillion: 2.75 };
+  const store = new MaterialStore();
+  const rotated = 'fixture-rotated-vertex-token';
+  const material = { claim_id: claims.claim_id, generation: claims.generation, runner_id: claims.runner_id,
+    release_id: 'release', step_run_id: claims.sub, credential_id: profile.credentialId, delivery: 'model' as const,
+    binding: { ...binding }, material: { fields: { access_token: 'fixture-initial-vertex-token' } },
+    expires_at: new Date(now + 60_000).toISOString() };
+  store.put(material);
+  const route = modelRoute({ role: 'gateway', listen: { host: '', port: 0 }, urls: { api: 'http://fixture' },
+    inboundTokens: {}, outboundTokens: {} }, { verifyCapability: async () => claims }, store, await loadRedaction(), true);
+  const order: string[] = [];
+  let settlement: { actual_usd: number; usage: unknown } | undefined;
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
+    if (url.endsWith('/model/profile')) return Response.json(selected);
+    if (url.endsWith('/ledger/reserve')) {
+      order.push('reserve');
+      store.put({ ...material, material: { fields: { access_token: rotated } } });
+      return Response.json({ reservation_id: 'hold' });
+    }
+    order.push('settle');
+    settlement = JSON.parse(String(init.body));
+    return new Response(null);
+  }));
+  let echo = false;
+  const upstream = vi.spyOn(fetcher, 'pinnedFetch').mockImplementation(async (url, init, dispatched) => {
+    order.push('call');
+    expect(String(url)).toBe(`${binding.endpoint}/claude-sonnet-5-5:streamRawPredict`);
+    expect(new Headers(init?.headers).get('authorization')).toBe(`Bearer ${rotated}`);
+    expect(JSON.parse(String(init?.body))).toMatchObject({
+      anthropic_version: 'vertex-2023-10-16',
+      messages: [{ role: 'user', content: [{ type: 'text', cache_control: { type: 'ephemeral' } }] }],
+      tools: [{ name: 'read', input_schema: { type: 'object' } }],
+    });
+    dispatched?.();
+    const events = [
+      { type: 'message_start', message: { id: 'msg', type: 'message', role: 'assistant', model: selected.model, content: [],
+        stop_reason: null, stop_sequence: null, usage: { input_tokens: 10, cache_read_input_tokens: 20, cache_creation_input_tokens: 30, output_tokens: 0 } } },
+      ...(echo ? [
+        { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+        { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: rotated.slice(0, 14) } },
+        { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: rotated.slice(14) } },
+      ] : [
+        { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: 'tool-1', name: 'read', input: {} } },
+        { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: '{}' } },
+      ]),
+      { type: 'content_block_stop', index: 0 },
+      { type: 'message_delta', delta: { stop_reason: 'tool_use', stop_sequence: null }, usage: { output_tokens: 8 } },
+      { type: 'message_stop' },
+    ];
+    return new Response(events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(''),
+      { headers: { 'content-type': 'text/event-stream' } });
+  });
+  const call = async () => new Response((await route.handle({ params: {}, caller: 'worker', runnerId: 'runner', body: {
+    capability: 'cap', profile: 'default', request: { prompt: [{ role: 'user', content: [{ type: 'text', text: 'test',
+      providerOptions: { anthropic: { cacheControl: { type: 'ephemeral' } } } }] }], maxOutputTokens: 100,
+      tools: [{ type: 'function', name: 'read', inputSchema: { type: 'object' } }] },
+  } })).body as ReadableStream).text();
+  try {
+    store.put({ ...material, binding: { ...binding, project_id: 'other-project' } });
+    await expect(call()).rejects.toMatchObject({ code: 'model.material_denied' });
+    expect(order).toEqual([]);
+    store.put(material);
+    expect(await call()).toContain('"toolCallId":"tool-1"');
+    expect(order).toEqual(['reserve', 'call', 'settle']);
+    expect(settlement?.usage).toMatchObject({ input_tokens: 60, cached_tokens: 20, cache_write_tokens: 30, output_tokens: 8 });
+    expect(settlement?.actual_usd).toBeCloseTo((10 * 2.2 + 20 * 0.11 + 30 * 2.75 + 8 * 11) / 1_000_000);
+    echo = true;
+    store.put(material);
+    const blocked = await call();
+    expect(blocked).toContain('secret_in_model_output');
+    expect(blocked).not.toContain(rotated);
+  } finally {
+    upstream.mockRestore();
+    vi.unstubAllGlobals();
+    store.clear();
+  }
 });

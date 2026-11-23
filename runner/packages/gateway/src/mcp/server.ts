@@ -1,3 +1,4 @@
+import { fetchWithTrace, identifier, inSpan, setLabels } from '@runbook/runner-shared/telemetry';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
@@ -45,7 +46,7 @@ export function mcpRoute(config: Config, verifier: Pick<CapabilityVerifier, 'ver
       const transport = new WebStandardStreamableHTTPServerTransport({ enableJsonResponse: true });
       let record: ToolCallRecord | undefined;
       async function snapshot(): Promise<StepSnapshot> {
-        const response = await fetch(`${config.urls.api}/internal/mcp/snapshot`, {
+        const response = await fetchWithTrace(`${config.urls.api}/internal/mcp/snapshot`, {
           method: 'POST',
           headers: {
             authorization: `Bearer ${config.outboundTokens.api}`,
@@ -126,7 +127,7 @@ export function mcpRoute(config: Config, verifier: Pick<CapabilityVerifier, 'ver
           throw new Error('tool list unavailable');
         }
       });
-      server.setRequestHandler(CallToolRequestSchema, async ({ params: call }) => {
+      server.setRequestHandler(CallToolRequestSchema, ({ params: call }) => inSpan('mcp.tool.call', async (span) => {
         const started = Date.now();
         try {
           const pinned = await snapshot();
@@ -135,6 +136,11 @@ export function mcpRoute(config: Config, verifier: Pick<CapabilityVerifier, 'ver
             .map(({ tool }) => ({ entry, name: tool.name })));
           const match = matches[0];
           if (!match || matches.length !== 1) throw new Error('tool unavailable');
+          const server = identifier(match.entry.id);
+          const tool = identifier(match.name);
+          if (server) span.setAttribute('mcp.server.name', server);
+          if (tool) span.setAttribute('mcp.tool.name', tool);
+          setLabels({ project: claims.project_id, step_run: claims.sub });
           const args = call.arguments ?? {};
           const liveSecrets = store.forStep(claims).flatMap(({ material }) => materialValues(material));
           const redacted = redactValue(args, (value) => redaction.redact(value, liveSecrets)) as Record<string, unknown>;
@@ -160,7 +166,7 @@ export function mcpRoute(config: Config, verifier: Pick<CapabilityVerifier, 'ver
         } finally {
           if (record) record.duration_ms = Date.now() - started;
         }
-      });
+      }));
 
       const method = request?.method ?? 'GET';
       // Stateless JSON mode cannot open a GET event stream or delete a session.
@@ -176,7 +182,7 @@ export function mcpRoute(config: Config, verifier: Pick<CapabilityVerifier, 'ver
         const result = await reply.text();
         if (record) {
           try {
-            const written = await fetch(`${config.urls.api}/internal/mcp/tool-calls`, {
+            const written = await fetchWithTrace(`${config.urls.api}/internal/mcp/tool-calls`, {
               method: 'POST',
               headers: { authorization: `Bearer ${config.outboundTokens.api}`, 'content-type': 'application/json' },
               body: JSON.stringify(record), redirect: 'error', signal: AbortSignal.timeout(10_000),

@@ -15,14 +15,16 @@ import { audit } from './audit.ts';
 import type { CoreGrants } from './core.ts';
 import { VaultError } from './errors.ts';
 import type { GatewayClient } from './gateway.ts';
-import { checkRunnerPolicy } from './policy.ts';
+import { ATTACHED_VERTEX_PREFIX } from '@runbook/runner-shared/vertex-binding';
+import { checkRunnerPolicy, notAllowed } from './policy.ts';
 import type { OAuthAccessService } from './oauth/access.ts';
 import { unavailable } from './oauth/state.ts';
 import type { SecretStore } from './secrets.ts';
 import { groupAllowed } from './types/index.ts';
+import { ATTACHED_VERTEX_FIELD, checkVertexPolicy, type VertexIdentity } from './vertex-identity.ts';
 
 export const RENEW_AT_FRACTION = 0.7;
-const TRANSIENT = new Set(['core.unavailable', 'release.gateway_unavailable', 'oauth.refresh_retry', 'secret_manager.retry']);
+const TRANSIENT = new Set(['core.unavailable', 'release.gateway_unavailable', 'oauth.refresh_retry', 'secret_manager.retry', 'vertex.adc_retry']);
 
 export interface LiveRelease {
   releaseId: string;
@@ -36,6 +38,7 @@ export interface LiveRelease {
     GrantClaims,
     'claim_id' | 'generation' | 'runner_id' | 'group_id' | 'agent_id' | 'agent_version' | 'project_id'
   >;
+  vertexClaims?: Pick<GrantClaims, 'reach' | 'model_profile' | 'model_id' | 'connections'>;
   /** Unix seconds. */
   issuedAt: number;
   expiresAt: number;
@@ -54,6 +57,7 @@ export interface RenewerDeps {
   gateway: GatewayClient;
   secrets: SecretStore;
   oauth?: OAuthAccessService;
+  vertex?: VertexIdentity;
   now: () => Date;
   log: Logger;
 }
@@ -96,8 +100,10 @@ export class Renewer {
       expires_at: Date;
     }>(`SELECT * FROM releases WHERE status = 'live' AND expires_at > $1`, [this.d.now()]);
     for (const r of rows) {
-      const credential = await this.d.secrets.credential(r.credential_id).catch(() => undefined);
-      if (!credential) continue;
+      if (r.field !== ATTACHED_VERTEX_FIELD || !r.credential_id.startsWith(ATTACHED_VERTEX_PREFIX)) {
+        const credential = await this.d.secrets.credential(r.credential_id).catch(() => undefined);
+        if (!credential) continue;
+      }
       this.track({
         releaseId: r.id,
         stepRunId: r.step_run_id,
@@ -203,6 +209,15 @@ export class Renewer {
       // One release's failure (an audit entry that can't be written, the
       // database) never stops the others from being renewed or ended.
       try {
+        if (release.field === ATTACHED_VERTEX_FIELD) {
+          try {
+            await checkVertexPolicy(this.d.vertex, this.d.pool, { ...release.claims, ...release.vertexClaims }, release.credentialId, release.delivery);
+          } catch (error) {
+            if (!(error instanceof VaultError) || error.code !== 'release.not_allowed') throw error;
+            await this.end(release, error.code, 'revoked');
+            continue;
+          }
+        }
         if (revoked.has(release.credentialId)) await this.end(release, 'credential.revoked', 'revoked');
         else if (now >= release.expiresAt * 1000 && (!gatewayAvailable || release.retry !== undefined)) {
           await this.end(release, 'grant.expired', 'expired');
@@ -233,7 +248,20 @@ export class Renewer {
         },
         { ...c, credential_id: r.credentialId, credential_version: r.credentialVersion, delivery: r.delivery },
       );
-      if (r.field === 'access_token') {
+      if (r.field === ATTACHED_VERTEX_FIELD) {
+        if (!this.d.vertex) throw notAllowed();
+        const { binding, serviceAccount } = await checkVertexPolicy(this.d.vertex, this.d.pool, claims, r.credentialId, r.delivery);
+        const access = await this.d.vertex.access(serviceAccount, claims.exp * 1000);
+        const current = await checkVertexPolicy(this.d.vertex, this.d.pool, claims, r.credentialId, r.delivery);
+        if (current.binding.endpoint !== binding.endpoint) throw notAllowed();
+        r.gatewayEpoch = await this.d.gateway.push({
+          release_id: r.releaseId, step_run_id: r.stepRunId, claim_id: claims.claim_id, generation: claims.generation,
+          runner_id: claims.runner_id, credential_id: r.credentialId, delivery: r.delivery, binding: { ...binding },
+          material: access.material, expires_at: new Date(access.expiresAt).toISOString(),
+        });
+        r.materialExpiry = access.expiresAt;
+        r.vertexClaims = claims;
+      } else if (r.field === 'access_token') {
         if (!this.d.oauth) throw unavailable();
         await this.d.oauth.ensureAccess(r.credentialId, 'renewal', observedVersion);
         await this.d.core.grant(r.stepRunId, {
@@ -284,7 +312,7 @@ export class Renewer {
         this.d.now(),
         claims.jti,
       ]);
-      this.d.log.info('grant renewed', { release_id: r.releaseId, step_run_id: r.stepRunId, expires_at: claims.exp });
+      this.d.log.debug('grant renewed', { release_id: r.releaseId, step_run_id: r.stepRunId, expires_at: claims.exp });
     } catch (e) {
       const code = e instanceof VaultError ? e.code : 'internal';
       if (TRANSIENT.has(code) || code === 'internal') {

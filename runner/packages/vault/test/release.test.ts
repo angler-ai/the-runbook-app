@@ -1,6 +1,7 @@
 // Capabilities, lease-bound releases and renewal (design §7.5), against a
 // fake core (grant routes and JWKS) and a fake gateway (material routes).
 import http from 'node:http';
+import { OAuth2Client } from 'google-auth-library';
 import type { AddressInfo } from 'node:net';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { FakeCore } from '@runbook/runner-shared/test-utils/fake-core';
@@ -9,6 +10,8 @@ import { hasTestDatabase } from '@runbook/runner-shared/test-utils/pg';
 import { canonicalJson } from '@runbook/runner-shared/binding';
 import { sealSecret } from '@runbook/runner-shared/seal-client';
 import { Renewer } from '../src/renewer.ts';
+import { VertexIdentity } from '../src/vertex-identity.ts';
+
 import { SecretManager, secretManagerResources } from '../src/secret-manager.ts';
 import {
   DATADOG_CONFIG,
@@ -733,4 +736,104 @@ describe.skipIf(!hasTestDatabase)('vault releases', () => {
     expect(gateway.deletes).toEqual([live.json.release_id]);
     expect(core.revoked.at(-1)).toMatchObject({ credential_id: credential.id, reason: 'release.not_allowed' });
   });
+});
+
+it.skipIf(!hasTestDatabase)('mints model-only material after authorization, renews it and fences a changed Vertex binding', async () => {
+  const clock = { now: Math.floor(Date.now() / 1000) * 1000 };
+  const core = await new FakeCore({ now: () => clock.now, releaseToken: TOKENS.release }).start();
+  const gateway = await new FakeGateway(TOKENS.gateway).start();
+  const firstExpiry = clock.now + 60_000;
+  const account = 'runbook-vertex@angler-dev.iam.gserviceaccount.com';
+  const adc = new OAuth2Client();
+  adc.setCredentials({ access_token: 'fake-vault-adc' });
+  const requests: { path?: string; authorization?: string; body: unknown }[] = [];
+  const iam = http.createServer(async (req, res) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(chunk as Buffer);
+    requests.push({ path: req.url, authorization: req.headers.authorization,
+      body: JSON.parse(Buffer.concat(chunks).toString()) });
+    res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
+      accessToken: `fake-vertex-material-${requests.length}`,
+      expireTime: new Date(requests.length === 1 ? firstExpiry : clock.now + 600_000).toISOString(),
+    }));
+  });
+  await new Promise<void>((resolve) => iam.listen(0, '127.0.0.1', resolve));
+  const vertexIdentity = new VertexIdentity({
+    targets: [{ project: 'angler-dev', locations: ['global'], service_account: account }],
+    auth: { getClient: async () => adc },
+    iamOrigin: `http://127.0.0.1:${(iam.address() as AddressInfo).port}`,
+    now: () => new Date(clock.now),
+  });
+  const h = await startHarness({ clock, vertexIdentity, core: { baseUrl: core.url, releaseToken: TOKENS.release },
+    gateway: { baseUrl: gateway.url, token: TOKENS.gateway } });
+  try {
+    const bindingId = 'vertex_attached:fixture';
+    const endpoint = 'https://aiplatform.googleapis.com/v1/projects/angler-dev/locations/global/publishers/google/models';
+    const admin = h.db.admin();
+    await admin.query(`INSERT INTO agents (id, project_id, group_id, name, status) VALUES ($1, $2, $3, 'checker', 'active')`,
+      [AGENT, PROJECT, GROUP]);
+    await admin.query(`INSERT INTO agent_versions (id, agent_id, version, config, ceiling, created_by)
+      VALUES ($1, $2, 1, '{"profiles":["profile"]}', '{}', 'us_admin')`, [VERSION, AGENT]);
+    await admin.query(`INSERT INTO providers (id, name, type, auth, project_id, region, endpoint, sharing, attached_binding_id)
+      VALUES ('provider', 'Vertex', 'vertex-gemini', 'attached', 'angler-dev', 'global', $1, '{"projects":"all"}', $2)`,
+    [endpoint, bindingId]);
+    await admin.query(`INSERT INTO profiles (id, name, provider_id, model, sharing)
+      VALUES ('profile', 'default', 'provider', 'gemini-4-hydrogen', '{"projects":"all"}')`);
+    const lease = core.lease(SR, { model_profile: 'default' });
+    const cap = await h.call('POST', '/internal/capability',
+      { step_run_id: SR, claim_id: lease.claim_id, generation: lease.generation, runner_id: RUNNER }, TOKENS.worker);
+    const release = (credential_id: string, delivery: string) => h.call('POST', '/internal/release',
+      { capability: cap.json.capability, credential_id, delivery }, TOKENS.worker);
+    expect((await release(bindingId, 'proxy')).status).toBe(403);
+    expect((await release('vertex_attached:unbound', 'model')).status).toBe(403);
+    const policy = (project_id: string, region: string, token = TOKENS.api) =>
+      h.call('POST', '/internal/vertex/validate', { project_id, region, type: 'vertex-gemini' }, token);
+    expect((await policy('angler-dev', 'global')).status).toBe(204);
+    expect((await policy('angler-dev', 'us-east5')).status).toBe(403);
+    expect((await policy('angler-dev', 'global', TOKENS.worker)).status).toBe(403);
+    await admin.query(`UPDATE providers SET project_id = 'other-project',
+      endpoint = replace(endpoint, 'angler-dev', 'other-project')`);
+    expect((await release(bindingId, 'model')).status).toBe(403);
+    await admin.query('UPDATE providers SET project_id = $1, endpoint = $2', ['angler-dev', endpoint]);
+    expect(requests).toHaveLength(0);
+    expect(core.grantRequests('credential')).toHaveLength(0);
+    const res = await release(bindingId, 'model');
+    expect(res.status, res.text).toBe(200);
+    const releaseId = res.json.release_id;
+    expect(res.json.expires_at).toBe(new Date(firstExpiry).toISOString());
+    expect(gateway.material.get(releaseId)).toMatchObject({
+      binding: { provider: 'vertex-gemini', project_id: 'angler-dev', region: 'global', publisher: 'google', endpoint },
+      delivery: 'model', material: { fields: { access_token: 'fake-vertex-material-1' } },
+    });
+    expect(res.text).not.toContain('fake-vertex-material');
+    expect(JSON.stringify(gateway.material.get(releaseId))).not.toContain('fake-vault-adc');
+    expect(requests).toEqual([{
+      path: `/v1/projects/-/serviceAccounts/${account}:generateAccessToken`,
+      authorization: 'Bearer fake-vault-adc',
+      body: { scope: ['https://www.googleapis.com/auth/cloud-platform'], lifetime: '600s' },
+    }]);
+    const audit = await admin.query("SELECT detail FROM audit_log WHERE action = 'credential.released' AND resource_id = $1", [bindingId]);
+    expect(audit.rows[0]?.detail).toMatchObject({ vertex: { project_id: 'angler-dev', region: 'global' } });
+    clock.now += 45_000;
+    await h.vault.releases!.renewer.runDue();
+    expect(gateway.material.get(releaseId)).toMatchObject({
+      material: { fields: { access_token: 'fake-vertex-material-2' } },
+      expires_at: new Date(lease.deadline * 1000).toISOString(),
+    });
+
+    const restarted = new Renewer(h.vault.releases!.d);
+    expect(await restarted.loadLive()).toBe(1);
+    await admin.query(`UPDATE providers SET project_id = 'other-project',
+      endpoint = replace(endpoint, 'angler-dev', 'other-project'), attached_binding_id = 'vertex_attached:other'`);
+    await h.vault.releases!.renewer.runDue();
+    expect(gateway.material.has(releaseId)).toBe(false);
+    expect(core.revoked.at(-1)).toMatchObject({ credential_id: bindingId, reason: 'release.not_allowed' });
+    expect(requests).toHaveLength(2);
+    expect(JSON.stringify((await admin.query('SELECT * FROM releases')).rows)).not.toContain('fake-vertex-material');
+  } finally {
+    await h.close();
+    await core.close();
+    await gateway.close();
+    await new Promise<void>((resolve) => iam.close(() => resolve()));
+  }
 });

@@ -1,3 +1,4 @@
+import { clientKind, fetchWithTrace, inSpan, stripTraceHeaders, traceHeaders } from '@runbook/runner-shared/telemetry';
 import { ProxyAgent, fetch as proxyFetch } from 'undici';
 import { isCredentialPlaceholder, isVisibleAsciiToken } from '@runbook/runner-shared/credential-source';
 import { findSecretShapedValues } from '@runbook/runner-shared/secret-shape';
@@ -46,7 +47,7 @@ export class TunneledOAuthProvider implements OAuthProvider {
   }
 
   async check(url: string): Promise<void> {
-    const response = await fetch(`${this.gateway}/internal/oauth/destination`, {
+    const response = await fetchWithTrace(`${this.gateway}/internal/oauth/destination`, {
       method: 'POST', redirect: 'error', signal: AbortSignal.timeout(timeout),
       headers: { authorization: `Bearer ${this.token}`, 'content-type': 'application/json' },
       body: JSON.stringify({ authority: authority(url) }),
@@ -56,9 +57,14 @@ export class TunneledOAuthProvider implements OAuthProvider {
   }
 
   async request(url: string, input?: { method: 'POST'; body: string; headers: Record<string, string> }, readBody = true): Promise<ProviderResponse> {
+    return inSpan('oauth.http.client', () => this.requestProvider(url, input, readBody), clientKind);
+  }
+
+  private async requestProvider(url: string, input: { method: 'POST'; body: string; headers: Record<string, string> } | undefined,
+    readBody: boolean): Promise<ProviderResponse> {
     authority(url);
     let sent = false;
-    const agent = new ProxyAgent({ uri: this.gateway, token: `Bearer ${this.token}` });
+    const agent = new ProxyAgent({ uri: this.gateway, token: `Bearer ${this.token}`, headers: traceHeaders() });
     // This handler belongs to the HTTPS request, after CONNECT and TLS.
     // From this point on, the provider may have processed the body.
     const dispatcher = agent.compose((dispatch) => (options, handler) => dispatch(options, {
@@ -74,8 +80,10 @@ export class TunneledOAuthProvider implements OAuthProvider {
     }));
     let upstreamStatus: number | undefined;
     try {
+      const headers = new Headers(input?.headers);
+      stripTraceHeaders(headers);
       const response = await proxyFetch(url, {
-        ...input, dispatcher, redirect: 'error', signal: AbortSignal.timeout(timeout),
+        ...input, headers: Object.fromEntries(headers), dispatcher, redirect: 'error', signal: AbortSignal.timeout(timeout),
       });
       upstreamStatus = response.status;
       let body: unknown = null;

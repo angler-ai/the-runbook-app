@@ -1,14 +1,33 @@
 import { useState } from 'react';
 import { Button } from '../../ui/primitives/button';
 import { Input, fieldClasses } from '../../ui/primitives/input';
-import { runnerError, type Row, type RunnerStatus } from '../runner/api';
+import {
+  runnerError,
+  useRunnerQuery,
+  type Items,
+  type Row,
+  type RunnerStatus,
+} from '../runner/api';
 import type { Credential } from '../runner/Credentials';
 import { Field, list } from '../runner/presentation';
-import type { Connection, EgressRule, Environment, Limits, Named } from '../runner/resources';
+import type {
+  AgentToolCall,
+  Connection,
+  EgressRule,
+  Environment,
+  Limits,
+  Named,
+} from '../runner/resources';
 import {
   BudgetFields,
   EgressFields,
+  FieldError,
   FormSection,
+  RunnerForm,
+  ReviewBudgetChanges,
+  increasedCaps,
+  type CapChange,
+  textLink,
   Problem,
   numberField,
   readBudgets,
@@ -16,6 +35,7 @@ import {
   readText,
   selectClasses,
 } from '../runner/runnerForms';
+import type { ActivityData } from './AgentActivity';
 import { AgentToolPicker, type ToolBinding } from './AgentToolPicker';
 
 type AgentLimits = Limits & {
@@ -38,6 +58,7 @@ export type Agent = {
   description: string;
   status: string;
   group_id: string;
+  updated_at?: string;
   config?:
     | (Row & {
         instructions?: string;
@@ -69,13 +90,83 @@ const caps: (keyof Limits)[] = [
 const sizes = ['small', 'medium', 'large'] as const;
 export function validateAgentName(name: string) {
   if (name === 'external' || !/^[a-z][a-z0-9_-]{0,127}$/.test(name))
-    throw new Error(
+    throw new FieldError(
+      'name',
       'Agent name must start with a lowercase letter and use at most 128 lowercase letters, digits, hyphens or underscores. “external” is reserved.',
     );
 }
 
+function GuidedToolResult({
+  status,
+  projectId,
+  agentId,
+  connection,
+  tools,
+  startedAt,
+}: {
+  status: RunnerStatus;
+  projectId: string;
+  agentId: string;
+  connection: Connection;
+  tools: string[];
+  startedAt: number;
+}) {
+  const calls = useRunnerQuery<Items<AgentToolCall>>(
+    status,
+    `/projects/${projectId}/agents/${agentId}/tool-calls`,
+  );
+  const result = calls.data?.items.find(
+    (call) =>
+      call.server_id === connection.id &&
+      tools.includes(call.tool) &&
+      Date.parse(call.created_at) >= startedAt,
+  );
+  const activity = useRunnerQuery<ActivityData>(
+    status,
+    `/projects/${projectId}/agents/${agentId}/activity`,
+    Boolean(result),
+  );
+  const executionId = activity.data?.recent?.find(
+    ({ step_run_id }) => step_run_id === result?.step_run_id,
+  )?.execution_id;
+  return (
+    <div className="grid gap-2 text-sm">
+      <p role="status">
+        {result
+          ? result.error
+            ? `${connection.name} ${result.tool} failed.`
+            : `${connection.name} ${result.tool} succeeded.`
+          : calls.error
+            ? 'Could not load tool call results.'
+            : 'Waiting for a tool call.'}
+      </p>
+      {executionId && result && (
+        <a
+          className={textLink}
+          href={`/x/${encodeURIComponent(executionId)}?view=steps&step=${encodeURIComponent(result.step_run_id)}`}
+        >
+          View test run
+        </a>
+      )}
+      <Button
+        type="button"
+        variant="secondary"
+
+        size="sm"
+        className="w-fit"
+        onClick={() => void calls.refetch()}
+        disabled={calls.isFetching}
+      >
+        Check latest result
+      </Button>
+    </div>
+  );
+}
+
 export function AgentConfiguration({
   agent,
+  guided,
+  projectSlug,
   canEdit,
   admin,
   groups,
@@ -89,6 +180,8 @@ export function AgentConfiguration({
   operate,
 }: {
   agent: Agent;
+  guided?: Connection;
+  projectSlug?: string;
   canEdit: boolean;
   admin: boolean;
   groups: Named[];
@@ -104,11 +197,46 @@ export function AgentConfiguration({
   const config = agent.config;
   const [pending, setPending] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
+  const [review, setReview] = useState<{ body: Row; tools: string[]; changes: CapChange[] }>();
+  const [completed, setCompleted] = useState<{ tools: string[]; startedAt: number }>();
   const [feedback, setFeedback] = useState<{ error: boolean; text: string }>();
   const [profile, setProfile] = useState(config?.profiles?.[0] ?? '');
   const [environmentId, setEnvironmentId] = useState(config?.environment_id ?? '');
   const [selectedTools, setTools] = useState(config?.mcp ?? []);
   const override = config?.environment_overrides;
+  const guidedCredential = credentials.find(
+    (item) => guided?.credential_id === item.id && item.status === 'active',
+  );
+  const hasGuidedCredential =
+    !guided?.credential_id ||
+    (guidedCredential &&
+      config?.credentials?.some(
+        ({ credential_id, delivery }) =>
+          credential_id === guidedCredential.id && delivery === 'mcp',
+      ));
+  const savedTools =
+    guided?.pinned_snapshot_id && hasGuidedCredential
+      ? (config?.mcp
+          ?.filter(
+            ({ server_id, tool }) =>
+              server_id === guided.id && !guided.never_allowed?.includes(tool),
+          )
+          .map(({ tool }) => tool) ?? [])
+      : [];
+  const verification =
+    completed ??
+    (savedTools.length > 0
+      ? { tools: savedTools, startedAt: Date.parse(agent.updated_at ?? '') || 0 }
+      : undefined);
+  const previousCaps = {
+    ...config?.limits,
+    max_run_cost_usd: config?.environment_version_id
+      ? override?.max_run_cost_usd
+      : config?.limits?.max_run_cost_usd,
+    max_step_cost_usd:
+      override?.max_cost_usd ??
+      (config?.environment_version_id ? undefined : config?.limits?.max_cost_usd),
+  };
   const inheritedEgress = config?.environment_version_id ? override?.egress : config?.egress;
   const [setHosts, setSetHosts] = useState(inheritedEgress != null);
   const environment = environments.find((item) =>
@@ -163,7 +291,8 @@ export function AgentConfiguration({
       skills.length > 16 ||
       skills.some((skill) => !/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(skill))
     )
-      throw new Error(
+      throw new FieldError(
+        'skills',
         'Skills must contain at most 16 project skill names, using lowercase letters, digits, and hyphens.',
       );
     const body: Row = {
@@ -175,11 +304,14 @@ export function AgentConfiguration({
     const name = readText(data, 'name');
     validateAgentName(name);
     const group_id = readText(data, 'group_id');
-    if (!group_id) throw new Error('Runner group must be selected.');
+    if (!group_id) throw new FieldError('group_id', 'Runner group must be selected.');
     const sandboxSize = readText(data, 'sandbox');
     const size = sizes.find((value) => value === sandboxSize);
     if (environment && size && sizes.indexOf(size) > sizes.indexOf(environment.size))
-      throw new Error(`Sandbox size cannot exceed ${environment.size} in ${environment.name}.`);
+      throw new FieldError(
+        'sandbox',
+        `Sandbox size cannot exceed ${environment.size} in ${environment.name}.`,
+      );
     const egress = setHosts ? readEgress(data) : environment ? null : [];
     if (
       setHosts &&
@@ -192,8 +324,11 @@ export function AgentConfiguration({
           ),
       )
     )
-      throw new Error(`Egress hosts and access must be allowed by ${environment.name}.`);
-    const limits = readBudgets(data, '', caps);
+      throw new FieldError(
+        'egress:host',
+        `Egress hosts and access must be allowed by ${environment.name}.`,
+      );
+    const limits = readBudgets(data, '', caps, agent.name);
     const timeout = numberField(data, 'timeout', 'Step timeout', {
       min: 1,
       max: environment?.timeout_s ?? 86400,
@@ -207,18 +342,28 @@ export function AgentConfiguration({
       environment?.budgets.max_run_cost_usd != null &&
       limits.max_run_cost_usd > environment.budgets.max_run_cost_usd
     )
-      throw new Error(
+      throw new FieldError(
+        'max_run_cost_usd',
         `Run cap (USD) cannot exceed ${environment.budgets.max_run_cost_usd} in ${environment.name}.`,
       );
     const approved = data.getAll('required-credential').map(String);
     if (requiredBindings.length !== grantOptions.length)
-      throw new Error(
+      throw new FieldError(
+        toolConnections.length ? 'connection-tools' : 'environment',
         'The selected environment or connection requires a credential that is not shared with this project.',
       );
-    if (requiredBindings.some((binding) => !approved.includes(bindingKey(binding))))
-      throw new Error(
-        'Select each required credential to use the chosen environment and connection tools.',
-      );
+    const missing = grantOptions.flatMap((binding, index) =>
+      approved.includes(bindingKey(binding))
+        ? []
+        : [
+            {
+              name: 'required-credential',
+              index,
+              message: `Grant ${binding.name} to use the selected tools or environment.`,
+            },
+          ],
+    );
+    if (missing.length) throw new FieldError(missing);
     const existingLimits = { ...config?.limits };
     for (const key of caps) delete existingLimits[key];
     return {
@@ -262,18 +407,170 @@ export function AgentConfiguration({
       .filter((id) => !profiles.some((item) => item.id === id))
       .map((id) => ({ id, name: 'Unavailable profile' })),
   ];
+  async function saveConfiguration(next: Row, tools: string[]) {
+    await perform(
+      async () => {
+        const startedAt = Date.now();
+        await save(next);
+        if (guided) setCompleted({ tools, startedAt });
+      },
+      guided && tools.length
+        ? `Agent ${String(next.name ?? agent.name)} can now use ${guided.name} ${tools.join(', ')}.`
+        : 'Configuration saved.',
+    );
+    setReview(undefined);
+  }
+
+  const toolSections = (
+    <>
+      {status && projectId && (
+        <FormSection
+          id="agent-tools"
+          title="Connections and tools"
+          description="Enable a connection to choose the specific tools this agent can call."
+        >
+          <AgentToolPicker
+            projectId={projectId}
+            selected={selectedTools}
+            onChange={setTools}
+            status={status}
+            guidedConnection={guided?.id}
+          />
+        </FormSection>
+      )}
+      {requiredBindings.length > 0 && (
+        <FormSection
+          title="Required credentials"
+          description="Grant the credentials required by this environment and these connection tools."
+        >
+          {grantOptions.map((item) => (
+            <label key={bindingKey(item)} className="flex gap-2 text-sm">
+              <input
+                name="required-credential"
+                type="checkbox"
+                className="accent-accent"
+                value={bindingKey(item)}
+              />
+              <span>
+                {item.name}{' '}
+                <span className="text-xs text-fg-muted">
+                  · {item.delivery === 'mcp' ? 'MCP' : 'Proxy'} · {item.label}
+                </span>
+              </span>
+            </label>
+          ))}
+          {requiredBindings.length > grantOptions.length && (
+            <p role="status" className="text-sm text-warn">
+              Ask a runner administrator to share the required credentials with this project.
+            </p>
+          )}
+        </FormSection>
+      )}
+    </>
+  );
   return (
-    <form
+    <RunnerForm
       className="grid gap-4"
-      onSubmit={(event) => {
+      onSubmit={async (event) => {
         event.preventDefault();
         if (!canEdit || pending) return;
         const data = new FormData(event.currentTarget);
-        void perform(() => save(readConfig(data)), 'Configuration saved.');
+        setFeedback(undefined);
+        const next = readConfig(data);
+        const tools = guided
+          ? selectedTools.filter(({ server_id }) => server_id === guided.id).map(({ tool }) => tool)
+          : [];
+        if (guided && !tools.length)
+          throw new FieldError('connection-tools', `Choose a tool from ${guided.name}.`);
+        const limits = next.limits as AgentLimits | undefined;
+        const changes = limits
+          ? increasedCaps(agent.name, previousCaps, {
+              ...limits,
+              max_step_cost_usd: limits.max_cost_usd,
+            })
+          : [];
+        if (changes.length) setReview({ body: next, tools, changes });
+        else await saveConfiguration(next, tools);
       }}
     >
+      {review && (
+        <ReviewBudgetChanges
+          changes={review.changes}
+          pending={pending}
+          close={() => setReview(undefined)}
+          onConfirm={() => saveConfiguration(review.body, review.tools)}
+        />
+      )}
+      {guided && (
+        <FormSection title={`Set up ${guided.name} for ${agent.name}`}>
+          {verification ? (
+            <p role="status" className="text-sm font-medium text-success">
+              Agent {agent.name} can now use {guided.name} {verification.tools.join(', ')}.
+            </p>
+          ) : (
+            <p className="text-sm text-fg-muted">
+              Choose tools, grant the required credentials and save the configuration.
+            </p>
+          )}
+          {verification && projectSlug && (
+            <>
+              {agent.status !== 'active' && (
+                <p className="text-sm text-warn">
+                  Set the agent to Active and choose a model profile before running a test.
+                </p>
+              )}
+              <p className="text-sm">
+                Run a read-only search task with this agent, then check the result here.
+              </p>
+              <div className="flex flex-wrap gap-3 text-sm">
+                <a className={textLink} href={`/p/${projectSlug}/runbooks`}>
+                  Open project runbooks
+                </a>
+                <a
+                  className={textLink}
+                  href={`/runner/overview?project=${encodeURIComponent(projectId!)}&agent=${encodeURIComponent(agent.id)}&connection=${encodeURIComponent(guided.id)}`}
+                >
+                  View setup checklist
+                </a>
+              </div>
+              {status && projectId && (
+                <GuidedToolResult
+                  status={status}
+                  projectId={projectId}
+                  agentId={agent.id}
+                  connection={guided}
+                  tools={verification.tools}
+                  startedAt={verification.startedAt}
+                />
+              )}
+            </>
+          )}
+        </FormSection>
+      )}
+      {admin && (
+        <nav aria-label="Agent configuration sections" className="flex flex-wrap gap-3 text-sm">
+          <a className={textLink} href="#agent-details">
+            Details
+          </a>
+          <a className={textLink} href="#agent-model">
+            Model and sandbox
+          </a>
+          <a className={textLink} href="#agent-budgets">
+            Budgets
+          </a>
+          {status && projectId && (
+            <a className={textLink} href="#agent-tools">
+              Tools and credentials
+            </a>
+          )}
+          <a className={textLink} href="#agent-egress">
+            Egress
+          </a>
+        </nav>
+      )}
       <fieldset className="grid min-w-0 gap-4" disabled={pending || !canEdit}>
-        <FormSection title="Agent details">
+        {admin && guided && toolSections}
+        <FormSection id="agent-details" title="Agent details">
           {admin && (
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="Agent name">
@@ -306,7 +603,7 @@ export function AgentConfiguration({
         </FormSection>
         {admin && (
           <>
-            <FormSection title="Model and sandbox">
+            <FormSection id="agent-model" title="Model and sandbox">
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Default model profile">
                   <select
@@ -334,6 +631,7 @@ export function AgentConfiguration({
                 <Field label="Environment">
                   <select
                     className={selectClasses}
+                    name="environment"
                     value={environmentId}
                     onChange={(event) => setEnvironmentId(event.target.value)}
                   >
@@ -388,18 +686,11 @@ export function AgentConfiguration({
               )}
             </FormSection>
             <FormSection
+              id="agent-budgets"
               title="Agent budgets"
               description="Environment and organization caps also apply."
             >
-              <BudgetFields
-                initial={{
-                  ...config?.limits,
-                  max_run_cost_usd: config?.environment_version_id
-                    ? override?.max_run_cost_usd
-                    : config?.limits?.max_run_cost_usd,
-                }}
-                keys={caps}
-              />
+              <BudgetFields initial={previousCaps} keys={caps} />
               <div className="grid gap-3 sm:grid-cols-3">
                 <Field label="Step cap (USD)">
                   <Input
@@ -432,48 +723,8 @@ export function AgentConfiguration({
                 </Field>
               </div>
             </FormSection>
-            {status && projectId && (
-              <FormSection
-                title="Connections and tools"
-                description="Enable a connection to choose the specific tools this agent can call."
-              >
-                <AgentToolPicker
-                  projectId={projectId}
-                  selected={selectedTools}
-                  onChange={setTools}
-                  status={status}
-                />
-              </FormSection>
-            )}
-            {requiredBindings.length > 0 && (
-              <FormSection
-                title="Required credentials"
-                description="Grant the credentials required by this environment and these connection tools."
-              >
-                {grantOptions.map((item) => (
-                  <label key={bindingKey(item)} className="flex gap-2 text-sm">
-                    <input
-                      name="required-credential"
-                      type="checkbox"
-                      className="accent-accent"
-                      value={bindingKey(item)}
-                    />
-                    <span>
-                      {item.name}{' '}
-                      <span className="text-xs text-fg-muted">
-                        · {item.delivery === 'mcp' ? 'MCP' : 'Proxy'} · {item.label}
-                      </span>
-                    </span>
-                  </label>
-                ))}
-                {requiredBindings.length > grantOptions.length && (
-                  <p role="status" className="text-sm text-warn">
-                    Ask a runner administrator to share the required credentials with this project.
-                  </p>
-                )}
-              </FormSection>
-            )}
-            <FormSection title="Egress allow-list">
+            {!guided && toolSections}
+            <FormSection id="agent-egress" title="Egress allow-list">
               <label className="flex gap-2 text-sm">
                 <input
                   type="checkbox"
@@ -492,45 +743,51 @@ export function AgentConfiguration({
             </FormSection>
           </>
         )}
-        {canEdit && (
-          <div className="flex flex-wrap gap-2">
-            <Button type="submit">Save configuration</Button>
-            {admin && agent.status === 'active' && (
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => void perform(() => operate('pause'), 'Agent paused.')}
-              >
-                Pause agent
-              </Button>
-            )}
-            {admin && agent.status !== 'archived' && (
-              <Button
-                type="button"
-                variant={confirmArchive ? 'destructive' : 'secondary'}
-                onClick={() =>
-                  confirmArchive
-                    ? void perform(() => operate('archive'), 'Agent archived.')
-                    : setConfirmArchive(true)
-                }
-              >
-                {confirmArchive ? 'Confirm archive' : 'Archive agent'}
-              </Button>
-            )}
-            {confirmArchive && (
-              <Button type="button" variant="secondary" onClick={() => setConfirmArchive(false)}>
-                Cancel
-              </Button>
-            )}
-          </div>
-        )}
       </fieldset>
+      {canEdit && (
+        <div className="sticky bottom-0 z-10 flex flex-wrap gap-2 border-t border-border bg-bg py-2">
+          <Button type="submit" disabled={pending}>
+            Save configuration
+          </Button>
+        </div>
+      )}
+      {canEdit && admin && (
+        <div className="flex flex-wrap gap-2">
+          {admin && agent.status === 'active' && (
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => void perform(() => operate('pause'), 'Agent paused.')}
+            >
+              Pause agent
+            </Button>
+          )}
+          {admin && agent.status !== 'archived' && (
+            <Button
+              type="button"
+              variant={confirmArchive ? 'destructive' : 'secondary'}
+              onClick={() =>
+                confirmArchive
+                  ? void perform(() => operate('archive'), 'Agent archived.')
+                  : setConfirmArchive(true)
+              }
+            >
+              {confirmArchive ? 'Confirm archive' : 'Archive agent'}
+            </Button>
+          )}
+          {confirmArchive && (
+            <Button type="button" variant="secondary" onClick={() => setConfirmArchive(false)}>
+              Cancel
+            </Button>
+          )}
+        </div>
+      )}
       <Problem>{feedback?.error && feedback.text}</Problem>
-      {feedback && !feedback.error && (
+      {!guided && feedback && !feedback.error && (
         <p role="status" className="text-sm text-success">
           {feedback.text}
         </p>
       )}
-    </form>
+    </RunnerForm>
   );
 }

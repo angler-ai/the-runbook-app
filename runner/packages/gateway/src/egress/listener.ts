@@ -1,3 +1,4 @@
+import { activeContext, clientKind, inSpan, scopedSpan, serverKind, stripTraceHeaders } from '@runbook/runner-shared/telemetry';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import http from 'node:http';
 import https from 'node:https';
@@ -27,6 +28,7 @@ export class ListenerSecret {
 }
 
 
+const requestSpanLimit = 100;
 const hopHeaders = ['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'transfer-encoding',
   'te', 'trailer', 'upgrade', 'content-length', 'expect'];
 
@@ -62,6 +64,7 @@ export async function sandboxListener(options: {
   onClose?: () => void;
 }) {
   const { store } = options;
+  const parent = activeContext();
   let claims = options.claims;
   let expires = claims.exp * 1000;
   const secret = new ListenerSecret();
@@ -89,7 +92,7 @@ export async function sandboxListener(options: {
   }
   const tunnels = new WeakMap<Socket, { host: string; address: Awaited<ReturnType<typeof pinnedAddress>> }>();
   const sockets = new Set<Socket>();
-  const tlsHttp = http.createServer(async (req, res) => {
+  async function proxyRequest(req: http.IncomingMessage, res: http.ServerResponse, traced: boolean) {
     try {
       const socket = req.socket as TLSSocket & { servername?: string };
       const { host, address } = tunnels.get(socket) ?? deny();
@@ -108,7 +111,8 @@ export async function sandboxListener(options: {
       if (body.length) headers.set('content-length', String(body.length));
       injectHeader(headers, release.binding, key);
 
-      const response = await new Promise<http.IncomingMessage>((resolve, reject) => {
+      stripTraceHeaders(headers);
+      const send = () => new Promise<http.IncomingMessage>((resolve, reject) => {
         const outbound = https.request({
           hostname: address.address, family: address.family, servername: host, method, path,
           headers: Object.fromEntries(headers), agent: false, signal: AbortSignal.timeout(30_000),
@@ -116,6 +120,7 @@ export async function sandboxListener(options: {
         outbound.once('error', reject);
         outbound.end(body);
       });
+      const response = await (traced ? inSpan('egress.http.client', send, clientKind) : send());
       if (response.headers['content-encoding'] && response.headers['content-encoding'] !== 'identity') {
         response.destroy();
         deny();
@@ -136,6 +141,16 @@ export async function sandboxListener(options: {
     } catch {
       res.writeHead(403, { connection: 'close' }).end('egress denied');
     }
+  }
+  let stepSpan: ReturnType<typeof scopedSpan> | undefined;
+  let requests = 0;
+  const tlsHttp = http.createServer((req, res) => {
+    stepSpan ??= scopedSpan('egress.step', parent);
+    const traced = ++requests <= requestSpanLimit && stepSpan.span.isRecording();
+    const response = traced
+      ? inSpan('egress.request', () => proxyRequest(req, res, true), serverKind, stepSpan.context)
+      : proxyRequest(req, res, false);
+    void response.catch(() => res.destroy());
   });
   tlsHttp.on('upgrade', (_req, socket) => socket.destroy());
   tlsHttp.on('connect', (_req, socket) => socket.destroy());
@@ -182,6 +197,10 @@ export async function sandboxListener(options: {
     if (closed) return;
     closed = true;
     clearTimeout(timer);
+    if (stepSpan) {
+      stepSpan.span.setAttribute('egress.requests_suppressed', Math.max(0, requests - requestSpanLimit));
+      stepSpan.span.end();
+    }
     options.onClose?.();
     listener.close();
     for (const socket of sockets) socket.destroy();

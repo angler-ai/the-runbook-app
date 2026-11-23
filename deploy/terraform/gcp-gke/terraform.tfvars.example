@@ -56,3 +56,6 @@ blob_store                              = "postgres"
 
 # Optional runner deployment. See https://docs.therunbook.app/runner/gke/
 # runner_enabled = true
+# retention_live_days                = "30"  # Core RUNBOOK_RETENTION_LIVE_DAYS
+# runner_retention_live_days         = "30"  # Default
+# runner_retention_archive_days      = "off" # Default, or days >= runner_retention_live_days

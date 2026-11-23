@@ -1,10 +1,11 @@
+import { fetchWithTrace, inSpan, setLabels } from '@runbook/runner-shared/telemetry';
 import { CREDENTIAL_TYPES } from '@runbook/runner-shared/credential-types';
 import type { Config } from '@runbook/runner-shared/config';
 import { HttpError, type Route } from '@runbook/runner-shared/http';
 import type { Redaction } from '@runbook/runner-shared/redact';
 import type { CapabilityVerifier } from '../capability.ts';
 import type { MaterialStore } from '../material.ts';
-import { generateModel, type ModelProfile } from './endpoint.ts';
+import { generateModel, matchesModelMaterial, type ModelProfile } from './endpoint.ts';
 import { invokeModel, providerModel } from './providers.ts';
 
 import { streamModel, type StreamInput } from './stream.ts';
@@ -13,7 +14,7 @@ import { observeProviderFetch, streamResponseLimit } from './stream-fetch.ts';
 export function modelRoute(config: Config, verifier: Pick<CapabilityVerifier, 'verifyCapability'>, store: MaterialStore, redaction: Redaction, streaming = false): Route {
   async function api(path: string, body: unknown, permittedStatus = 200, timeoutMs = 10_000): Promise<Response> {
     try {
-      const response = await fetch(`${config.urls.api}${path}`, {
+      const response = await fetchWithTrace(`${config.urls.api}${path}`, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
@@ -46,6 +47,7 @@ export function modelRoute(config: Config, verifier: Pick<CapabilityVerifier, 'v
       if (!streaming && claims.max_tokens !== null && input.request?.max_tokens > claims.max_tokens) {
         throw new HttpError(400, 'model.invalid', 'output token limit exceeded');
       }
+      setLabels({ project: claims.project_id, step_run: claims.sub });
       const now = Date.now();
       const availableMs = Math.min(claims.timeout_ms ?? Infinity, claims.exp * 1000 - now,
         (claims.step_deadline_ms ?? Infinity) - now);
@@ -63,16 +65,14 @@ export function modelRoute(config: Config, verifier: Pick<CapabilityVerifier, 'v
         }
         const findRelease = () => store.forStep(claims).find((candidate) =>
           candidate.delivery === 'model' && candidate.credential_id === profile.credentialId &&
-          candidate.binding.endpoint === profile.endpoint && candidate.binding.provider === profile.provider);
+          matchesModelMaterial(profile, { ...candidate.material, binding: candidate.binding }));
         const release = findRelease();
-        if (profile.provider === 'vertex' && !release?.material.fields.access_token) {
-          throw new HttpError(403, 'model.attached_identity_disabled', 'attached model identity is unavailable');
-        }
         if (!release) throw new HttpError(403, 'model.material_denied', 'model credential unavailable');
-        const secrets = [...store.forStep(claims).flatMap(({ delivery, material }) => Object.values(CREDENTIAL_TYPES)
-          .filter((type) => type.deliveries.includes(delivery))
-          .flatMap((type) => type.secretFields.map(({ name }) => material.fields[name] ?? '')))
-          .filter((value) => value.length >= 8), ...(profile.provider === 'vertex' ? [release.material.fields.access_token!] : [])];
+        const secrets = store.forStep(claims).flatMap(({ delivery, material }) => [
+          ...Object.values(CREDENTIAL_TYPES).filter((type) => type.deliveries.includes(delivery))
+            .flatMap((type) => type.secretFields.map(({ name }) => material.fields[name] ?? '')),
+          ...(delivery === 'model' && material.fields.access_token ? [material.fields.access_token] : []),
+        ]).filter((value) => value.length >= 8);
         return streamModel(streamInput, profile, {
           signal, availableMs, secrets,
           async reserve(request) {
@@ -84,6 +84,9 @@ export function modelRoute(config: Config, verifier: Pick<CapabilityVerifier, 'v
             call.abortSignal?.throwIfAborted();
             const current = findRelease();
             if (!current) throw new Error('model release unavailable');
+            // The vault can rotate the token while the ledger reservation is in flight.
+            const token = current.material.fields.access_token;
+            if (token && !secrets.includes(token)) secrets.push(token);
             return providerModel(profile, current.material.fields, (fetcher) =>
               observeProviderFetch(fetcher, tick, observe, undefined, streamResponseLimit(profile), respond), dispatched).doStream(call);
           },
@@ -95,7 +98,7 @@ export function modelRoute(config: Config, verifier: Pick<CapabilityVerifier, 'v
         });
       }
       let verification: string | undefined;
-      const result = await generateModel({
+      const result = await inSpan('model.call', () => generateModel({
         async resolve(capability, profile) {
           const response = await api('/internal/model/profile', { capability, profile }, 403);
           if (response.status === 403) return undefined;
@@ -116,7 +119,7 @@ export function modelRoute(config: Config, verifier: Pick<CapabilityVerifier, 'v
           // Reservation involves network I/O. Recheck expiry/revocation before sending credentials.
           const release = store.forStep(claims).find((candidate) =>
             candidate.delivery === 'model' && candidate.credential_id === profile.credentialId &&
-            candidate.binding.endpoint === profile.endpoint && candidate.binding.provider === profile.provider);
+            matchesModelMaterial(profile, { ...candidate.material, binding: candidate.binding }));
           signal.throwIfAborted();
           if (!release) throw new Error('model release unavailable');
           const secrets = store.forStep(claims).flatMap(({ material }) => Object.values(material.fields));
@@ -129,7 +132,7 @@ export function modelRoute(config: Config, verifier: Pick<CapabilityVerifier, 'v
           await api('/internal/ledger/settle', { ...request, capability: input.capability });
         },
         redact: redaction.redact,
-      }, input);
+      }, input));
       if (verification) {
         await api('/internal/model/verified', {
           capability: input.capability, profile: input.profile, verification,

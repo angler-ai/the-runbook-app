@@ -84,3 +84,10 @@ Durable Object storage bounded; archives and summaries are kept. Set
 Webhook delivery logs are purged after 90 days, and idempotency records
 after 24 hours. Memory keeps a bounded number of revisions per entry.
 </Aside>
+
+## Runner step detail
+
+Runner transcripts, tool calls and usage detail follow the separate
+[runner retention policy](/runner/retention/). Purging core run detail or
+its archive leaves runner archives available to authorized project readers
+until the runner's archive window expires.

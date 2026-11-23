@@ -166,6 +166,7 @@ function ChecklistTab({
 
 function SectionWithLogs({
   projectId,
+  traceProject,
   executionId,
   section,
   step,
@@ -178,6 +179,7 @@ function SectionWithLogs({
   runPaused,
 }: {
   projectId?: string | null;
+  traceProject?: string | null;
   executionId: string;
   section: Parameters<typeof StepSection>[0]['section'];
   step: Parameters<typeof StepActions>[0]['step'];
@@ -233,7 +235,7 @@ function SectionWithLogs({
         teamNameOf={names.teamName}
       />
       <StepAssignment section={section} nameOf={names.nameOf} />
-      <RunnerStep step={step} project={projectId ?? undefined} />
+      <RunnerStep step={step} project={projectId ?? undefined} traceProject={traceProject} />
       <StepActions
         executionId={executionId}
         section={section}
@@ -251,6 +253,7 @@ function SectionWithLogs({
 }
 
 export interface ExecutionDocumentPageProps {
+  deepLinkedStep?: string;
   executionId: string;
   /** UI-3: the view shown (`?view=`); Graph by default. */
   view?: RunView;
@@ -264,6 +267,7 @@ export function ExecutionDocumentPage({
   view: viewProp,
   onViewChange,
   compiler,
+  deepLinkedStep,
 }: ExecutionDocumentPageProps) {
   const [ownView, setOwnView] = useState<RunView>(viewProp ?? 'graph');
   const view = viewProp ?? ownView;
@@ -299,13 +303,16 @@ export function ExecutionDocumentPage({
       )?.step_run_id ?? null,
     [doc],
   );
-  const selectedStepId = selected ?? currentStepId;
+  const selectedStepId = selected ?? deepLinkedStep ?? currentStepId;
 
+  const linkedStepExists = doc?.sections.some((section) => section.step_run_id === deepLinkedStep);
   useEffect(() => {
-    if (selected) {
-      document.getElementById(selected)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    const step = selected ?? (linkedStepExists && deepLinkedStep);
+    if (step && view === 'steps') {
+      document.getElementById(step)?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+      if (!selected) focusStep(step);
     }
-  }, [selected]);
+  }, [selected, deepLinkedStep, linkedStepExists, view]);
 
   const announcements = useStatusAnnouncements(doc);
 
@@ -603,6 +610,7 @@ export function ExecutionDocumentPage({
             {doc.sections.map((section, index) => (
               <SectionWithLogs
                 projectId={doc.header.project_id}
+                traceProject={doc.trace_project}
                 key={section.step_run_id}
                 executionId={executionId}
                 section={section}

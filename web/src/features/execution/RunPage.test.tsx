@@ -203,6 +203,7 @@ function renderRunWith(
     return (
       <ExecutionDocumentPage
         executionId={exe}
+        deepLinkedStep={search.step}
         view={search.view ?? 'graph'}
         onViewChange={(view) =>
           void navigate({ to: '.', search: view === 'graph' ? {} : { view }, replace: true })
@@ -868,6 +869,16 @@ describe('the Document view', () => {
     expect(step('rollout[0].settle#2.region_health')).toHaveAttribute('data-icon', 'pass');
     // No verdict: the status decides.
     expect(step('rollout[0].deploy_region')).toHaveAttribute('data-icon', 'succeeded');
+  });
+
+  it('selects the addressed step when opening a budget link', async () => {
+    const doc = waitingOnApproval();
+    const step = doc.sections[0]!;
+    renderRun(`/x/${RUN_ID}?view=steps&step=${encodeURIComponent(step.step_run_id)}`, () => doc);
+    await waitFor(() =>
+      expect(document.querySelector('[aria-current="step"]')).toHaveTextContent(step.title),
+    );
+    expect(document.activeElement).toHaveTextContent(step.title);
   });
 
   it('switches views through the tabs and keeps the choice in the URL', async () => {

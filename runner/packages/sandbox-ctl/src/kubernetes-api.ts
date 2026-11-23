@@ -1,3 +1,4 @@
+import { clientKind, inSpan } from '@runbook/runner-shared/telemetry';
 import { readFile } from 'node:fs/promises';
 import http from 'node:http';
 import https from 'node:https';
@@ -51,7 +52,7 @@ export class KubernetesApi {
     const { token, ca } = await this.auth();
     const data = body && Buffer.from(JSON.stringify(body));
     const transport = url.protocol === 'https:' ? https : http;
-    return new Promise<T>((resolve, reject) => {
+    return inSpan('kubernetes.pods', () => new Promise<T>((resolve, reject) => {
       const req = transport.request(url, {
         method, ca, signal: AbortSignal.any([AbortSignal.timeout(REQUEST_TIMEOUT), ...(signal ? [signal] : [])]),
         headers: {
@@ -80,7 +81,7 @@ export class KubernetesApi {
       });
       req.on('error', reject);
       req.end(data);
-    });
+    }), clientKind);
   }
 
   async exec(pod: string, container: string, command: string[], input: object,
@@ -95,9 +96,9 @@ export class KubernetesApi {
     const header = Buffer.alloc(5); // channel 0, followed by uint32 stdin length
     header.writeUInt32BE(data.length, 1);
     signal.throwIfAborted();
-    return new Promise<number>((resolve, reject) => {
+    return inSpan('kubernetes.pods.exec', () => new Promise<number>((resolve, reject) => {
       const ws = new WebSocket(url, ['v4.channel.k8s.io'], {
-        ca, headers: token ? { authorization: `Bearer ${token}` } : {},
+        ca, headers: { ...(token && { authorization: `Bearer ${token}` }) },
         maxPayload: 1024 * 1024, perMessageDeflate: false, followRedirects: false,
       });
       let exit: number | undefined;
@@ -135,6 +136,6 @@ export class KubernetesApi {
           ws.terminate();
         }
       });
-    });
+    }), clientKind);
   }
 }

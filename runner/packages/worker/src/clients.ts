@@ -1,3 +1,4 @@
+import { traceFetch } from '@runbook/runner-shared/telemetry';
 import { DECISION_CONTRACT } from '@runbook/runner-shared/contracts/core';
 import { randomUUID } from 'node:crypto';
 import type { Config } from '@runbook/runner-shared/config';
@@ -33,7 +34,7 @@ export function workerClients(config: Config, fetcher = fetch) {
   } = {}): Promise<T> {
     const { method = 'POST', capability, body, signal, ignoreMissing, timeoutMs = 8000 } = options;
     const timeout = AbortSignal.timeout(timeoutMs);
-    const response = await fetcher(config.urls[process] + route, {
+    const response = await traceFetch(fetcher, config.urls[process] + route, {
       method, headers: {
         authorization: `Bearer ${config.outboundTokens[process]}`,
         ...(capability && { 'x-runbook-capability': capability }),

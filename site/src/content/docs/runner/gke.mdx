@@ -15,9 +15,22 @@ the runner, check the add-on is ready before planning the runner manifests.
 Enable the add-on separately on an existing cluster and verify that
 `kubectl api-resources` lists `ValidatingAdmissionPolicy` and
 `SecretProviderClass`. Check that `kubectl get runtimeclass gvisor` succeeds.
-The module creates a private `googleapis.com` DNS zone on the VPC which
-targets the restricted VIP. Reconcile any existing private zone for that
-name before applying. [GKE Sandbox](https://docs.cloud.google.com/kubernetes-engine/docs/concepts/sandbox-pods) · [Dataplane V2 port ranges](https://docs.cloud.google.com/kubernetes-engine/docs/how-to/dataplane-v2#port_ranges_for_network_policies_dont_take_effect) · [Secret Manager add-on](https://docs.cloud.google.com/secret-manager/docs/secret-manager-managed-csi-component)
+By default the module creates a private `googleapis.com` DNS zone on the VPC
+which targets the restricted VIP. This changes name resolution for every
+workload on that VPC. Reconcile any existing private zone for that name
+before applying. On a VPC shared with other workloads, set
+`runner_google_api_dns = "pods"` instead: the module then maps only the
+Google API hostnames the runner uses to the restricted VIP, inside the runner
+pods, and leaves the VPC's DNS unchanged. Regional (`.rep.googleapis.com`)
+endpoints are not served by the restricted VIP and are not mapped.
+
+To switch an existing installation from `vpc` to `pods`, keep the zone until
+the new pods run: first apply with `pods` while the zone stays in place
+(`terraform apply -target` on the runner Deployments and migration Job), check
+that every runner pod is ready, then apply the rest to remove the zone. To
+switch back, apply `vpc` for the zone first and wait for its records (TTL 300
+seconds) before the pods drop their host entries. A mode change replaces the
+migration Job. [GKE Sandbox](https://docs.cloud.google.com/kubernetes-engine/docs/concepts/sandbox-pods) · [Dataplane V2 port ranges](https://docs.cloud.google.com/kubernetes-engine/docs/how-to/dataplane-v2#port_ranges_for_network_policies_dont_take_effect) · [Secret Manager add-on](https://docs.cloud.google.com/secret-manager/docs/secret-manager-managed-csi-component)
 
 ## Register the runner
 
@@ -57,13 +70,15 @@ such as a Cloudflare Tunnel or a mutually authenticated TLS endpoint.
 | Variable | Value or default |
 | --- | --- |
 | `runner_enabled` | `false`. Set to `true` to enable runner infrastructure. |
-| `runner_image`, `runner_sandbox_image` | The matching release's `ghcr.io/angler-ai/runbook-runner@sha256:…` and `ghcr.io/angler-ai/runbook-sandbox@sha256:…` references. Verify both attestations with `gh attestation verify oci://IMAGE@DIGEST --repo angler-ai/the-runbook-app`. |
+| `runner_image`, `runner_sandbox_image` | The matching release's `ghcr.io/angler-ai/runbook-runner@sha256:…` and `ghcr.io/angler-ai/runbook-sandbox@sha256:…` references, or a private mirror of each by the same digest. The repository names must end in `runbook-runner` and `runbook-sandbox`, or in those names with your `name_prefix`. Verify both attestations with `gh attestation verify oci://IMAGE@DIGEST --repo angler-ai/the-runbook-app` before mirroring. |
+| `runner_google_api_dns` | `vpc` (default) adds a private `googleapis.com` zone to the VPC. `pods` maps the runner's Google API hostnames inside the runner pods only. |
 | `runner_install` | Set `id`, `org_id`, `group_id` and `runner_id` from registration, and a unique lowercase `role_prefix` for this installation. Keep the prefix on upgrades and restores. |
 | `runner_secret_versions` | Map each of the five processes to its own versioned Secret Manager resource `projects/PROJECT/secrets/SECRET/versions/NUMBER`. |
 | `runner_database_bootstrap_ready` | `false` for the infrastructure apply. Set `true` after the one-time database preparation. |
 | `runner_max_sandbox_pods`, `runner_worker_capacity` | Default 20 and 1. Capacity must fit the sandbox quota. |
 | `runner_dns_ip` | Default `169.254.20.10`. Set to the cluster's NodeLocal DNS IPv4 address when it differs. |
-| `runner_kek_rotation_period`, `runner_vault_vertex_enabled` | Key rotation interval, and opt-in Vertex access for the vault. |
+| `runner_kek_rotation_period` | Vault key rotation interval. |
+| `runner_vault_vertex_enabled`, `runner_vertex_targets` | Enable attached Vertex with a dedicated inference service account and list the allowed locations for each model project. [Configure Vertex providers](/runner/models/#vertex-ai-with-the-runners-google-identity). |
 
 Create five JSON secret versions directly in Secret Manager. Each secret is
 mounted read-only into its own pod and read at process start. Use an

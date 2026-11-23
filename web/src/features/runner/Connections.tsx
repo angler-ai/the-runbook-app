@@ -33,7 +33,9 @@ import { Credentials, destination, type Credential } from './Credentials';
 import { OAuthCredentialActions } from './OAuthCredentialActions';
 import { Field, panel, sentenceCase } from './presentation';
 import {
+  FieldError,
   FormSection,
+  RunnerForm,
   Problem,
   ShareFields,
   endpoint,
@@ -45,7 +47,7 @@ import {
 } from './runnerForms';
 import { validateSecret } from './credentialForm';
 import { saveCredentialSecrets, verifyCredentialReceipt } from './seal';
-import type { Connection, Project } from './resources';
+import { sharedWith, type Connection, type Project, type Share } from './resources';
 
 const presets = [
   {
@@ -306,6 +308,7 @@ type Props = { status: RunnerStatus; org: string; editable: boolean; projects: P
 export function Connections({ status, editable, projects }: Props) {
   const query = useRunnerQuery<Items<Connection>>(status, '/mcp-servers');
   const credentials = useRunnerQuery<Items<Credential>>(status, '/credentials');
+  const incomplete = credentials.isPending || Boolean(credentials.error);
   const hosts = credentials.data?.items.filter((item) => item.type === 'api-key') ?? [];
   const connections = query.data?.items ?? [];
   const action = (
@@ -317,7 +320,27 @@ export function Connections({ status, editable, projects }: Props) {
   );
   return (
     <div className="grid gap-4">
-      <Problem>{query.error && runnerError(query.error)}</Problem>
+      {query.error && (
+        <Problem>
+          Connections could not be loaded.{' '}
+          <Button variant="link" onClick={() => void query.refetch()}>
+            Retry connections
+          </Button>
+        </Problem>
+      )}
+      {credentials.isPending && (
+        <p role="status" className="text-sm text-fg-muted">
+          Loading host connections…
+        </p>
+      )}
+      {credentials.error && (
+        <Problem>
+          Host connections could not be loaded.{' '}
+          <Button variant="link" onClick={() => void credentials.refetch()}>
+            Retry credentials
+          </Button>
+        </Problem>
+      )}
       {query.isPending ? (
         <p role="status">Loading connections…</p>
       ) : connections.length || hosts.length ? (
@@ -340,7 +363,8 @@ export function Connections({ status, editable, projects }: Props) {
           </div>
         </>
       ) : (
-        query.data && (
+        query.data &&
+        !incomplete && (
           <EmptyState
             icon={Cable}
             title="No connected systems"
@@ -375,13 +399,26 @@ export function ConnectionPage({ id, tab, ...props }: Props & { id: string; tab?
   if (query.error) return <Problem>{runnerError(query.error)}</Problem>;
   if (!query.data) return <p role="status">Loading connection…</p>;
   return (
-    <ConnectionDetail
-      key={id}
-      connection={query.data}
-      credential={credential.data}
-      tab={tab}
-      {...props}
-    />
+    <>
+      {query.data.credential_id && credential.isPending && (
+        <p role="status">Loading sign-in details…</p>
+      )}
+      {credential.error && (
+        <Problem>
+          Sign-in details could not be loaded.{' '}
+          <Button variant="link" onClick={() => void credential.refetch()}>
+            Retry sign-in details
+          </Button>
+        </Problem>
+      )}
+      <ConnectionDetail
+        key={id}
+        connection={query.data}
+        credential={credential.data}
+        tab={tab}
+        {...props}
+      />
+    </>
   );
 }
 
@@ -406,7 +443,7 @@ function StartConnection({ status, org }: Props) {
     const request = <T,>(path: string, method?: 'GET' | 'POST', body?: unknown) =>
       runnerRequest<T>(install, path, method, body);
     const credentials = String(data.get('token') ?? '');
-    if (auth === 'bearer') validateSecret(credentials, 'Bearer token', true);
+    if (auth === 'bearer') validateSecret(credentials, 'Bearer token', true, 'token');
     const clientId =
       auth === 'oauth' && registration === 'pre-registered'
         ? requiredText(data, 'client', 'OAuth client ID', 1024)
@@ -465,9 +502,8 @@ function StartConnection({ status, org }: Props) {
   }
 
   return (
-    <form
+    <RunnerForm
       className="grid gap-4"
-      key={presetIndex}
       onSubmit={async (event) => {
         event.preventDefault();
         setError('');
@@ -478,6 +514,7 @@ function StartConnection({ status, org }: Props) {
           try {
             await create(data);
           } catch (problem) {
+            if (problem instanceof FieldError) throw problem;
             setError(runnerError(problem));
           } finally {
             setBusy(false);
@@ -487,19 +524,15 @@ function StartConnection({ status, org }: Props) {
             }
           }
         } else {
-          try {
-            const name = requiredText(data, 'name', 'Connection name');
-            const url = endpoint(readText(data, 'url'), 'MCP server URL', {
-              query: auth === 'oauth',
-            });
-            setConfirmed({
-              name,
-              url,
-              transport: readText(data, 'transport') === 'sse' ? 'sse' : 'streamable-http',
-            });
-          } catch (problem) {
-            setError(runnerError(problem));
-          }
+          const name = requiredText(data, 'name', 'Connection name');
+          const url = endpoint(readText(data, 'url'), 'MCP server URL', {
+            query: auth === 'oauth',
+          });
+          setConfirmed({
+            name,
+            url,
+            transport: readText(data, 'transport') === 'sse' ? 'sse' : 'streamable-http',
+          });
         }
       }}
     >
@@ -522,52 +555,65 @@ function StartConnection({ status, org }: Props) {
               <Input type="password" name="token" autoComplete="new-password" />
             </Field>
           )}
-          {auth === 'oauth' && (
-            <>
-              <Field label="Client registration">
-                <select
-                  className={selectClasses}
-                  value={registration}
-                  onChange={(event) => setRegistration(event.target.value)}
-                  disabled={busy || Boolean(createdCredential)}
-                >
-                  <option value="dynamic">Dynamic registration</option>
-                  <option value="pre-registered">Use an existing OAuth app</option>
-                </select>
-              </Field>
-              {registration === 'pre-registered' ? (
-                <>
-                  <Field label="OAuth client ID">
-                    <Input name="client" />
-                  </Field>
-                  <Field label="Client authentication">
-                    <select name="client-auth" className={selectClasses}>
-                      <option value="none">Public client</option>
-                      <option value="client_secret_basic">Client secret in header</option>
-                      <option value="client_secret_post">Client secret in body</option>
-                    </select>
-                  </Field>
-                </>
-              ) : (
-                <p className="text-sm text-fg-muted">
-                  The provider determines client authentication during registration.
-                </p>
-              )}
-            </>
+          {auth === 'bearer' && preset.name === 'Meta Ads' && (
+            <p className="text-sm text-fg-muted">
+              Ask your Meta Business administrator for an access token for the intended ad account
+              and permissions.
+            </p>
           )}
           {auth !== 'none' && (
-            <Field label="Credential classification">
-              <select
-                name="connection-label"
-                className={selectClasses}
-                defaultValue="destructive"
-                disabled={busy}
-              >
-                <option value="read">Read</option>
-                <option value="write">Write</option>
-                <option value="destructive">Destructive</option>
-              </select>
-            </Field>
+            <details className="grid gap-3 rounded-md border border-border p-3">
+              <summary className="cursor-pointer text-sm font-medium">Advanced</summary>
+              <p className="my-2 text-sm text-fg-muted">
+                Change these settings when your provider requires a registered app or your
+                administrator has specified a credential classification.
+              </p>
+              {auth === 'oauth' && (
+                <>
+                  <Field label="Client registration">
+                    <select
+                      className={selectClasses}
+                      value={registration}
+                      onChange={(event) => setRegistration(event.target.value)}
+                      disabled={busy || Boolean(createdCredential)}
+                    >
+                      <option value="dynamic">Dynamic registration</option>
+                      <option value="pre-registered">Use an existing OAuth app</option>
+                    </select>
+                  </Field>
+                  {registration === 'pre-registered' ? (
+                    <>
+                      <Field label="OAuth client ID">
+                        <Input name="client" />
+                      </Field>
+                      <Field label="Client authentication">
+                        <select name="client-auth" className={selectClasses}>
+                          <option value="none">Public client</option>
+                          <option value="client_secret_basic">Client secret in header</option>
+                          <option value="client_secret_post">Client secret in body</option>
+                        </select>
+                      </Field>
+                    </>
+                  ) : (
+                    <p className="text-sm text-fg-muted">
+                      The provider determines client authentication during registration.
+                    </p>
+                  )}
+                </>
+              )}
+              <Field label="Credential classification">
+                <select
+                  name="connection-label"
+                  className={selectClasses}
+                  defaultValue={['GitHub', 'Linear'].includes(preset.name) ? 'read' : 'destructive'}
+                  disabled={busy}
+                >
+                  <option value="read">Read</option>
+                  <option value="write">Write</option>
+                  <option value="destructive">Destructive</option>
+                </select>
+              </Field>
+            </details>
           )}
           <div className="flex flex-wrap gap-2">
             <Button type="submit" disabled={busy}>
@@ -612,6 +658,7 @@ function StartConnection({ status, org }: Props) {
                     onChange={() => {
                       setPresetIndex(index);
                       setAuth(option.auth);
+                      setRegistration('dynamic');
                       setError('');
                     }}
                   />
@@ -625,20 +672,18 @@ function StartConnection({ status, org }: Props) {
             </div>
           </FormSection>
           <FormSection title="Connection details">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Connection name">
-                <Input name="name" defaultValue={preset.name === 'Custom' ? '' : preset.name} />
-              </Field>
-              <Field label="MCP server URL">
-                <Input
-                  name="url"
-                  inputMode="url"
-                  defaultValue={preset.url}
-                  placeholder="https://mcp.example.com/mcp"
-                />
-              </Field>
+            <div key={presetIndex} className="grid gap-3">
+              {preset.url && (
+                <p className="text-sm break-all text-fg-muted">Destination {preset.url}</p>
+              )}
+              {preset.name === 'Notion' && auth === 'oauth' && (
+                <p className="text-sm text-fg-muted">
+                  Expect a Notion sign-in domain. You’ll confirm the exact domain after discovery.
+                </p>
+              )}
               <Field label="Sign-in method">
                 <select
+                  name="auth"
                   className={selectClasses}
                   value={auth}
                   onChange={(event) => setAuth(event.target.value as Auth)}
@@ -648,12 +693,38 @@ function StartConnection({ status, org }: Props) {
                   <option value="none">No authentication</option>
                 </select>
               </Field>
-              <Field label="Transport">
-                <select name="transport" className={selectClasses}>
-                  <option value="streamable-http">Streamable HTTP</option>
-                  <option value="sse">Server-sent events</option>
-                </select>
-              </Field>
+              {!preset.url && (
+                <>
+                  {preset.name === 'Angler MCP' && (
+                    <p className="text-sm text-fg-muted">
+                      Ask your Angler deployment administrator for its HTTPS MCP URL.
+                    </p>
+                  )}
+                  <Field label="MCP server URL">
+                    <Input name="url" inputMode="url" placeholder="https://mcp.example.com/mcp" />
+                  </Field>
+                </>
+              )}
+              <details className="grid gap-3 rounded-md border border-border p-3">
+                <summary className="cursor-pointer text-sm font-medium">Advanced</summary>
+                <p className="my-2 text-sm text-fg-muted">
+                  Use the standard HTTP transport unless your server requires server-sent events.
+                </p>
+                <Field label="Connection name">
+                  <Input name="name" defaultValue={preset.name === 'Custom' ? '' : preset.name} />
+                </Field>
+                {preset.url && (
+                  <Field label="MCP server URL">
+                    <Input name="url" inputMode="url" defaultValue={preset.url} />
+                  </Field>
+                )}
+                <Field label="Transport">
+                  <select name="transport" className={selectClasses}>
+                    <option value="streamable-http">Streamable HTTP</option>
+                    <option value="sse">Server-sent events</option>
+                  </select>
+                </Field>
+              </details>
             </div>
             <Button type="submit" className="w-fit">
               Continue
@@ -663,7 +734,7 @@ function StartConnection({ status, org }: Props) {
         </>
       )}
       <Problem>{error}</Problem>
-    </form>
+    </RunnerForm>
   );
 }
 
@@ -682,6 +753,14 @@ function ConnectionDetail({
   const [error, setError] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [rotating, setRotating] = useState(false);
+  const [savedSharing, setSavedSharing] = useState<Share>();
+  const [retrySharing, setRetrySharing] = useState<Share>();
+  const sharedProjects = projects.filter((project) =>
+    sharedWith(savedSharing ?? connection.sharing, project.id),
+  );
+  const eligibleProjects = sharedProjects.filter((project) =>
+    status.groups.some((group) => group.projects.includes(project.id)),
+  );
   const path = `/mcp-servers/${connection.id}`;
   const credentialPath = `/credentials/${credential?.id ?? '-'}`;
   const setupActive =
@@ -708,6 +787,16 @@ function ConnectionDetail({
       setError(runnerError(problem));
     }
   }
+  async function shareCredential(sharing: Share) {
+    await mutation.mutateAsync({ path: credentialPath, method: 'PATCH', body: { sharing } });
+    setRetrySharing(undefined);
+  }
+  function finishSharing(sharing: Share) {
+    if (credential) rememberConnection(credential.id, null);
+    setSavedSharing(sharing);
+    setMessage('Project access saved.');
+  }
+
   return (
     <div className="grid gap-4">
       {setupActive && editable && (
@@ -752,6 +841,7 @@ function ConnectionDetail({
             {credential?.type === 'mcp-oauth' && credential.status !== 'revoked' && (
               <OAuthCredentialActions
                 credential={credential}
+                impact={shareLabel({ ...connection, sharing: credential.sharing }, projects)}
                 install={status.install_id!}
                 org={org}
                 disabled={!editable || mutation.isPending}
@@ -769,15 +859,15 @@ function ConnectionDetail({
                   {rotating ? 'Cancel token entry' : 'Replace bearer token'}
                 </Button>
                 {rotating && (
-                  <form
+                  <RunnerForm
                     className="grid gap-2"
-                    onSubmit={(event) => {
+                    onSubmit={async (event) => {
                       event.preventDefault();
                       const form = event.currentTarget;
                       const token = String(new FormData(form).get('token') ?? '');
                       form.reset();
-                      void perform(async () => {
-                        validateSecret(token, 'Bearer token', true);
+                      validateSecret(token, 'Bearer token', true);
+                      await perform(async () => {
                         const install = status.install_id!;
                         await saveCredentialSecrets(
                           (route, method, body) => runnerRequest(install, route, method, body),
@@ -805,7 +895,7 @@ function ConnectionDetail({
                     <Button className="w-fit" type="submit">
                       Save token
                     </Button>
-                  </form>
+                  </RunnerForm>
                 )}
               </>
             )}
@@ -902,15 +992,16 @@ function ConnectionDetail({
                   const sharing = readShare(fields, 'sharing', connection.sharing, projects);
                   void perform(async () => {
                     await mutation.mutateAsync({ path, method: 'PATCH', body: { sharing } });
+                    setRetrySharing(undefined);
                     if (credential && fields.get('share-credential') === 'on') {
-                      await mutation.mutateAsync({
-                        path: credentialPath,
-                        method: 'PATCH',
-                        body: { sharing },
-                      });
+                      try {
+                        await shareCredential(sharing);
+                      } catch (problem) {
+                        setRetrySharing(sharing);
+                        throw problem;
+                      }
                     }
-                    if (credential) rememberConnection(credential.id, null);
-                    setMessage('Project access saved.');
+                    finishSharing(sharing);
                   });
                 }}
               >
@@ -938,6 +1029,55 @@ function ConnectionDetail({
               </form>
             ) : (
               <p className="text-sm text-fg-muted">{shareLabel(connection, projects)}</p>
+            )}
+            {retrySharing && (
+              <div className="grid gap-2 text-sm">
+                <p role="status">
+                  Connection access was saved. The linked credential could not be shared.
+                </p>
+                <Button
+                  className="w-fit"
+                  variant="secondary"
+                  disabled={mutation.isPending}
+                  onClick={() =>
+                    void perform(async () => {
+                      await shareCredential(retrySharing);
+                      finishSharing(retrySharing);
+                    })
+                  }
+                >
+                  Retry credential sharing
+                </Button>
+              </div>
+            )}
+            {!retrySharing && sharedProjects.length > 0 && (
+              <FormSection title="Choose an agent">
+                <p className="text-sm">
+                  {connection.name} is available to{' '}
+                  {sharedProjects.map(({ title }) => title).join(', ')}. Choose or create an agent
+                  to grant specific tools.
+                </p>
+                {eligibleProjects.map((project) => (
+                  <Link
+                    key={project.id}
+                    className={textLink + ' w-fit text-sm'}
+                    to="/p/$project/agents"
+                    params={{ project: project.slug }}
+                    search={{ connection: connection.id }}
+                  >
+                    Choose an agent in {project.title}
+                  </Link>
+                ))}
+                {!eligibleProjects.length && (
+                  <Link
+                    to="/runner/overview"
+                    hash="runner-projects"
+                    className={textLink + ' text-sm'}
+                  >
+                    Allow a shared project on the runner to continue
+                  </Link>
+                )}
+              </FormSection>
             )}
             <Problem>{error}</Problem>
             {message && (

@@ -135,6 +135,7 @@ export function ExecutionPage() {
   return (
     <ExecutionDocumentPage
       executionId={exe}
+      deepLinkedStep={search.step}
       view={search.view ?? fallback}
       onViewChange={(view) =>
         void navigate({ to: '.', search: view === fallback ? {} : { view }, replace: true })

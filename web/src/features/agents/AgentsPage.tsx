@@ -19,7 +19,12 @@ import {
   type RunnerStatus,
 } from '../runner/api';
 import { destination, type Credential } from '../runner/Credentials';
-import { sharedWith, type Connection, type Environment } from '../runner/resources';
+import {
+  sharedWith,
+  type AgentToolCall,
+  type Connection,
+  type Environment,
+} from '../runner/resources';
 import { OfflineBanner, projectAllowed, Rows } from '../runner/presentation';
 import {
   Activity,
@@ -41,7 +46,6 @@ type Profile = {
   sharing?: { projects: string | string[] };
 };
 type Usage = { resource_id: string; cost_usd: string | number };
-type ToolCall = { server_id: string; tool: string; error?: string | null };
 
 function weeklyCosts(results: (Items<Usage> | undefined)[]) {
   const totals = new Map<string, number>();
@@ -113,7 +117,7 @@ const detailTabs = [
 
 export function AgentsPage() {
   const params = useParams({ strict: false }) as { project?: string; agent?: string };
-  const { tab } = useSearch({ strict: false }) as { tab?: string };
+  const { tab, connection } = useSearch({ strict: false }) as { tab?: string; connection?: string };
   const { resolveProject, isLoading } = useOrgContext();
   const project = resolveProject(params.project);
   const me = useMe();
@@ -141,6 +145,7 @@ export function AgentsPage() {
       asOf={statusQuery.dataUpdatedAt}
       selectedId={params.agent}
       tab={tab}
+      guidedConnection={connection}
       admin={Boolean(canWrite && role === 'admin')}
       edit={Boolean(canWrite && (role === 'admin' || role === 'editor'))}
       projectAdmin={role === 'admin'}
@@ -154,15 +159,17 @@ function ProjectAgents({
   asOf,
   selectedId,
   tab,
+  guidedConnection,
   admin,
   edit,
   projectAdmin,
 }: {
-  project: { id: string; slug: string };
+  project: { id: string; slug: string; title: string };
   status: RunnerStatus;
   asOf: number;
   selectedId?: string;
   tab?: string;
+  guidedConnection?: string;
   admin: boolean;
   edit: boolean;
   projectAdmin: boolean;
@@ -192,10 +199,11 @@ function ProjectAgents({
   const connections = useRunnerQuery<Items<Connection>>(
     status,
     '/mcp-servers',
-    Boolean(selectedId),
+    Boolean(selectedId || guidedConnection),
   );
   const sharedConnections =
     connections.data?.items.filter((item) => sharedWith(item.sharing, project.id)) ?? [];
+  const guided = sharedConnections.find(({ id }) => id === guidedConnection);
   const agents = listQuery.data?.items ?? [];
   const visible = selectedId ? [] : agents.slice(page * 20, page * 20 + 20);
   const detail = useRunnerQuery<Agent>(status, `${path}/${selectedId ?? '-'}`, Boolean(selectedId));
@@ -229,6 +237,7 @@ function ProjectAgents({
           <Link
             to="/p/$project/agents"
             params={{ project: project.slug }}
+            search={guidedConnection ? { connection: guidedConnection } : {}}
             className="w-fit text-sm text-accent underline"
           >
             All agents
@@ -246,6 +255,8 @@ function ProjectAgents({
               profiles={shared}
               environments={environments.data?.items ?? []}
               connections={sharedConnections}
+              guided={guided}
+              guidedConnection={guidedConnection}
               projectId={project.id}
               admin={admin}
               edit={edit && online}
@@ -263,6 +274,18 @@ function ProjectAgents({
         </div>
       ) : (
         <div className="grid gap-4">
+          {guided && (
+            <section className="rounded-lg border border-border bg-surface p-4">
+              <h2 className="font-semibold">
+                Grant {guided.name} tools in {project.title}
+              </h2>
+              <p className="text-sm text-fg-muted">
+                {admin
+                  ? 'Choose an agent below or create a new one.'
+                  : 'A project administrator can grant tools and credentials.'}
+              </p>
+            </section>
+          )}
           {listQuery.error && (
             <p role="alert" className="text-danger">
               {runnerError(listQuery.error)}
@@ -292,6 +315,9 @@ function ProjectAgents({
                 await navigate({
                   to: '/p/$project/agents/$agent',
                   params: { project: project.slug, agent: result.id },
+                  search: guidedConnection
+                    ? { tab: 'configuration', connection: guidedConnection }
+                    : {},
                 });
                 setNewAgent(false);
               }}
@@ -311,6 +337,9 @@ function ProjectAgents({
                   <Link
                     to="/p/$project/agents/$agent"
                     params={{ project: project.slug, agent: agent.id }}
+                    search={
+                      guidedConnection ? { tab: 'configuration', connection: guidedConnection } : {}
+                    }
                     className="font-medium text-accent underline"
                   >
                     {agent.name}
@@ -383,6 +412,8 @@ function AgentDetail({
   profiles,
   environments,
   connections,
+  guided,
+  guidedConnection,
   projectId,
   admin,
   edit,
@@ -398,6 +429,8 @@ function AgentDetail({
   profiles: Profile[];
   environments: Environment[];
   connections: Connection[];
+  guided?: Connection;
+  guidedConnection?: string;
   projectId: string;
   admin: boolean;
   edit: boolean;
@@ -413,7 +446,7 @@ function AgentDetail({
   // R1-D2: decision runs claim the approval's step run; their outcome is
   // on the run's report.
   const decisionReports = useDecisionReports(activity.data?.recent, selectedTab === 'activity');
-  const calls = useRunnerQuery<Items<ToolCall>>(
+  const calls = useRunnerQuery<Items<AgentToolCall>>(
     status,
     `${path}/tool-calls`,
     selectedTab === 'tools',
@@ -445,7 +478,9 @@ function AgentDetail({
   return (
     <Tabs
       value={selectedTab}
-      onValueChange={(value) => void navigate({ search: { tab: value }, replace: true })}
+      onValueChange={(value) =>
+        void navigate({ search: { tab: value, connection: guidedConnection }, replace: true })
+      }
     >
       <TabsList aria-label="Agent details">
         {detailTabs.map(([id, label]) => (
@@ -464,8 +499,16 @@ function AgentDetail({
         />
       </TabsContent>
       <TabsContent value="configuration">
+        {guidedConnection && !guided && (
+          <p role="status" className="mb-2 text-sm text-fg-muted">
+            The requested connection must be shared with this project before you can grant its
+            tools.
+          </p>
+        )}
         <AgentConfiguration
           agent={agent}
+          guided={guided}
+          projectSlug={slug}
           canEdit={edit}
           admin={admin}
           groups={groups}
@@ -513,6 +556,27 @@ function AgentDetail({
             };
           })}
         />
+        {calls.data?.archived && (
+          <section className="mt-4 grid gap-2" aria-label="Archived tool calls">
+            <h3 className="text-sm font-medium">Archived tool calls</h3>
+            <ul className="grid gap-2">
+              {calls.data.items.filter((call) => call.archived).map((call) => (
+                <li key={call.id} className="rounded-md border border-border p-3 text-sm">
+                  <p>{call.tool} · {call.error ? 'Failed' : 'Succeeded'}</p>
+                  <Link
+                    to="/p/$project/agents/transcripts/$step"
+                    params={{ project: slug, step: call.step_run_id }}
+                    search={{ claim_id: undefined }}
+                    className="text-accent underline"
+                  >
+                    {call.step_run_id}
+                  </Link>
+                  <p className="text-xs text-fg-muted">Archived on {call.archived_at}; read-only.</p>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
       </TabsContent>
       <TabsContent value="credentials">
         {readError(credentials.error)}

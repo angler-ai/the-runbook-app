@@ -6,6 +6,7 @@ use axum::{
     extract::State,
     http::{Request, Response, header},
 };
+use opentelemetry::trace::FutureExt;
 use runbook_api::problem::Response as ApiResponse;
 use runbook_store_postgres::{PostgresCredentials, PostgresDirectory};
 use std::{
@@ -16,6 +17,7 @@ use std::{
 use tokio::sync::{mpsc, oneshot, watch};
 struct Call {
     request: runbook_api::Request,
+    trace: opentelemetry::Context,
     /// The request passed the `/internal/*` gate (loopback and the
     /// per-boot secret): the auth child's registration hook.
     internal: bool,
@@ -34,7 +36,7 @@ enum Work {
     Api(Call),
     Files(FileCall),
     /// MCP1: a `/mcp` message (or its authentication), run in process.
-    Mcp(crate::mcp::McpWork),
+    Mcp(crate::mcp::McpWork, opentelemetry::Context),
 }
 #[derive(Clone)]
 pub struct Client {
@@ -60,7 +62,7 @@ pub struct Client {
     /// UP2 (D50): requests from the user-content listener.
     files: mpsc::Sender<FileCall>,
     /// MCP1: `/mcp` work for the worker.
-    mcp: mpsc::Sender<crate::mcp::McpWork>,
+    mcp: mpsc::Sender<(crate::mcp::McpWork, opentelemetry::Context)>,
     /// RUNBOOK_ORIGIN: the only origin the signed PUT allows cross-origin,
     /// and the only `Origin` `/mcp` accepts (MCP1, DNS rebinding).
     pub(crate) origin: Arc<str>,
@@ -88,7 +90,9 @@ pub struct Client {
 impl Client {
     /// Queue `/mcp` work on the worker (backpressure: `Err` when full).
     pub(crate) fn submit_mcp(&self, work: crate::mcp::McpWork) -> Result<(), ()> {
-        self.mcp.try_send(work).map_err(|_| ())
+        self.mcp
+            .try_send((work, opentelemetry::Context::current()))
+            .map_err(|_| ())
     }
     /// The image pipeline's slot (tests hold it to see finalize answer
     /// `server.busy`).
@@ -172,7 +176,9 @@ impl Worker {
         // second checkout. Keep room for that checkout and ordinary traffic.
         let runner_concurrency = config.database.pool_size().saturating_sub(2).clamp(1, 2);
         let (files, mut files_rx) = mpsc::channel::<FileCall>(limits.queue_depth.max(1));
-        let (mcp, mut mcp_rx) = mpsc::channel::<crate::mcp::McpWork>(limits.queue_depth.max(1));
+        let (mcp, mut mcp_rx) = mpsc::channel::<(crate::mcp::McpWork, opentelemetry::Context)>(
+            limits.queue_depth.max(1),
+        );
         let (pings, mut ping_rx) = mpsc::channel::<oneshot::Sender<bool>>(8);
         let (shutdown, shutdown_rx) = watch::channel(false);
         let origin: Arc<str> = config.origin.as_str().into();
@@ -271,7 +277,7 @@ impl Worker {
                                         Err(_) => Some("postgres.readiness_timeout"),
                                     };
                                     let ok = cause.is_none();
-                                    if last != Some(ok) || logged_at.elapsed() >= Duration::from_secs(30) {
+                                    if last != Some(ok) || (!ok && logged_at.elapsed() >= Duration::from_secs(30)) {
                                         let stats = ping_config.pool_stats();
                                         match cause {
                                             Some(cause) => crate::log::warning("database", &format!("{cause}: {stats:?}")),
@@ -288,7 +294,7 @@ impl Worker {
                                 let work = tokio::select! {
                                     call = rx.recv() => match call { Some(call) => Work::Api(call), None => break },
                                     call = files_rx.recv() => match call { Some(call) => Work::Files(call), None => break },
-                                    work = mcp_rx.recv() => match work { Some(work) => Work::Mcp(work), None => break },
+                                    work = mcp_rx.recv() => match work { Some((work, trace)) => Work::Mcp(work, trace), None => break },
                                     stream = stream_rx.recv() => {
                                         let Some(call) = stream else { break; };
                                         admit_stream(call);
@@ -298,11 +304,11 @@ impl Worker {
                                 // A `/mcp` message takes no worker slot of its own;
                                 // each of its API calls takes one (`mcp::run`).
                                 let work = match work {
-                                    Work::Mcp(work) if work.is_message() => {
+                                    Work::Mcp(work, trace) if work.is_message() => {
                                         let router = router.clone();
                                         let permits = permits.clone();
                                         tokio::task::spawn_local(async move {
-                                            crate::mcp::run(&router, work, permits).await;
+                                            crate::mcp::run(&router, work, permits).with_context(trace).await;
                                         });
                                         continue;
                                     }
@@ -330,11 +336,11 @@ impl Worker {
                                             let _ = call.reply.send(reply);
                                         });
                                     }
-                                    Work::Mcp(work) => {
+                                    Work::Mcp(work, trace) => {
                                         let permits = permits.clone();
                                         tokio::task::spawn_local(async move {
                                             let _permit = permit;
-                                            crate::mcp::run(&router, work, permits).await;
+                                            crate::mcp::run(&router, work, permits).with_context(trace).await;
                                         });
                                     }
                                     Work::Api(mut call) => {
@@ -364,7 +370,7 @@ impl Worker {
                                             tokio::select! {
                                                 biased;
                                                 _ = call.reply.closed() => {}
-                                                response = handle => {
+                                                response = handle.with_context(call.trace) => {
                                                     let _ = call.reply.send(response);
                                                 }
                                             }
@@ -435,7 +441,8 @@ pub fn router(client: Client) -> Router {
     let router = Router::new()
         .fallback(dispatch)
         .with_state(client)
-        .layer(axum::middleware::map_response(no_sniff));
+        .layer(axum::middleware::map_response(no_sniff))
+        .layer(axum::middleware::from_fn(crate::telemetry::http_server));
     transport_security(router, https)
 }
 fn transport_security(router: Router, https: bool) -> Router {
@@ -731,6 +738,7 @@ async fn process(client: Client, request: Request<Body>, nonce: String, id: &str
     if queue
         .try_send(Call {
             request,
+            trace: opentelemetry::Context::current(),
             internal,
             limit: rate_key,
             reply,
@@ -759,7 +767,7 @@ async fn serve_runner_calls(
             tokio::select! {
                 biased;
                 _ = call.reply.closed() => {}
-                response = router.handle(call.request) => {
+                response = router.handle(call.request).with_context(call.trace) => {
                     let _ = call.reply.send(response);
                 }
             }

@@ -1,3 +1,4 @@
+import { fetchWithTrace } from '@runbook/runner-shared/telemetry';
 import { DECISION_CONTRACT } from '@runbook/runner-shared/contracts/core';
 import type { EnvironmentBudgets } from '@runbook/runner-shared/contracts/environments';
 import type { SlotOutcome } from '@runbook/runner-shared/contracts/internal';
@@ -33,7 +34,7 @@ export function scheduler(options: { db: pg.Pool; coreUrl: string; installId: st
   const pending = new Map<string, Promise<ReadyQueue>>();
 
   async function core(path: string, body?: unknown, signal = AbortSignal.timeout(10_000)) {
-    const response = await fetch(`${options.coreUrl}/v1/runner-installs/${encodeURIComponent(options.installId)}${path}`, {
+    const response = await fetchWithTrace(`${options.coreUrl}/v1/runner-installs/${encodeURIComponent(options.installId)}${path}`, {
       method: body ? 'POST' : 'GET',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${options.token}` },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -155,11 +156,11 @@ export function scheduler(options: { db: pg.Pool; coreUrl: string; installId: st
               const budget = result.budget;
               waiting.push({ step_run_id: item.step_run_id, reason: result.reason, ...(budget && { detail: budget.detail }) });
               if (budget) await db.query(
-                `INSERT INTO budget_waiting(step_run_id,group_id,project_id,scope,budget_key,period,detail,cap)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (step_run_id) DO UPDATE SET
+                `INSERT INTO budget_waiting(step_run_id,group_id,project_id,scope,budget_key,period,detail,cap,execution_id)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (step_run_id) DO UPDATE SET
                    group_id=EXCLUDED.group_id,project_id=EXCLUDED.project_id,scope=EXCLUDED.scope,
-                   budget_key=EXCLUDED.budget_key,period=EXCLUDED.period,detail=EXCLUDED.detail,cap=EXCLUDED.cap,updated_at=now()`,
-                [item.step_run_id, runner.group_id, item.project_id, budget.scope, budget.key, budget.period, budget.detail, budget.cap]);
+                   budget_key=EXCLUDED.budget_key,period=EXCLUDED.period,detail=EXCLUDED.detail,cap=EXCLUDED.cap,execution_id=EXCLUDED.execution_id,updated_at=now()`,
+                [item.step_run_id, runner.group_id, item.project_id, budget.scope, budget.key, budget.period, budget.detail, budget.cap, item.execution_id]);
               else await db.query('DELETE FROM budget_waiting WHERE step_run_id = $1', [item.step_run_id]);
             } else {
               queue.admitted(item);

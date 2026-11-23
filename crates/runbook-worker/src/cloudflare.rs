@@ -1708,6 +1708,7 @@ pub fn router_config(origin: &str, max_request_bytes: u64) -> runbook_api::route
             version: runbook_api::VERSION.into(),
             schema: schema_heads(),
             theme: None,
+            trace_sample_ratio: None,
             step_runs: None,
         },
         authoring: runbook_api::authoring::AuthoringLimits::default(),

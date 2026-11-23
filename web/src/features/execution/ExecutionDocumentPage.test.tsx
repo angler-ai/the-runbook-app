@@ -200,6 +200,24 @@ afterEach(() => {
   for (const id of Object.keys(tabClaims.all())) tabClaims.clear(id);
 });
 
+it('builds the Cloud Trace link using the authenticated run report', async () => {
+  const traceId = '1234567890abcdef1234567890abcdef';
+  const doc = runningDoc((view) => {
+    view.trace_project = 'runbook-fixture';
+    view.header.steps[0]!.runner = {
+      agent_id: 'agt_fixture',
+      agent_name: 'Checker',
+      trace_id: traceId,
+    };
+  });
+  server.use(...baseHandlers(doc));
+  renderDoc();
+  expect(await screen.findByRole('link', { name: traceId })).toHaveAttribute(
+    'href',
+    `https://console.cloud.google.com/traces/list?tid=${traceId}&project=runbook-fixture`,
+  );
+});
+
 describe('execution document actions', () => {
   it('claims before reading the step, then rolls back an optimistic checklist tick on 409', async () => {
     const order: string[] = [];

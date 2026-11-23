@@ -147,3 +147,16 @@ describe('a runner step on the run page', () => {
     ).toBe('<$0.01');
   });
 });
+
+it('shows the sampled trace ID and links to the configured Cloud Trace project', () => {
+  const traceId = '1234567890abcdef1234567890abcdef';
+  const runner = { agent_id: 'agt_test', agent_name: 'Checker', trace_id: traceId };
+  const { rerender } = render(<RunnerStep step={step({ runner })} />);
+  expect(screen.getByText(traceId)).toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: traceId })).toBeNull();
+  rerender(<RunnerStep step={step({ runner })} traceProject="runbook-test" />);
+  expect(screen.getByRole('link', { name: traceId })).toHaveAttribute(
+    'href',
+    `https://console.cloud.google.com/traces/list?tid=${traceId}&project=runbook-test`,
+  );
+});

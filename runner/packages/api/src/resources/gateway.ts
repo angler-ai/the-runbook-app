@@ -3,6 +3,7 @@ import type { CapabilityVerifier } from '@runbook/runner-shared/capability';
 import type { Delivery, GrantClaims, Label } from '@runbook/runner-shared/contracts/core';
 import { MAX_TRANSCRIPT_BYTES, TRANSCRIPT_ROLES, type TranscriptRole, type EgressPolicy, type ToolCallRecord } from '@runbook/runner-shared/contracts/internal';
 import { claudeSettings, type ClaudeEffort } from '@runbook/runner-shared/claude-settings';
+import { vertexBinding } from '@runbook/runner-shared/vertex-binding';
 import { modelCachePricing } from '@runbook/runner-shared/model-pricing';
 import { HttpError, type Route } from '@runbook/runner-shared/http';
 import type { SandboxEnvironment } from '@runbook/runner-shared/contracts/environments';
@@ -19,7 +20,11 @@ interface ProfileRow {
   type: string;
   endpoint: string;
   verification: string;
-  credential_id: string;
+  credential_id: string | null;
+  attached_binding_id: string | null;
+  auth: string;
+  project_id: string | null;
+  region: string | null;
   models: { id?: unknown; input_usd_per_million?: unknown; output_usd_per_million?: unknown; cached_usd_per_million?: number; cache_write_usd_per_million?: number }[];
 }
 
@@ -87,14 +92,27 @@ export function gatewayResources(pool: pg.Pool, verifier: Pick<CapabilityVerifie
         (claims.model_profile != null && profile !== undefined && profile !== claims.model_profile)) denied();
     const { rows: [row] } = await pool.query<ProfileRow>(
       `SELECT p.id, p.name, p.model, p.options, p.sharing, v.sharing AS provider_sharing, v.type, v.endpoint,
-         v.credential_id, v.models, concat(p.updated_at::text, '|', v.updated_at::text) AS verification
+         v.credential_id, v.attached_binding_id, v.auth, v.project_id, v.region, v.models, concat(p.updated_at::text, '|', v.updated_at::text) AS verification
        FROM profiles p JOIN providers v ON v.id = p.provider_id
        WHERE ($1::text IS NULL OR p.name = $1) AND p.id = ANY($2::text[])
        ORDER BY array_position($2::text[], p.id) LIMIT 1`, [claims.model_profile ?? profile ?? null, config.profiles],
     );
     if (!row || (claims.reach === 'read' && claims.model_id !== row.model) || !sharedWith(row.sharing, claims.project_id) || !sharedWith(row.provider_sharing, claims.project_id) ||
-        !['anthropic', 'openai-compatible', 'vertex', 'vertex-gemini', 'bedrock'].includes(row.type) || !row.endpoint ||
-        !allowsCredential(await labels(claims, config, 'model', row.credential_id), row.credential_id, claims.destructive)) denied();
+        !['anthropic', 'openai-compatible', 'vertex', 'vertex-gemini', 'bedrock'].includes(row.type) || !row.endpoint) denied();
+    const attached = row.auth === 'attached';
+    const credentialId = attached ? row.attached_binding_id : row.credential_id;
+    const binding = attached ? vertexBinding(row.type, row.project_id, row.region) : undefined;
+    if (!credentialId || (attached ? binding?.endpoint !== row.endpoint ||
+        (claims.reach === 'read' && !claims.connections?.includes(credentialId)) :
+      !allowsCredential(await labels(claims, config, 'model', credentialId), credentialId, claims.destructive))) denied();
+    const multiplier = binding && binding.region !== 'global' ? 1.1 : 1;
+    const prices = (item: ProfileRow['models'][number]) => {
+      const input = Number(item.input_usd_per_million) * multiplier;
+      return { inputUsdPerMillion: input, outputUsdPerMillion: Number(item.output_usd_per_million) * multiplier,
+        ...modelCachePricing(row.type, String(item.id), input,
+          item.cached_usd_per_million === undefined ? undefined : item.cached_usd_per_million * multiplier,
+          item.cache_write_usd_per_million === undefined ? undefined : item.cache_write_usd_per_million * multiplier) };
+    };
     const model = Array.isArray(row.models) ? row.models.find((item) => item.id === row.model) : undefined;
     const limit = row.options.max_output_tokens ?? config.limits?.max_tokens;
     if (!model || typeof model.input_usd_per_million !== 'number' ||
@@ -103,14 +121,12 @@ export function gatewayResources(pool: pg.Pool, verifier: Pick<CapabilityVerifie
         !Number.isFinite(model.output_usd_per_million) || model.output_usd_per_million < 0 ||
         typeof limit !== 'number' || !Number.isSafeInteger(limit) || limit <= 0 ||
         !Number.isSafeInteger(config.limits?.max_tokens) || config.limits.max_tokens <= 0) denied();
-    return { id: row.id, verification: row.verification, name: row.name, effort: row.options.effort, credentialId: row.credential_id, provider: row.type, model: row.model, endpoint: row.endpoint,
-      inputUsdPerMillion: model.input_usd_per_million, outputUsdPerMillion: model.output_usd_per_million,
-      ...modelCachePricing(row.type, row.model, model.input_usd_per_million, model.cached_usd_per_million, model.cache_write_usd_per_million),
+    return { id: row.id, verification: row.verification, name: row.name, effort: row.options.effort, credentialId,
+      provider: row.type, model: row.model, endpoint: row.endpoint, ...(binding && { vertexBinding: binding }),
+      ...prices(model),
       servedPrices: row.models.filter((item) => typeof item.id === 'string' &&
         typeof item.input_usd_per_million === 'number' && typeof item.output_usd_per_million === 'number').map((item) => ({
-        model: item.id, inputUsdPerMillion: item.input_usd_per_million, outputUsdPerMillion: item.output_usd_per_million,
-        ...modelCachePricing(row.type, String(item.id), Number(item.input_usd_per_million),
-          item.cached_usd_per_million, item.cache_write_usd_per_million),
+        model: item.id, ...prices(item),
       })),
       ...(Number.isSafeInteger(row.options.max_response_bytes) && row.options.max_response_bytes! > 0 &&
         { maxResponseBytes: row.options.max_response_bytes }),

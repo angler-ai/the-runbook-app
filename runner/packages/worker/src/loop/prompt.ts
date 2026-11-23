@@ -9,6 +9,7 @@ const ORIENTATION = [
 ].join(' ');
 
 export interface RunOrientation {
+  id?: string;
   title: string;
   project: string;
   runbook_slug: string;

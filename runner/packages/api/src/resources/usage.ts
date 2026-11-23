@@ -18,12 +18,20 @@ export function usageWindow(level: string, period: string, date: string) {
 export async function readUsage(pool: pg.Pool, window: ReturnType<typeof usageWindow>, projectIds: string[] | null) {
   const group = window.column ?? 'NULL::text';
   const result = await pool.query(
-    `SELECT ${group} AS resource_id, kind, SUM(cost_usd) AS cost_usd, SUM(input_tokens) AS input_tokens,
+    `SELECT resource_id, kind, SUM(cost_usd) AS cost_usd, SUM(input_tokens) AS input_tokens,
        SUM(output_tokens) AS output_tokens, SUM(cached_tokens) AS cached_tokens
-     FROM usage_events CROSS JOIN policy
-     WHERE created_at >= ($1::date::timestamp AT TIME ZONE time_zone)
-       AND created_at < (($1::date + $2::interval) AT TIME ZONE time_zone)
-       AND ($3::text[] IS NULL OR project_id = ANY($3))
+     FROM (
+       SELECT ${group} AS resource_id, kind, cost_usd, input_tokens, output_tokens, cached_tokens
+       FROM usage_events CROSS JOIN policy
+       WHERE created_at >= ($1::date::timestamp AT TIME ZONE time_zone)
+         AND created_at < (($1::date + $2::interval) AT TIME ZONE time_zone)
+         AND ($3::text[] IS NULL OR project_id = ANY($3))
+       UNION ALL
+       SELECT ${group}, kind, cost_usd, input_tokens, output_tokens, cached_tokens
+       FROM runner_archive_daily_usage
+       WHERE day >= $1::date AND day < $1::date + $2::interval
+         AND ($3::text[] IS NULL OR project_id = ANY($3))
+     ) usage
      GROUP BY 1, 2 ORDER BY 1, 2`,
     [window.start, window.period === 'day' ? '1 day' : '1 month', projectIds],
   );
@@ -67,7 +75,11 @@ export async function loadUsageMetrics(pool: pg.Pool) {
     pool.query<MetricRow>(
       `SELECT COALESCE(provider, '') AS provider, COALESCE(model, '') AS model, group_id AS "group", project_id AS project,
        SUM(cost_usd) AS cost, SUM(input_tokens) AS input, SUM(output_tokens) AS output, SUM(cached_tokens) AS cached
-       FROM usage_events GROUP BY 1,2,3,4`,
+       FROM (
+         SELECT provider, model, group_id, project_id, cost_usd, input_tokens, output_tokens, cached_tokens FROM usage_events
+         UNION ALL
+         SELECT provider, model, group_id, project_id, cost_usd, input_tokens, output_tokens, cached_tokens FROM runner_archive_daily_usage
+       ) usage GROUP BY 1,2,3,4`,
     ),
     pool.query<{ count: number }>(
       "SELECT count(*)::int AS count FROM slots WHERE release_reason = 'lease_expired'",

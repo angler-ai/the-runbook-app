@@ -6,6 +6,7 @@ export type RunView = (typeof RUN_VIEWS)[number];
 
 export interface RunSearch {
   view?: RunView;
+  step?: string;
 }
 
 /** Below this width the graph is hard to use, so a run opens on Steps. */
@@ -30,5 +31,8 @@ export function isRunView(value: unknown): value is RunView {
 export function validateRunSearch(search: Record<string, unknown>): RunSearch {
   const view = search.view;
   // `graph` stays in the URL: on a phone it is a choice, not the default.
-  return isRunView(view) ? { view } : {};
+  return {
+    ...(isRunView(view) && { view }),
+    ...(typeof search.step === 'string' && { step: search.step }),
+  };
 }

@@ -52,6 +52,9 @@ pub struct MetaView {
     /// absent when no theme variable is set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub theme: Option<ThemeView>,
+    /// Root trace sampling ratio for browser API calls (decimal from 0 to 1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_sample_ratio: Option<String>,
 }
 /// UI-1: accent colours per theme, from the server's configuration.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

@@ -1,5 +1,8 @@
+import { currentSpan, identifier } from '@runbook/runner-shared/telemetry';
 import { definitiveProviderRejection } from './stream-fetch.ts';
 import type { ReserveRequest, ReserveResponse, SettleRequest } from '@runbook/runner-shared/contracts/internal';
+import { isVisibleAsciiToken } from '@runbook/runner-shared/credential-source';
+import type { VertexBinding } from '@runbook/runner-shared/vertex-binding';
 import { HttpError } from '@runbook/runner-shared/http';
 import { estimateWorstCase, modelCost, type ModelPricing, type ModelRequest } from './pricing.ts';
 
@@ -8,6 +11,7 @@ export interface ModelProfile extends ModelPricing {
   provider: 'anthropic' | 'openai-compatible' | 'vertex' | 'vertex-gemini' | 'bedrock';
   model: string;
   endpoint: string;
+  vertexBinding?: VertexBinding;
   maxOutputTokens: number;
   maxResponseBytes?: number;
   servedPrices?: (ModelPricing & { model: string })[];
@@ -35,6 +39,16 @@ interface BoundMaterial {
   binding: Record<string, unknown>;
 }
 
+export function matchesModelMaterial(profile: ModelProfile, material: BoundMaterial): boolean {
+  const { binding, fields } = material;
+  if (binding.endpoint !== profile.endpoint || binding.provider !== profile.provider) return false;
+  if (profile.vertexBinding) {
+    return Object.entries(profile.vertexBinding).every(([name, value]) => binding[name] === value) &&
+      Object.keys(fields).length === 1 && isVisibleAsciiToken(fields.access_token);
+  }
+  return profile.provider !== 'vertex' || isVisibleAsciiToken(fields.access_token);
+}
+
 export async function generateModel(deps: ModelDependencies, input: {
   capability: string;
   profile: string;
@@ -56,15 +70,15 @@ export async function generateModel(deps: ModelDependencies, input: {
   if (request.max_tokens > profile.maxOutputTokens) {
     throw new HttpError(400, 'model.invalid', 'output token limit exceeded');
   }
+  const span = currentSpan();
+  const model = identifier(profile.model);
+  if (model) span?.setAttribute('gen_ai.request.model', model);
   const amount = estimateWorstCase(profile, request);
   if (!Number.isFinite(amount) || amount < 0) {
     throw new HttpError(503, 'model.pricing_invalid', 'model pricing unavailable');
   }
   const material = await deps.material(capability, profile.credentialId);
-  if (profile.provider === 'vertex' && !material?.fields.access_token) {
-    throw new HttpError(403, 'model.attached_identity_disabled', 'attached model identity is unavailable until the vault supports it');
-  }
-  if (!material || material.binding.endpoint !== profile.endpoint || material.binding.provider !== profile.provider) {
+  if (!material || !matchesModelMaterial(profile, material)) {
     throw new HttpError(403, 'model.material_denied', 'model credential unavailable');
   }
 
@@ -90,9 +104,15 @@ export async function generateModel(deps: ModelDependencies, input: {
   const written = result.cacheWriteTokens ?? 0;
   const usage = { input_tokens: result.inputTokens, output_tokens: result.outputTokens,
     ...(cached && { cached_tokens: cached }), ...(written && { cache_write_tokens: written }) };
+  const actualUsd = modelCost(profile, result.inputTokens, result.outputTokens, cached, written);
+  span?.setAttributes({
+    'gen_ai.usage.input_tokens': result.inputTokens,
+    'gen_ai.usage.output_tokens': result.outputTokens,
+    'runbook.model.cost_usd': actualUsd,
+  });
   await deps.settle({
     reservation_id: reservation.reservation_id,
-    actual_usd: modelCost(profile, result.inputTokens, result.outputTokens, cached, written),
+    actual_usd: actualUsd,
     usage,
   });
   return { text: deps.redact(result.text, Object.values(material.fields)), usage };

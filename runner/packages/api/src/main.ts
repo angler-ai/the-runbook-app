@@ -3,7 +3,7 @@ import { CapabilityVerifier } from '@runbook/runner-shared/capability';
 import { loadConfig, loadInstallId } from '@runbook/runner-shared/config';
 import { openPool } from '@runbook/runner-shared/db';
 import { createJsonHandler } from '@runbook/runner-shared/http';
-import { createLogger } from '@runbook/runner-shared/log';
+import { createLogger, errorFields } from '@runbook/runner-shared/log';
 import { AssertionVerifier } from './auth.ts';
 import { syncDirectory, syncGroupProjects } from './directory-sync.ts';
 import { startInstallationHeartbeat } from './installation-heartbeat.ts';
@@ -19,9 +19,14 @@ import { loadUsageMetrics } from './resources/usage.ts';
 import { workerNotifier } from './scheduler/notify.ts';
 import { coreWebhook } from './scheduler/webhook.ts';
 import { scheduler } from './scheduler/service.ts';
+import { retentionConfig } from './retention/config.ts';
+import { runRetention } from './retention/job.ts';
+import { archiveStore } from './retention/storage.ts';
 import { createApiServer } from './server.ts';
 
 export async function main(): Promise<void> {
+  const retention = retentionConfig();
+  const store = archiveStore(retention.location);
   const config = loadConfig('api');
   const installId = loadInstallId();
   const coreUrl = config.coreUrl!;
@@ -30,6 +35,7 @@ export async function main(): Promise<void> {
   const directory = { coreUrl, installId, token, orgId };
   await checkCoreContract(coreUrl);
   const db = openPool('api', config.databaseUrl!);
+  const archiveDb = retention.liveDays === null ? undefined : openPool('api', config.databaseUrl!, { max: 1 });
   const image = installationImage();
   if (image) await seedEnvironment(db, orgId, image);
   await syncGroupProjects(db, directory);
@@ -68,7 +74,7 @@ export async function main(): Promise<void> {
       .catch(() => log.error('directory sync failed'));
     return previousSync;
   };
-  const server = createApiServer(assertion, publicResources(db, config, sync, directory),
+  const server = createApiServer(assertion, publicResources(db, config, sync, directory, { store, orgId, archiveDays: retention.archiveDays }),
     config.coreWebhookSecret ? webhook : undefined, async () =>
       (await schedule.metrics()) + (await loadUsageMetrics(db)), config.metricsToken);
   const internalServer = http.createServer((req, res) => {
@@ -90,7 +96,16 @@ export async function main(): Promise<void> {
     throw error;
   }
   const sweep = () => { void schedule.sweep().catch(() => log.error('scheduler sweep failed')); };
+  let archival: Promise<void> | undefined;
+  const archive = () => {
+    if (!archiveDb) return;
+    archival ??= runRetention(archiveDb, store, orgId, retention)
+      .then((steps) => { if (steps) log.info('runner detail archived', { count: steps }); })
+      .catch((error) => log.error('runner retention failed', errorFields(error)))
+      .finally(() => { archival = undefined; });
+  };
   const timer = setInterval(() => {
+    archive();
     sweep();
     flushAlerts();
     void db.query("DELETE FROM assertion_replays WHERE expires_at < now() - interval '1 minute'")
@@ -98,6 +113,7 @@ export async function main(): Promise<void> {
     void sync();
   }, 60_000).unref();
   sweep();
+  archive();
   flushAlerts();
   void sync();
   const stopHeartbeat = workerUrl && runnerId ? startInstallationHeartbeat({
@@ -109,8 +125,8 @@ export async function main(): Promise<void> {
     function closeServer(listener: http.Server) {
       return new Promise<void>((resolve) => listener.close(() => resolve()));
     }
-    void Promise.allSettled([closeServer(server), closeServer(internalServer)])
-      .then(() => Promise.allSettled([db.end(), ledger.end()]));
+    void Promise.allSettled([closeServer(server), closeServer(internalServer), archival])
+      .then(() => Promise.allSettled([db.end(), ledger.end(), archiveDb?.end()]));
 
   };
   process.once('SIGTERM', close);

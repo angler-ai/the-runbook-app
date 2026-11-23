@@ -4,8 +4,9 @@ import { EmptyState } from '../../ui/layout';
 import { Button } from '../../ui/primitives/button';
 import { StatusPill } from '../../ui/status/StatusPill';
 import { runnerError, useRunnerMutation, useRunnerQuery, type RunnerStatus } from './api';
-import { Rows } from './presentation';
-import { FormSection, Problem, selectClasses } from './runnerForms';
+import { Input } from '../../ui/primitives/input';
+import { Field, Rows } from './presentation';
+import { FormSection, Problem, ReviewChanges, selectClasses } from './runnerForms';
 import type {
   Connection,
   PinnedTools,
@@ -15,6 +16,60 @@ import type {
   ToolDrift,
   ToolLabel,
 } from './resources';
+
+function toolWords(name: string) {
+  return name
+    .replace(/([a-z])([A-Z])/g, '$1_$2')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/);
+}
+
+const writeVerbs = new Set([
+  'write',
+  'update',
+  'create',
+  'delete',
+  'send',
+  'remove',
+  'execute',
+  'mutate',
+  'archive',
+  'insert',
+  'replace',
+  'merge',
+  'publish',
+  'set',
+  'edit',
+]);
+
+function looksReadOnly(name: string) {
+  const words = toolWords(name);
+  return (
+    ['get', 'list', 'search', 'fetch', 'read', 'describe', 'retrieve', 'lookup'].includes(
+      words[0] ?? '',
+    ) && !words.some((word) => writeVerbs.has(word))
+  );
+}
+
+function schemaSummary(before?: Tool, after?: Tool) {
+  const previous = before?.inputSchema ?? {};
+  const next = after?.inputSchema ?? {};
+  const oldFields = Object.keys(previous.properties ?? {});
+  const newFields = Object.keys(next.properties ?? {});
+  const added = newFields.filter((field) => !oldFields.includes(field));
+  const removed = oldFields.filter((field) => !newFields.includes(field));
+  return (
+    [
+      added.length ? `Added inputs: ${added.join(', ')}` : '',
+      removed.length ? `Removed inputs: ${removed.join(', ')}` : '',
+      JSON.stringify(previous.required) !== JSON.stringify(next.required)
+        ? 'Required inputs changed'
+        : '',
+    ]
+      .filter(Boolean)
+      .join(' · ') || 'Input types or constraints changed'
+  );
+}
 
 function ToolSchema({ tool }: { tool: Tool }) {
   return (
@@ -75,6 +130,9 @@ export function ConnectionTools({
   const [accessEdits, setAccessEdits] = useState<Record<string, boolean>>({});
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [review, setReview] = useState(false);
+  const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState('all');
   const tools = candidate?.tools ?? pinned?.tools ?? [];
   const diff = driftQuery.data?.changes;
   const currentTools = new Map(latest?.tools.map((tool) => [tool.name, tool]));
@@ -105,6 +163,61 @@ export function ConnectionTools({
     else blocked.add(name);
   }
   const labelFor = (name: string) => (Object.hasOwn(labels, name) ? labels[name]! : 'destructive');
+
+  const savedBlocked = new Set(connection.never_allowed);
+  const pinnedNames = new Set(pinned?.tools.map((tool) => tool.name));
+  const wasAllowed = (name: string) => pinnedNames.has(name) && !savedBlocked.has(name);
+  const savedLabel = (name: string) =>
+    Object.hasOwn(connection.tool_labels ?? {}, name)
+      ? connection.tool_labels![name]!
+      : 'destructive';
+  const higherRisk = (name: string) =>
+    labelFor(name) !== 'read' ||
+    writeVerbs.has(toolWords(name)[0] ?? '') ||
+    (pinnedNames.has(name) &&
+      (wasAllowed(name) || Object.hasOwn(connection.tool_labels ?? {}, name)) &&
+      savedLabel(name) !== 'read');
+  const readCandidates = tools.filter(
+    ({ name }) =>
+      looksReadOnly(name) &&
+      !(wasAllowed(name) && savedLabel(name) !== 'read') &&
+      (blocked.has(name) || labelFor(name) === 'read') &&
+      (!Object.hasOwn(connection.tool_labels ?? {}, name) || savedLabel(name) === 'read'),
+  );
+  const matchesName = (name: string) => name.toLowerCase().includes(search.trim().toLowerCase());
+  const matchesFilter = (name: string) => {
+    switch (filter) {
+      case 'new':
+        return diff?.added.includes(name);
+      case 'changed':
+        return changes.some((change) => change.name === name && change.kind !== 'Added');
+      case 'allowed':
+        return !blocked.has(name);
+      case 'risk':
+        return higherRisk(name);
+      default:
+        return true;
+    }
+  };
+  const visibleTools = tools.filter(({ name }) => matchesName(name) && matchesFilter(name));
+  const visibleChanges = changes.filter(({ name }) => matchesName(name) && matchesFilter(name));
+  const permissionChanges = tools.flatMap(({ name }) => {
+    const before = wasAllowed(name);
+    const after = !blocked.has(name);
+    const classification = labelFor(name);
+    return before !== after || savedLabel(name) !== classification
+      ? [
+          `${name} · ${before ? 'Allowed' : 'Blocked'} → ${after ? 'Allowed' : 'Blocked'} · ${savedLabel(name)} → ${classification}`,
+        ]
+      : [];
+  });
+  if (candidate)
+    for (const name of pinnedNames) {
+      if (!tools.some((tool) => tool.name === name))
+        permissionChanges.push(`${name} · Removed from pin`);
+    }
+  const allowedCount = tools.filter(({ name }) => !blocked.has(name)).length;
+  const pinLabel = `Pin ${allowedCount} allowed ${allowedCount === 1 ? 'tool' : 'tools'} · keep ${tools.length - allowedCount} blocked`;
 
   async function discover() {
     setError('');
@@ -139,7 +252,9 @@ export function ConnectionTools({
       setLabelEdits({});
       setAccessEdits({});
       setMessage(candidate ? 'Tool snapshot pinned.' : 'Tool access saved.');
+      setReview(false);
     } catch (problem) {
+      setReview(false);
       setError(runnerError(problem));
     }
   }
@@ -148,7 +263,7 @@ export function ConnectionTools({
     <div className="grid gap-4">
       <FormSection
         title="Tool access"
-        description="Choose how each tool is classified and whether projects can grant it to their agents."
+        description="New tools start blocked. Allow only the tools projects can grant to agents."
       >
         <div className="flex flex-wrap gap-2">
           {editable && (
@@ -168,7 +283,9 @@ export function ConnectionTools({
                 onClick={() =>
                   setLabelEdits({
                     ...labelEdits,
-                    ...Object.fromEntries(tools.map((tool) => [tool.name, 'read'] as const)),
+                    ...Object.fromEntries(
+                      readCandidates.map((tool) => [tool.name, 'read'] as const),
+                    ),
                   })
                 }
               >
@@ -182,7 +299,7 @@ export function ConnectionTools({
                     ...accessEdits,
                     ...Object.fromEntries(
                       tools
-                        .filter((tool) => labelFor(tool.name) !== 'read')
+                        .filter((tool) => higherRisk(tool.name))
                         .map((tool) => [tool.name, false]),
                     ),
                   })
@@ -193,6 +310,77 @@ export function ConnectionTools({
             </>
           )}
         </div>
+        <div className="flex flex-wrap items-end gap-3">
+          <Field label="Search tools">
+            <Input
+              type="search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </Field>
+          <Field label="Show tools">
+            <select
+              className={selectClasses}
+              value={filter}
+              onChange={(event) => setFilter(event.target.value)}
+            >
+              <option value="all">All tools</option>
+              <option value="new">New</option>
+              <option value="changed">Changed or removed</option>
+              <option value="allowed">Allowed</option>
+              <option value="risk">Higher risk</option>
+            </select>
+          </Field>
+        </div>
+        <div className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-2 border-b border-border bg-surface py-2">
+          <p role="status" className="text-xs text-fg-muted">
+            {allowedCount} allowed · {tools.length - allowedCount} blocked
+          </p>
+          {editable && !candidate && latest && latest.snapshot_id !== pinned?.snapshot_id && (
+            <Button
+              className="w-fit"
+              variant="secondary"
+              disabled={disabled}
+              onClick={() => {
+                setLabelEdits({});
+                setAccessEdits({});
+                setReviewId(latest.snapshot_id);
+              }}
+            >
+              Review discovered tools
+            </Button>
+          )}
+          {editable && candidate && (
+            <Button type="button" disabled={disabled} onClick={() => setReview(true)}>
+              <GitCompare aria-hidden /> Review and pin
+            </Button>
+          )}
+          {editable && !candidate && permissionChanges.length > 0 && (
+            <Button type="button" disabled={disabled} onClick={() => setReview(true)}>
+              Save tool access
+            </Button>
+          )}
+        </div>
+        {review && (
+          <ReviewChanges
+            title="Review tool access"
+            description="Review the tools and classifications projects will be able to grant to agents."
+            confirm={candidate ? pinLabel : 'Confirm tool access'}
+            close={() => setReview(false)}
+            onConfirm={save}
+            pending={mutation.isPending}
+          >
+            {permissionChanges.length ? (
+              <ul className="grid gap-2 text-sm break-all">
+                {permissionChanges.map((change) => (
+                  <li key={change}>{change}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm">No permission changes.</p>
+            )}
+          </ReviewChanges>
+        )}
         {pinnedQuery.error ? (
           <Problem>{runnerError(pinnedQuery.error)}</Problem>
         ) : pinnedQuery.isPending ? (
@@ -204,7 +392,7 @@ export function ConnectionTools({
             label={candidate ? 'Discovered tools' : 'Pinned tools'}
             stackOnMobile
             columns={['Tool', 'Classification', 'Access']}
-            rows={tools.map((tool) => ({
+            rows={visibleTools.map((tool) => ({
               id: tool.name,
               cells: [
                 <div className="min-w-36">
@@ -263,23 +451,15 @@ export function ConnectionTools({
             description={'Discover and review the tools this system makes available.'}
           />
         )}
-        {editable &&
-          pinned &&
-          !candidate &&
-          (Object.keys(labelEdits).length > 0 || Object.keys(accessEdits).length > 0) && (
-            <Button className="w-fit" disabled={disabled} onClick={() => void save()}>
-              Save tool access
-            </Button>
-          )}
       </FormSection>
       {driftQuery.error && <Problem>{runnerError(driftQuery.error)}</Problem>}
       {latest && latest.snapshot_id !== pinned?.snapshot_id && (
         <FormSection title="Changes since pin">
-          {changes.length === 0 ? (
-            <p className="text-sm text-fg-muted">No changes since the last pin.</p>
+          {visibleChanges.length === 0 ? (
+            <p className="text-sm text-fg-muted">No matching changes since the last pin.</p>
           ) : (
             <ul className="grid gap-2">
-              {changes.map((change) => (
+              {visibleChanges.map((change) => (
                 <li key={change.name} className="rounded-md border border-border px-3 py-2">
                   <details>
                     <summary className="cursor-pointer text-sm">
@@ -298,7 +478,16 @@ export function ConnectionTools({
                     <div className="mt-2">
                       {change.kind === 'Changed' && (
                         <p className="mb-2 text-xs text-fg-muted">
-                          {change.schema_changed ? 'Input schema changed' : 'Description changed'}
+                          {change.schema_changed ? (
+                            <>
+                              Input schema changed
+                              <span className="block">
+                                {schemaSummary(change.before, change.after)}
+                              </span>
+                            </>
+                          ) : (
+                            'Description changed'
+                          )}
                         </p>
                       )}
                       <ToolDiff
@@ -311,25 +500,6 @@ export function ConnectionTools({
               ))}
             </ul>
           )}
-          {editable &&
-            (candidate ? (
-              <Button className="w-fit" disabled={disabled} onClick={() => void save()}>
-                <GitCompare aria-hidden /> Review and pin
-              </Button>
-            ) : (
-              <Button
-                className="w-fit"
-                variant="secondary"
-                disabled={disabled}
-                onClick={() => {
-                  setLabelEdits({});
-                  setAccessEdits({});
-                  setReviewId(latest.snapshot_id);
-                }}
-              >
-                Review discovered tools
-              </Button>
-            ))}
         </FormSection>
       )}
       <Problem>{error}</Problem>

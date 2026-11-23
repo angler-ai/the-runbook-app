@@ -44,6 +44,7 @@ export function TranscriptPage() {
     allowed,
   );
   const entries = transcriptEntries(transcript.data);
+  const archiveDate = typeof transcript.data === 'object' ? transcript.data.archived_at : undefined;
   return (
     <div className="grid gap-3">
       <PageHeader title="Step transcript" description={step} />
@@ -63,6 +64,7 @@ export function TranscriptPage() {
       {transcript.isSuccess && !entries.length && (
         <p className="text-fg-muted">No transcript entries.</p>
       )}
+      {archiveDate && <p className="text-sm text-fg-muted">Archived on {archiveDate}; read-only.</p>}
       {entries.length > 0 && (
         <ol className="grid gap-2" aria-label="Transcript entries">
           {entries.map(({ seq, claim_id: lease, entry }) => (

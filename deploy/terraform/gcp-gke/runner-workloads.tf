@@ -60,6 +60,9 @@ locals {
       RUNNER_DB_ROLE_PREFIX          = try(var.runner_install.role_prefix, "")
       RUNNER_SANDBOX_IMAGE           = var.runner_sandbox_image
       RUNNER_SANDBOX_APPROVED_IMAGES = join(",", local.sandbox_images)
+      RUNNER_RETENTION_LIVE_DAYS     = var.runner_retention_live_days
+      RUNNER_RETENTION_ARCHIVE_DAYS  = var.runner_retention_archive_days
+      RUNNER_RETENTION_ARCHIVE_STORE = var.runner_enabled ? "gs://${google_storage_bucket.runner_archives[0].name}" : ""
     }
     worker = {
       RUNNER_ID            = try(var.runner_install.runner_id, "")
@@ -74,18 +77,20 @@ locals {
       RUNNER_SANDBOX_NAME_PREFIX     = var.name_prefix
       RUNNER_SANDBOX_SERVICE_ACCOUNT = local.sandbox_account_name
     }, length(var.labels) == 0 ? {} : { RUNNER_SANDBOX_LABELS = jsonencode(var.labels) })
-    vault = {
+    vault = merge({
       RUNNER_VAULT_CORE_URL = local.runner_vault_core_url
       RUNNER_DATABASE_URL   = try(local.runner_database_urls.vault, "")
       RUNNER_DB_POOL_SIZE   = tostring(local.runner_db_pool_size)
       RUNNER_DB_ROLE_PREFIX = try(var.runner_install.role_prefix, "")
       RUNNER_KEK_PROVIDER   = "gcp-kms"
       RUNNER_KEK_GCP_KEY    = local.runner_vault_key_id == null ? "" : local.runner_vault_key_id
-    }
+      }, local.runner_vertex_enabled && length(local.runner_vertex_targets) > 0 ? {
+      RUNNER_VERTEX_TARGETS = jsonencode(local.runner_vertex_targets)
+    } : {})
     gateway = {}
   }
   runner_env = { for role in keys(local.runner_services) :
-    role => merge(local.runner_common_env, local.runner_role_env[role], local.runner_core_env, {
+    role => merge(local.runner_common_env, local.runner_role_env[role], local.runner_core_env, contains(local.trace_runner_roles, role) ? local.trace_environment : local.trace_sampling_environment, {
       RUNNER_ROLE            = role
       RUNNER_SECRET_ENV_FILE = "/runbook/secrets/process.json"
       }, {
@@ -96,13 +101,14 @@ locals {
     runAsNonRoot = true, allowPrivilegeEscalation = false, readOnlyRootFilesystem = true,
     capabilities = { drop = ["ALL"] }
   }
+  runner_proxy_flags = [
+    "--private-ip", "--auto-iam-authn", "--structured-logs", "--port=5432", "--enable-builtin-metrics=false",
+    "--health-check", "--http-address=0.0.0.0",
+  ]
   runner_proxy = {
-    name  = "cloud-sql-proxy"
-    image = var.cloud_sql_proxy_image
-    args = [
-      "--private-ip", "--auto-iam-authn", "--structured-logs", "--port=5432",
-      "--health-check", "--http-address=0.0.0.0", google_sql_database_instance.postgres.connection_name
-    ]
+    name            = "cloud-sql-proxy"
+    image           = var.cloud_sql_proxy_image
+    args            = concat(local.runner_proxy_flags, [google_sql_database_instance.postgres.connection_name])
     securityContext = local.runner_security
     startupProbe = {
       httpGet = { path = "/startup", port = 9090 }, periodSeconds = 2, failureThreshold = 40
@@ -176,7 +182,10 @@ resource "kubernetes_manifest" "runner" {
     kubernetes_network_policy_v1.runner,
     kubernetes_network_policy_v1.sandboxes,
     google_secret_manager_secret_iam_member.runner,
+    google_storage_bucket_iam_member.runner_archive_api,
     google_service_account_iam_member.runner_workload_identity,
+    google_service_account_iam_member.runner_vertex_minter,
+    google_project_iam_member.runner_vertex,
   ]
   manifest = {
     apiVersion = "apps/v1"
@@ -192,7 +201,7 @@ resource "kubernetes_manifest" "runner" {
           labels      = merge(var.labels, { "runbook.dev/process" = each.key })
           annotations = { "runbook.dev/secret-version" = var.runner_secret_versions[each.key] }
         }
-        spec = {
+        spec = merge({
           serviceAccountName           = kubernetes_service_account_v1.runner[each.key].metadata[0].name
           automountServiceAccountToken = each.key == "sandbox-ctl"
           enableServiceLinks           = false
@@ -225,7 +234,7 @@ resource "kubernetes_manifest" "runner" {
               }
             } }
           ]
-        }
+        }, local.runner_google_api_host_aliases)
       }
     }
   }

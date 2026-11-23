@@ -2,7 +2,7 @@
 // routes"). Every call carries `Authorization: Bearer <process token>` (one
 // random token per calling process and callee, from the install's generated
 // env) on an internal network.
-import type { components } from '../core-client.ts';
+import type { components } from '../generated/core-openapi.ts';
 import type { Delivery, Label } from './core.ts';
 
 export type RunnerProcess = 'api' | 'worker' | 'sandbox-ctl' | 'vault' | 'gateway';
@@ -19,6 +19,7 @@ export const INTERNAL_ROUTES: readonly InternalRoute[] = [
   { process: 'worker', method: 'POST', path: '/internal/wake', callers: ['api'] },
   { process: 'vault', method: 'POST', path: '/internal/seal/{credential_id}/{field}', callers: ['api'] },
   { process: 'vault', method: 'GET', path: '/internal/ingest-key', callers: ['api'] },
+  { process: 'vault', method: 'POST', path: '/internal/vertex/validate', callers: ['api'] },
   { process: 'vault', method: 'POST', path: '/internal/capability', callers: ['worker', 'sandbox-ctl'] },
   { process: 'vault', method: 'POST', path: '/internal/release', callers: ['worker'] },
   { process: 'vault', method: 'POST', path: '/internal/end-claim', callers: ['worker'] },

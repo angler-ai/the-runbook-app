@@ -106,6 +106,7 @@ pub struct ActorWork<S: SessionStore> {
     /// R0-4: the agent version a runner's claim pins (set by
     /// `grants::runner_claim` only).
     pub(crate) runner_pin: Option<String>,
+    pub(crate) runner_trace: Option<String>,
 }
 
 /// Read the immutable runbook before the execution session (D28), then read the directory
@@ -215,6 +216,7 @@ fn rebuild<S: SessionStore>(
         record,
         memory: vec![],
         runner_pin: None,
+        runner_trace: None,
     })
 }
 

@@ -1,16 +1,13 @@
-import {
-  Activity,
-  CheckCircle2,
-  Circle,
-  Coins,
-  Layers3,
-  Server,
-  TriangleAlert,
-} from 'lucide-react';
+import { CheckCircle2, Circle, Coins, Layers3, Server, TriangleAlert } from 'lucide-react';
 import { StatusPill } from '../../ui/status/StatusPill';
-import type { BudgetOverview, Connection } from './resources';
+import type { AgentToolCall, BudgetOverview, Connection, Share, ToolConnection } from './resources';
 import type { Credential } from './Credentials';
-import { textLink } from './runnerForms';
+import { useState } from 'react';
+import { useLocation, useNavigate } from '@tanstack/react-router';
+import type { Agent } from '../agents/AgentConfiguration';
+import type { ActivityData } from '../agents/AgentActivity';
+import { sharedWith } from './resources';
+import { selectClasses, textLink } from './runnerForms';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, type Schemas } from '../../api/client';
 import { Button } from '../../ui/primitives/button';
@@ -32,14 +29,20 @@ export function Checklist({
   hasProject,
   project,
   hasAgent,
-  hasStep,
+  hasTool,
+  runId,
+  connectionLink,
+  projectControl,
 }: {
   online: boolean;
   profiles?: readonly { verified_at?: string | null }[];
   hasProject: boolean;
   project?: string;
   hasAgent?: boolean;
-  hasStep?: boolean;
+  hasTool?: boolean;
+  runId?: string;
+  connectionLink?: string;
+  projectControl?: React.ReactNode;
 }) {
   const projectUrl = project ? `/p/${project}` : undefined;
   const items = [
@@ -56,11 +59,21 @@ export function Checklist({
       href: projectUrl ? `${projectUrl}/agents` : `${docs}/agents/`,
     },
     {
-      done: hasStep,
+      done: hasTool,
+      label: 'An agent can use a shared tool',
+      href: connectionLink ?? '/runner/connections',
+    },
+    {
+      done: Boolean(runId),
       label: 'A first step ran',
-      href: projectUrl ? `${projectUrl}/runbooks` : `${docs}/agents/#target-an-agent`,
+      href: runId
+        ? `/x/${runId}`
+        : projectUrl
+          ? `${projectUrl}/runbooks`
+          : `${docs}/agents/#target-an-agent`,
     },
   ];
+  const next = items.find((item) => !item.done);
   return (
     <section className={panel}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -69,20 +82,27 @@ export function Checklist({
           {items.filter((item) => item.done).length} of {items.length} complete
         </span>
       </div>
+      {projectControl}
       <ul className="grid divide-y divide-border text-sm">
-        {items.map(({ done, label, href }) => (
-          <li key={label} className="flex items-center gap-3 py-2">
-            {done ? (
-              <CheckCircle2 className="size-4 text-success" aria-label="Done" />
-            ) : (
-              <Circle className="size-4 text-fg-muted" aria-label="To do" />
-            )}
-            <span className="sr-only">{done ? 'Done' : 'To do'}</span>
-            <a className="text-accent underline" href={href}>
-              {label}
-            </a>
-          </li>
-        ))}
+        {[...items]
+          .sort((a, b) => Number(b === next) - Number(a === next))
+          .map(({ done, label, href }) => (
+            <li
+              key={label}
+              className={`flex items-center gap-3 py-2 ${label === next?.label ? 'font-medium' : ''}`}
+            >
+              {done ? (
+                <CheckCircle2 className="size-4 text-success" aria-label="Done" />
+              ) : (
+                <Circle className="size-4 text-fg-muted" aria-label="To do" />
+              )}
+              <span className="sr-only">{done ? 'Done' : 'To do'}</span>
+              <a className="text-accent underline" href={href}>
+                {label}
+              </a>
+              {label === next?.label && <span className="text-xs text-fg-muted">Next</span>}
+            </li>
+          ))}
       </ul>
     </section>
   );
@@ -93,13 +113,22 @@ export function Overview({
   org,
   projects,
   editable,
+  setupProject,
+  setupAgent,
+  setupConnection,
 }: {
   status: RunnerStatus;
   org: string;
   projects: Schemas['ProjectView'][];
   editable: boolean;
+  setupProject?: string;
+  setupAgent?: string;
+  setupConnection?: string;
 }) {
   const client = useQueryClient();
+  const navigate = useNavigate();
+  const hash = useLocation({ select: (location) => location.hash });
+  const [diagnostics, setDiagnostics] = useState(hash === 'runner-heartbeat');
   const policy = useRunnerQuery<Row>(status, '/policy');
   const budgets = useRunnerQuery<BudgetOverview>(status, '/budgets');
   const credentials = useRunnerQuery<Items<Credential>>(status, '/credentials');
@@ -140,15 +169,87 @@ export function Overview({
     status,
     '/usage?level=org&period=day',
   );
-  const profiles = useRunnerQuery<Items<{ verified_at?: string | null }>>(status, '/profiles');
-  const firstProject = projects.find(({ id }) =>
+  const profiles = useRunnerQuery<Items<{ verified_at?: string | null; sharing?: Share }>>(
+    status,
+    '/profiles',
+  );
+  const allowedProjects = projects.filter(({ id }) =>
     status.groups.some((group) => group.projects.includes(id)),
   );
-  const agents = useRunnerQuery<Items<{ id: string }>>(
+  const project = allowedProjects.find(({ id }) => id === setupProject) ?? allowedProjects[0];
+  const agents = useRunnerQuery<Items<Agent>>(
     status,
-    `/projects/${firstProject?.id ?? '-'}/agents`,
-    Boolean(firstProject),
+    `/projects/${project?.id ?? '-'}/agents`,
+    Boolean(project),
   );
+  const shared =
+    connections.data?.items.filter(
+      (connection) =>
+        project &&
+        sharedWith(connection.sharing, project.id) &&
+        (!setupConnection || connection.id === setupConnection),
+    ) ?? [];
+  const availableTools = useRunnerQuery<Items<ToolConnection>>(
+    status,
+    `/projects/${project?.id ?? '-'}/mcp-tools`,
+    Boolean(project),
+  );
+  const hasTool = (agent: Agent) =>
+    agent.config?.mcp?.some(({ server_id, tool }) =>
+      shared.some(
+        (connection) =>
+          connection.id === server_id &&
+          connection.pinned_snapshot_id &&
+          availableTools.data?.items.some(
+            (available) =>
+              available.id === server_id && available.tools.some(({ name }) => name === tool),
+          ) &&
+          (!connection.credential_id ||
+            (agent.config?.credentials?.some(
+              (binding) =>
+                binding.credential_id === connection.credential_id && binding.delivery === 'mcp',
+            ) &&
+              credentials.data?.items.some(
+                (credential) =>
+                  credential.id === connection.credential_id &&
+                  credential.status === 'active' &&
+                  project &&
+                  sharedWith(credential.sharing, project.id),
+              ))),
+      ),
+    );
+  const projectAgents = agents.data?.items.filter(({ status }) => status !== 'archived') ?? [];
+  const agent = setupAgent
+    ? projectAgents.find(({ id }) => id === setupAgent)
+    : (projectAgents.find(hasTool) ?? projectAgents[0]);
+  const activity = useRunnerQuery<ActivityData>(
+    status,
+    `/projects/${project?.id ?? '-'}/agents/${agent?.id ?? '-'}/activity`,
+    Boolean(project && agent),
+  );
+  const calls = useRunnerQuery<Items<AgentToolCall>>(
+    status,
+    `/projects/${project?.id ?? '-'}/agents/${agent?.id ?? '-'}/tool-calls`,
+    Boolean(project && agent && setupConnection),
+  );
+  const runId = activity.data?.recent?.find(
+    (step) =>
+      step.status === 'succeeded' &&
+      step.execution_id &&
+      (!setupConnection ||
+        calls.data?.items.some(
+          (call) =>
+            !call.error &&
+            call.step_run_id === step.step_run_id &&
+            call.server_id === setupConnection &&
+            agent?.config?.mcp?.some(
+              ({ server_id, tool }) => server_id === setupConnection && call.tool === tool,
+            ),
+        )),
+  )?.execution_id;
+  const proposals = useRunnerQuery<Items<{ status: string }>>(status, '/proposals');
+  const pending =
+    proposals.data?.items.filter((proposal) => proposal.status === 'open').length ?? 0;
   const assignment = useMutation({
     mutationFn: async ({ group, projectIds }: { group: string; projectIds: string[] }) => {
       const install = status.install_id;
@@ -205,6 +306,47 @@ export function Overview({
               .join(' · ') || 'Version unavailable'}
           </p>
         </section>
+        <div className="sm:order-last sm:col-span-3">
+          <Checklist
+            online={status.status === 'online'}
+            profiles={profiles.data?.items.filter(
+              (profile) => !project || sharedWith(profile.sharing, project.id),
+            )}
+            hasProject={Boolean(project)}
+            project={project?.slug}
+            hasAgent={Boolean(agent)}
+            hasTool={Boolean(agent && hasTool(agent))}
+            runId={runId}
+            connectionLink={
+              setupConnection && project && agent
+                ? `/p/${project.slug}/agents/${agent.id}?tab=configuration&connection=${encodeURIComponent(setupConnection)}`
+                : undefined
+            }
+            projectControl={
+              allowedProjects.length > 1 && (
+                <label className="mb-3 grid max-w-xs gap-1 text-sm">
+                  Setup project
+                  <select
+                    className={selectClasses}
+                    value={project?.id ?? ''}
+                    onChange={(event) => {
+                      void navigate({
+                        to: '/runner/overview',
+                        search: { project: event.target.value },
+                      });
+                    }}
+                  >
+                    {allowedProjects.map(({ id, title }) => (
+                      <option key={id} value={id}>
+                        {title}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )
+            }
+          />
+        </div>
         <section className={panel}>
           <h2 className="flex items-center gap-2 text-sm text-fg-muted">
             <Coins className="size-4" aria-hidden /> Today’s spend
@@ -230,6 +372,14 @@ export function Overview({
           </p>
         </section>
       </div>
+      {pending > 0 && (
+        <section className={panel}>
+          <h2 className="font-semibold">Pending review</h2>
+          <a className={textLink + ' text-sm'} href="/runner/proposals">
+            Review {pending} pending {pending === 1 ? 'proposal' : 'proposals'}
+          </a>
+        </section>
+      )}
       {warnings.length > 0 && (
         <section className={panel}>
           <h2 className="flex items-center gap-2 font-semibold">
@@ -247,39 +397,27 @@ export function Overview({
           </ul>
         </section>
       )}
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]">
-        <div className="grid min-w-0 gap-4">
-          <section className={panel}>
-            <h2 className="flex items-center gap-2 font-semibold">
-              <Activity className="size-4 text-fg-muted" aria-hidden /> Control plane
-            </h2>
-            {status.last_heartbeat_at && (
-              <p className="mt-2 text-sm text-fg-muted">
-                Last heartbeat {new Date(status.last_heartbeat_at).toLocaleString()}
-              </p>
-            )}
-            <VaultIdentityFingerprint publicKey={status.vault_identity_key} />
-          </section>
-          <section className={panel}>
-            <h2 className="font-semibold">Efficiency</h2>
-            <p className="mt-1 text-sm text-fg-muted">
-              Sandboxes busy{' '}
-              {busy != null && idle != null && busy + idle > 0
-                ? `${Math.round((100 * busy) / (busy + idle))}%`
-                : '—'}{' '}
-              · Idle stops {sum('idle_stops') ?? '—'}
-            </p>
-          </section>
-        </div>
-        <Checklist
-          online={status.status === 'online'}
-          profiles={profiles.data?.items}
-          hasProject={Boolean(firstProject)}
-          project={firstProject?.slug}
-          hasAgent={Boolean(agents.data?.items.length)}
-          hasStep={Boolean(usage.data?.items.length)}
-        />
-      </div>
+      <details
+        id="runner-heartbeat"
+        className={panel}
+        open={diagnostics}
+        onToggle={(event) => setDiagnostics(event.currentTarget.open)}
+      >
+        <summary className="cursor-pointer font-semibold">Runner diagnostics</summary>
+        {status.last_heartbeat_at && (
+          <p className="mt-2 text-sm text-fg-muted">
+            Last heartbeat {new Date(status.last_heartbeat_at).toLocaleString()}
+          </p>
+        )}
+        <VaultIdentityFingerprint publicKey={status.vault_identity_key} />
+        <p className="mt-3 text-sm text-fg-muted">
+          Sandboxes busy{' '}
+          {busy != null && idle != null && busy + idle > 0
+            ? `${Math.round((100 * busy) / (busy + idle))}%`
+            : '—'}{' '}
+          · Idle stops {sum('idle_stops') ?? '—'}
+        </p>
+      </details>
       <section id="runner-projects" className={panel}>
         <h2 className="font-semibold">Allowed projects</h2>
         {status.groups.map((group) => (

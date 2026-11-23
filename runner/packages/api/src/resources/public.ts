@@ -11,7 +11,8 @@ import { catalogPresets, catalogResources, isCatalog } from './catalog.ts';
 import { projectToolConnections } from './catalog-tools.ts';
 import { proposalResources } from './proposals.ts';
 import { agentAudit, exportAudit } from './audit.ts';
-import { readTranscript } from './transcripts.ts';
+import { transcriptPage } from './transcripts.ts';
+import type { ArchiveReader } from '../retention/read.ts';
 import { budgetsOverview } from '../ledger/overview.ts';
 import { environmentResources } from './environments.ts';
 import { readUsage, usageWindow } from './usage.ts';
@@ -20,8 +21,8 @@ function denied(): never {
   throw new HttpError(403, 'auth.denied', 'runner resource unavailable');
 }
 
-export function publicResources(pool: pg.Pool, config: Config, sync: () => Promise<void>, directory?: SkillDirectory) {
-  const agents = agentResources(pool, sync, directory);
+export function publicResources(pool: pg.Pool, config: Config, sync: () => Promise<void>, directory?: SkillDirectory, archives?: ArchiveReader) {
+  const agents = agentResources(pool, sync, directory, archives);
   const environments = environmentResources(pool);
   const catalog = catalogResources(pool, config, sync);
   const credentials = credentialResources(pool, config, sync);
@@ -88,7 +89,7 @@ export function publicResources(pool: pg.Pool, config: Config, sync: () => Promi
     if (method === 'GET' && route.path === '/runner/v1/transcripts/{step_run_id}') {
       const cursor = Number(url.searchParams.get('after') ?? '0');
       if (!Number.isSafeInteger(cursor) || cursor < 0) throw new HttpError(400, 'transcript.invalid_cursor', 'invalid transcript cursor');
-      return { body: { items: await readTranscript(pool, claims, segments[4] ?? '', cursor, url.searchParams.get('claim_id') ?? undefined) } };
+      return { body: await transcriptPage(pool, claims, segments[4] ?? '', cursor, url.searchParams.get('claim_id') ?? undefined, archives) };
     }
     if (method === 'GET' && route.path === '/runner/v1/projects/{project_id}/agents/{agent_id}/audit') {
       const projectId = segments[4] ?? '';

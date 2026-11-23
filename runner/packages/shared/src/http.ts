@@ -7,6 +7,7 @@ import http from 'node:http';
 import { once } from 'node:events';
 import { DECISION_CONTRACT, DECISION_CONTRACT_HEADER } from './contracts/core.ts';
 import type { RunnerProcess } from './contracts/internal.ts';
+import { quietRequest, setLabels, tracedServer } from './telemetry.ts';
 import { errorFields, type Logger } from './log.ts';
 
 export class HttpError extends Error {
@@ -104,7 +105,7 @@ export function createJsonServer(options: ServerOptions): http.Server {
 
 export function createJsonHandler(options: ServerOptions): http.RequestListener {
   const limit = options.maxBodyBytes ?? 256 * 1024;
-  return async (req, res) => {
+  return tracedServer(async (req, res) => {
     const started = Date.now();
     const url = new URL(req.url ?? '/', 'http://internal');
     if (options.decisionSupport && req.method === 'GET' && req.url === '/health/decision') {
@@ -115,6 +116,12 @@ export function createJsonHandler(options: ServerOptions): http.RequestListener 
     const requestAbort = new AbortController();
     res.once('close', () => { if (!res.writableFinished) requestAbort.abort(); });
     let matchedPath = '[unmatched]';
+    const logResponse = (status: number) => {
+      const method = req.method && http.METHODS.includes(req.method) ? req.method : 'OTHER';
+      const fields = { method, path: matchedPath, status };
+      if (status >= 400) options.log.warn('request', fields);
+      else if (!quietRequest(url.pathname)) options.log.debug('request', { ...fields, ms: Date.now() - started });
+    };
     const send = (status: number, body: unknown, headers?: Record<string, string>) => {
       if (res.destroyed) return;
       const text = body === undefined ? '' : JSON.stringify(body);
@@ -125,7 +132,7 @@ export function createJsonHandler(options: ServerOptions): http.RequestListener 
         ...headers,
       });
       res.end(text);
-      options.log.info('request', { method: req.method, path: matchedPath, status, ms: Date.now() - started });
+      logResponse(status);
     };
     try {
       let params: Record<string, string> | undefined;
@@ -143,6 +150,7 @@ export function createJsonHandler(options: ServerOptions): http.RequestListener 
       if (!caller) throw new HttpError(401, 'auth.invalid_token', 'missing or invalid process token');
       if (!route.callers.includes(caller)) throw new HttpError(403, 'auth.wrong_caller', 'this process may not call this route');
       const { body, rawBody } = await readBody(req, route.maxBodyBytes ?? limit);
+      if (params.step_run_id) setLabels({ step_run: params.step_run_id });
       const result = await route.handle({ caller, params, body, rawBody, runnerId, request: { method: req.method ?? 'GET', headers: req.headers, signal: requestAbort.signal } });
       if (result.body instanceof ReadableStream) {
         const reader = result.body.getReader();
@@ -151,6 +159,7 @@ export function createJsonHandler(options: ServerOptions): http.RequestListener 
         try {
           requestAbort.signal.throwIfAborted();
           res.writeHead(result.status ?? 200, { 'cache-control': 'no-store', ...result.headers });
+          logResponse(res.statusCode);
           res.flushHeaders();
           while (true) {
             const part = await reader.read();
@@ -172,9 +181,9 @@ export function createJsonHandler(options: ServerOptions): http.RequestListener 
       if (mapped) {
         send(mapped.status, { error: { code: mapped.code, message: mapped.message } });
       } else {
-        options.log.error('request failed', { method: req.method, path: matchedPath, ...errorFields(error) });
+        options.log.error('request failed', { path: matchedPath, ...errorFields(error) });
         send(500, { error: { code: 'internal', message: 'internal error' } });
       }
     }
-  };
+  });
 }

@@ -177,7 +177,7 @@ test('sandbox policy permits only the authenticated gateway listener range', asy
 test('enabling the runner asserts existing cluster capabilities and denies unlabeled pods by default', async () => {
   const { readFileSync } = await import('node:fs');
   const setup = readFileSync(`${tfDir}/runner-setup.tf`, 'utf8');
-  for (const check of [/precondition/, /enable_autopilot/, /ADVANCED_DATAPATH/, /runner_supports_end_port/, /gvisor/]) {
+  for (const check of [/precondition/, /enable_autopilot/, /ADVANCED_DATAPATH/, /secret_manager_config\[0\]\.enabled/, /runner_supports_end_port/, /gvisor/]) {
     assert.match(setup, check);
   }
   assert.match(readFileSync(`${tfDir}/runner-network.tf`, 'utf8'),
@@ -356,6 +356,27 @@ run "runner" {
     assert.equal(cluster.deletion_protection, null);
     cluster.deletion_protection = true;
     const actual = argumentsByAddress(after[index]);
+    // Trace sampling (default 0.1, export off) now reaches the core and runner.
+    Object.assign(expected['kubernetes_config_map.runbook_config'].data, {
+      RUNBOOK_LOG_LEVEL: 'info', RUNBOOK_TRACE_SAMPLE_RATIO: '0.1',
+    });
+    for (const role of index === 1 ? ['api', 'vault', 'worker', 'sandbox-ctl', 'gateway'] : []) {
+      const roleEnv = expected[`kubernetes_manifest.runner["${role}"]`].manifest.spec.template.spec.containers[0].env;
+      // Plain values come first, sorted by name; valueFrom entries follow.
+      for (const entry of [{ name: 'RUNBOOK_LOG_LEVEL', value: 'info' }, { name: 'RUNBOOK_TRACE_SAMPLE_RATIO', value: '0.1' }]) {
+        const at = roleEnv.findIndex((item) => item.value === undefined || item.name > entry.name);
+        roleEnv.splice(at < 0 ? roleEnv.length : at, 0, entry);
+      }
+    }
+    // The runner's SQL proxy no longer exports built-in metrics.
+    for (const [address, resource] of Object.entries(expected)) {
+      if (!/^kubernetes_manifest\.runner(_database_migration)?\[/.test(address)) continue;
+      const pod = resource.manifest.spec.template.spec;
+      for (const container of [...(pod.initContainers ?? []), ...pod.containers]) {
+        if (container.name !== 'cloud-sql-proxy') continue;
+        container.args.splice(container.args.indexOf('--port=5432') + 1, 0, '--enable-builtin-metrics=false');
+      }
+    }
     if (index === 1) {
       const priorResource = expected['kubernetes_manifest.runner_database_migration[0]'];
       priorResource.computed_fields = ['metadata.annotations', 'metadata.labels', 'spec.template.metadata.labels'];
@@ -367,7 +388,7 @@ run "runner" {
         { name: 'RUNNER_DB_CORE_NAME', value: 'runbook' },
         { name: 'RUNNER_DB_NAME', value: 'runbook_runner' });
       priorJob.spec.template.spec.containers[0].env.push(
-        { name: 'RUNNER_DB_CONNECTION_LIMITS', value: '{"api":9,"bootstrap":2,"vault":5}' },
+        { name: 'RUNNER_DB_CONNECTION_LIMITS', value: '{"api":10,"bootstrap":2,"vault":5}' },
         { name: 'RUNNER_DB_CORE_CONNECTIONS', value: '24' },
         { name: 'RUNNER_INSTALL_GROUP_ID', value: 'fixture' },
         { name: 'RUNNER_INSTALL_RUNNER_ID', value: 'fixture' },
@@ -375,6 +396,9 @@ run "runner" {
       const apiEnv = expected['kubernetes_manifest.runner["api"]'].manifest.spec.template.spec.containers[0].env;
       apiEnv.push(
         { name: 'RUNNER_DB_POOL_SIZE', value: '4' },
+        { name: 'RUNNER_RETENTION_LIVE_DAYS', value: '30' },
+        { name: 'RUNNER_RETENTION_ARCHIVE_DAYS', value: 'off' },
+        { name: 'RUNNER_RETENTION_ARCHIVE_STORE', value: 'gs://runbook-plan-fixture-rb-archives' },
         { name: 'RUNNER_SANDBOX_IMAGE', value: `ghcr.io/angler-ai/runbook-sandbox@sha256:${'c'.repeat(64)}` },
         { name: 'RUNNER_SANDBOX_APPROVED_IMAGES', value: `ghcr.io/angler-ai/runbook-sandbox@sha256:${'c'.repeat(64)}` },
         { name: 'RUNNER_GKE_WORKER_URL', value: 'http://runner-worker.runbook-runner.svc.cluster.local:8094' },
@@ -383,6 +407,9 @@ run "runner" {
       const vaultEnv = expected['kubernetes_manifest.runner["vault"]'].manifest.spec.template.spec.containers[0].env;
       vaultEnv.push({ name: 'RUNNER_DB_POOL_SIZE', value: '4' });
       vaultEnv.sort((a, b) => a.name < b.name ? -1 : Number(a.name > b.name));
+      assert.deepEqual(actual['google_storage_bucket.runner_archives[0]'].lifecycle_rule, []);
+      delete actual['google_storage_bucket.runner_archives[0]'];
+      delete actual['google_storage_bucket_iam_member.runner_archive_api[0]'];
       const approval = actual['kubernetes_config_map_v1.sandbox_images[0]'];
       assert.deepEqual(Object.values(approval.data), [`ghcr.io/angler-ai/runbook-sandbox@sha256:${'c'.repeat(64)}`]);
       assert.equal(approval.metadata[0].namespace, 'runbook-sandboxes');
@@ -435,6 +462,10 @@ run "temporary" {
     runner_sandbox_image = "us-central1-docker.pkg.dev/runbook-plan-fixture/runbook-test-images/runbook-test-runbook-sandbox@sha256:${'c'.repeat(64)}"
     runner_sandbox_images = ["ghcr.io/example/sandbox@sha256:${'d'.repeat(64)}"]
     runner_registry_https_cidrs = ["192.0.2.1/32"]
+    runner_retention_archive_days = "90"
+    retention_live_days = "30"
+    trace_export_enabled = true
+    trace_sample_ratio = 0.1
   }
 }
 `);
@@ -468,6 +499,49 @@ run "temporary" {
   ]));
   assert.equal(resources['kubernetes_manifest.sandbox_policy_binding[0]'].manifest.spec.paramRef.name, 'runbook-test-sandbox-images');
   assert.deepEqual(new Set(env('kubernetes_manifest.runner["api"]').RUNNER_SANDBOX_APPROVED_IMAGES.split(',')), new Set(approved));
+  const archive = resources['google_storage_bucket.runner_archives[0]'];
+  assert.equal(archive.uniform_bucket_level_access, true);
+  assert.equal(archive.public_access_prevention, 'enforced');
+  assert.equal(archive.versioning[0].enabled, false);
+  assert.equal(archive.soft_delete_policy[0].retention_duration_seconds, 0);
+  assert.equal(archive.lifecycle_rule.length, 1);
+  assert.equal(archive.lifecycle_rule[0].action[0].type, 'Delete');
+  assert.equal(archive.lifecycle_rule[0].condition[0].age, 90);
+  const archiveGrants = Object.entries(resources).filter(([, resource]) => resource.bucket === archive.name);
+  assert.deepEqual(archiveGrants.map(([address]) => address), ['google_storage_bucket_iam_member.runner_archive_api[0]']);
+  assert.equal(archiveGrants[0][1].role, 'roles/storage.objectUser');
+  const archiveAccount = resources['google_service_account.runner["api"]'];
+  assert.equal(archiveGrants[0][1].member,
+    `serviceAccount:${archiveAccount.account_id}@${archiveAccount.project}.iam.gserviceaccount.com`);
+  const api = env('kubernetes_manifest.runner["api"]');
+  assert.equal(api.RUNNER_RETENTION_LIVE_DAYS, '30');
+  assert.equal(api.RUNNER_RETENTION_ARCHIVE_DAYS, '90');
+  assert.equal(api.RUNNER_RETENTION_ARCHIVE_STORE, `gs://${archive.name}`);
+  for (const role of ['vault', 'worker', 'sandbox-ctl', 'gateway']) {
+    assert.ok(Object.keys(env(`kubernetes_manifest.runner["${role}"]`)).every((key) => !key.startsWith('RUNNER_RETENTION_')));
+  }
+  assert.equal(resources['kubernetes_config_map.runbook_config'].data.RUNBOOK_RETENTION_LIVE_DAYS, '30');
+  // Trace sampling and export reach the core and every runner process.
+  const core = resources['kubernetes_config_map.runbook_config'].data;
+  assert.ok(core.GOOGLE_CLOUD_PROJECT);
+  for (const settings of [core, ...['api', 'vault', 'worker', 'sandbox-ctl']
+    .map((role) => env(`kubernetes_manifest.runner["${role}"]`))]) {
+    assert.equal(settings.RUNBOOK_TRACE_SAMPLE_RATIO, '0.1');
+    assert.equal(settings.GOOGLE_CLOUD_PROJECT, core.GOOGLE_CLOUD_PROJECT);
+    assert.match(settings.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT, /^https:\/\/telemetry\.googleapis\.com/);
+  }
+  // The gateway handles untrusted sandbox traffic: it samples and propagates,
+  // but holds no Google identity, export endpoint or metadata-server route.
+  const gatewayEnv = env('kubernetes_manifest.runner["gateway"]');
+  assert.equal(gatewayEnv.RUNBOOK_TRACE_SAMPLE_RATIO, '0.1');
+  assert.equal(gatewayEnv.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT, undefined);
+  assert.equal(gatewayEnv.GOOGLE_CLOUD_PROJECT, undefined);
+  assert.equal(resources['google_project_iam_member.runner_trace["gateway"]'], undefined);
+  for (const [address, resource] of Object.entries(resources)) {
+    if (address.startsWith('google_project_iam_member.runner_trace[')) assert.equal(resource.role, 'roles/cloudtrace.agent', address);
+  }
+  const traceEgress = resources['kubernetes_network_policy_v1.runner_trace_egress[0]'].spec[0];
+  assert.deepEqual(traceEgress.pod_selector[0].match_expressions[0].values, ['sandbox-ctl', 'worker']);
   const registryNetwork = resources['kubernetes_network_policy_v1.runner_registry_resolution[0]'].spec[0];
   assert.deepEqual(registryNetwork.pod_selector[0].match_labels, { 'runbook.dev/process': 'api' });
   assert.deepEqual(registryNetwork.egress[0].to[0].ip_block[0].cidr, '192.0.2.1/32');
@@ -480,7 +554,7 @@ run "temporary" {
   assert.equal(migrationEnv.RUNNER_DB_CORE_NAME, 'runbook-test-runbook');
   assert.equal(migrationEnv.RUNNER_DB_NAME, 'runbook-test-runbook_runner');
   assert.equal(migrationEnv.RUNNER_DB_CORE_CONNECTIONS, '16');
-  assert.deepEqual(JSON.parse(migrationEnv.RUNNER_DB_CONNECTION_LIMITS), { api: 2, vault: 1, bootstrap: 2 });
+  assert.deepEqual(JSON.parse(migrationEnv.RUNNER_DB_CONNECTION_LIMITS), { api: 3, vault: 1, bootstrap: 2 });
   assert.equal(env('kubernetes_manifest.runner["api"]').RUNNER_DB_POOL_SIZE, '1');
   assert.equal(env('kubernetes_manifest.runner["vault"]').RUNNER_DB_POOL_SIZE, '1');
   const sql = resources['google_sql_database_instance.postgres'].settings[0];
@@ -523,4 +597,144 @@ run "unsafe_iam" {
   expect_failures = [terraform_data.runner_setup]
 }
 `);
+});
+
+test('opt-in Vertex access grants prediction to a dedicated identity in each allowed project', (t) => {
+  const terraform = findTerraform();
+  if (!terraform) return t.skip('terraform binary not found');
+
+  const runs = ['false', 'true'].map((enabled) => `
+run "vertex_${enabled}" {
+  command = plan
+  variables {
+    runner_enabled = true
+    runner_vault_vertex_enabled = ${enabled}
+    runner_vertex_targets = { runbook-plan-fixture = ["global"], other-model-project = ["us-east5"] }
+    database_auth = "iam"
+    ${enrolledRunnerInputs}
+  }
+}
+`).join('\n');
+  const [disabled, enabled] = planFixture(t, terraform, runs);
+  const resources = Object.fromEntries(enabled.resource_changes.map(({ address, change }) => [address, change.after]));
+  assert.equal(disabled.resource_changes.some(({ address }) => address.startsWith('google_service_account.runner_vertex')), false);
+  assert.equal(Object.values(resources).some((resource) => resource?.role === 'roles/aiplatform.user'), false);
+  assert.equal(resources['google_service_account.runner_vertex[0]'].account_id, 'runbook-vertex');
+  for (const project of ['runbook-plan-fixture', 'other-model-project']) {
+    assert.deepEqual(resources[`google_project_iam_custom_role.runner_vertex["${project}"]`].permissions, ['aiplatform.endpoints.predict']);
+    assert.equal(resources[`google_project_iam_member.runner_vertex["${project}"]`].project, project);
+  }
+  assert.equal(resources['google_service_account_iam_member.runner_vertex_minter[0]'].role, 'roles/iam.serviceAccountTokenCreator');
+  const iam = readFileSync(join(tfDir, 'runner.tf'), 'utf8');
+  const minter = iam.split('resource "google_service_account_iam_member" "runner_vertex_minter"')[1]
+    .split('resource "google_project_iam_custom_role"')[0];
+  assert.match(minter, /service_account_id\s*=\s*google_service_account\.runner_vertex\[0\]\.name/);
+  assert.match(minter, /member\s*=\s*"serviceAccount:\$\{google_service_account\.runner\["vault"\]\.email\}"/);
+  assert.match(iam, /resource "google_project_iam_member" "runner_vertex" \{[^}]+member\s*=\s*"serviceAccount:\$\{google_service_account\.runner_vertex\[0\]\.email\}"/);
+  assert.match(readFileSync(join(tfDir, 'runner-workloads.tf'), 'utf8'), /RUNNER_VERTEX_TARGETS\s*=\s*jsonencode\(local\.runner_vertex_targets\)/);
+  const vip = resources['google_dns_record_set.runner_googleapis_vip[0]'];
+  assert.equal(vip.name, 'restricted.googleapis.com.');
+  assert.deepEqual(vip.rrdatas, ['199.36.153.4', '199.36.153.5', '199.36.153.6', '199.36.153.7']);
+  const alias = resources['google_dns_record_set.runner_googleapis_alias[0]'];
+  assert.equal(alias.name, '*.googleapis.com.');
+  assert.deepEqual(alias.rrdatas, [vip.name]);
+  assert.equal(resources['google_dns_managed_zone.runner_googleapis[0]'].visibility, 'private');
+  const network = readFileSync(join(tfDir, 'runner-network.tf'), 'utf8');
+  assert.match(network, /"199\.36\.153\.4\/30"\s*=\s*443/);
+  assert.match(network, /for_each\s*=\s*contains\(local\.runner_google_identities, each\.key\) \? merge\(local\.runner_google_cidrs/);
+  assert.match(iam, /runner_google_identities\s*=.*toset\(\["api", "vault", "bootstrap"\]\)/);
+});
+
+test('a runner on a shared VPC maps Google APIs in its own pods and runs mirrored images', (t) => {
+  const terraform = findTerraform();
+  if (!terraform) return t.skip('terraform binary not found');
+
+  const mirror = 'us-central1-docker.pkg.dev/runbook-plan-fixture/mirror';
+  const [plan] = planFixture(t, terraform, `
+run "shared_vpc" {
+  command = plan
+  variables {
+    runner_enabled = true
+    database_auth = "iam"
+    ${enrolledRunnerInputs}
+    runner_google_api_dns = "pods"
+    runner_vertex_targets = { runbook-plan-fixture = ["global"], other-model-project = ["us-east5"] }
+    runner_image = "${mirror}/runbook-runner@sha256:${'b'.repeat(64)}"
+    runner_sandbox_image = "${mirror}/runbook-sandbox@sha256:${'c'.repeat(64)}"
+  }
+}
+`);
+  const resources = Object.fromEntries(plan.resource_changes
+    .filter(({ mode }) => mode === 'managed')
+    .map(({ address, change }) => [address, change.after]));
+  // Nothing changes name resolution for the rest of the VPC.
+  assert.equal(Object.keys(resources).some((address) => address.startsWith('google_dns_')), false);
+  const pods = [
+    ...['api', 'vault', 'worker', 'sandbox-ctl', 'gateway'].map((role) => `kubernetes_manifest.runner["${role}"]`),
+    'kubernetes_manifest.runner_database_migration[0]',
+  ];
+  for (const address of pods) {
+    const spec = resources[address].manifest.spec.template.spec;
+    assert.deepEqual(spec.hostAliases.map(({ ip }) => ip), ['199.36.153.4', '199.36.153.5', '199.36.153.6', '199.36.153.7'], address);
+    const hosts = spec.hostAliases[0].hostnames;
+    for (const host of ['cloudkms.googleapis.com', 'iamcredentials.googleapis.com', 'secretmanager.googleapis.com',
+      'sqladmin.googleapis.com', 'storage.googleapis.com', 'telemetry.googleapis.com', 'aiplatform.googleapis.com',
+      'us-east5-aiplatform.googleapis.com']) {
+      assert.ok(hosts.includes(host), `${address} ${host}`);
+    }
+    assert.equal(hosts.some((host) => host.startsWith('global')), false, address);
+    // The restricted VIP does not serve regional (REP) endpoints.
+    assert.equal(hosts.some((host) => host.endsWith('.rep.googleapis.com')), false, address);
+    assert.equal(spec.containers[0].image, `${mirror}/runbook-runner@sha256:${'b'.repeat(64)}`, address);
+  }
+  // Sandbox pods never get host aliases (the admission policy rejects them).
+  const policy = resources['kubernetes_manifest.sandbox_policy[0]'].manifest;
+  assert.ok(policy.spec.validations.some(({ expression }) => expression.includes('!has(object.spec.hostAliases)')));
+});
+
+test('runner image references, DNS mode changes and trace egress without network_policies', (t) => {
+  const terraform = findTerraform();
+  if (!terraform) return t.skip('terraform binary not found');
+
+  const runner = (name, extra = '') => `
+run "${name}" {
+  command = plan
+  variables {
+    runner_enabled = true
+    database_auth = "iam"
+    ${enrolledRunnerInputs}
+    ${extra}
+  }
+}
+`;
+  const plans = planFixture(t, terraform, [
+    runner('vpc'),
+    runner('pods', 'runner_google_api_dns = "pods"'),
+    // A prefixed installation may run the release images under their own names.
+    runner('prefixed_release_images', `name_prefix = "prod-"
+    runner_image = "ghcr.io/angler-ai/runbook-runner@sha256:${'b'.repeat(64)}"
+    runner_sandbox_image = "ghcr.io/angler-ai/runbook-sandbox@sha256:${'c'.repeat(64)}"`),
+    runner('trace_without_network_policies', `network_policies = false
+    trace_export_enabled = true`),
+  ].join('') + `
+run "quoted_image" {
+  command = plan
+  expect_failures = [var.runner_image]
+  variables {
+    runner_enabled = true
+    database_auth = "iam"
+    ${enrolledRunnerInputs}
+    runner_image = "ghcr.io/x'/runbook-runner@sha256:${'b'.repeat(64)}"
+  }
+}
+`);
+  const byAddress = (plan) => Object.fromEntries(plan.resource_changes
+    .filter(({ mode }) => mode === 'managed')
+    .map(({ address, change }) => [address, change.after]));
+  const [vpc, pods, prefixed, traced] = plans.map(byAddress);
+  // The Job template is immutable: a DNS mode change must name a new Job.
+  const job = (resources) => resources['kubernetes_manifest.runner_database_migration[0]'].manifest.metadata.name;
+  assert.notEqual(job(vpc), job(pods));
+  assert.match(job(prefixed), /^prod-runner-migration-/);
+  assert.ok(traced['kubernetes_network_policy_v1.runner_trace_egress[0]']);
 });

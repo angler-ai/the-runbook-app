@@ -1,3 +1,4 @@
+import { vertexBinding } from '@runbook/runner-shared/vertex-binding';
 import { expect, it } from 'vitest';
 import type { LanguageModelV4CallOptions, LanguageModelV4StreamPart } from '@ai-sdk/provider';
 import { providerModel } from '../src/model/providers.ts';
@@ -16,11 +17,12 @@ const toolCalls = [{ functionCall: { id: 'call-a', name: 'read', args: { path: '
 
 it('round-trips parallel Vertex calls and preserves opaque signatures, IDs and raw stop reason', async () => {
   const requests: Record<string, unknown>[] = [];
-  const model = providerModel(profile, { api_key: 'fixture-token' }, () => async (url, init) => {
+  const binding = vertexBinding('vertex-gemini', 'angler-dev', 'global')!;
+  const model = providerModel({ ...profile, vertexBinding: binding }, { access_token: 'fixture-token' }, () => async (url, init) => {
     expect(String(url)).toBe(`${endpoint}/gemini-4-hydrogen:streamGenerateContent?alt=sse`);
     const headers = new Headers(init?.headers);
     expect(headers.get('authorization')).toBe('Bearer fixture-token');
-    expect(headers.get('x-goog-user-project')).toBe('angler-dev');
+    expect(headers.has('x-goog-user-project')).toBe(false);
     expect(headers.has('x-goog-api-key')).toBe(false);
     requests.push(JSON.parse(String(init?.body)));
     const parts = requests.length === 1 ? toolCalls : [{ text: 'Done.', thoughtSignature: 'opaque+/B=' }];
@@ -68,7 +70,8 @@ it.each([{ cachedContent: 'unbilled' }, { thinkingConfig: { thinkingBudget: 32 }
 
 it('keeps the live MAX_TOKENS shape as a bounded stop even when it carries a continuation token', async () => {
   let requests = 0;
-  const model = providerModel(profile, { api_key: 'fixture-token' }, () => async () => {
+  const model = providerModel(profile, { api_key: 'fixture-token' }, () => async (_url, init) => {
+    expect(new Headers(init?.headers).get('x-goog-user-project')).toBe('angler-dev');
     requests++;
     const event = { candidates: [{ content: { role: 'model', parts: [{ text: '' }] },
       finishReason: 'MAX_TOKENS', continuationToken: 'opaque-token' }],

@@ -28,6 +28,7 @@ export function sandboxRoute(config: Config, verifier: Pick<CapabilityVerifier, 
 
   async function policy(capability: string): Promise<EgressPolicy> {
     try {
+      // Sandbox traffic drives policy lookups on every request and CONNECT.
       const response = await fetch(`${config.urls.api}/internal/egress/policy`, {
         method: 'POST',
         headers: { authorization: `Bearer ${config.outboundTokens.api}`, 'content-type': 'application/json' },

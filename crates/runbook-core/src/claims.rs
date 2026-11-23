@@ -413,6 +413,15 @@ pub async fn claim_step<S: SessionStore>(
         },
         principal.actor.clone(),
     )?;
+    if let Some(trace_id) = work.runner_trace.take() {
+        work.append(
+            runbook_engine::Event::RunnerTraceRecorded {
+                step_run_id: step_run_id.clone(),
+                trace_id,
+            },
+            principal.actor.clone(),
+        )?;
+    }
     if take_over {
         work.append(
             Event::StepTakenOver {

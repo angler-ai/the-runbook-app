@@ -54,6 +54,14 @@ image = { version = "=0.25.10", default-features = false, features = ["png", "jp
 png = "=0.18.1"
 ed25519-dalek = { version = "2", default-features = false, features = ["alloc"] }
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+async-trait = "=0.1.92"
+bytes = "1"
+opentelemetry = { version = "=0.33.1", default-features = false, features = ["trace"] }
+opentelemetry_sdk = { version = "=0.33.1", default-features = false, features = ["trace"] }
+opentelemetry-http = { version = "=0.33.1", default-features = false }
+opentelemetry-otlp = { version = "=0.33.1", default-features = false, features = ["http-proto", "trace"] }
+
 [dev-dependencies]
 runbook-contract = { path = "../runbook-contract" }
 # REP2: reads the PDF export back in route tests.

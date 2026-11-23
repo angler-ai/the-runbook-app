@@ -1,3 +1,4 @@
+import { fetchWithTrace } from '@runbook/runner-shared/telemetry';
 import { MCP_ACCESS_BLOCKED, type McpAccessBlocked } from '@runbook/runner-shared/contracts/internal';
 import { McpError } from '@modelcontextprotocol/sdk/types.js';
 import { OAuthBlocked } from './limits.ts';
@@ -197,7 +198,7 @@ export async function mcpTools(gatewayUrl: string, token: string, ctx: Execution
       headers.set('authorization', `Bearer ${token}`);
       headers.set('x-runbook-capability', ctx.capability());
       const signal = init?.signal ? AbortSignal.any([init.signal, ctx.signal]) : ctx.signal;
-      return fetch(input, { ...init, headers, signal, redirect: 'error' });
+      return fetchWithTrace(input, { ...init, headers, signal, redirect: 'error' });
     },
   });
   try {

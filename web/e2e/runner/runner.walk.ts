@@ -29,8 +29,12 @@ async function mockRunner(page: Page) {
   let credential: Record<string, unknown> | undefined;
   let confirmed: Record<string, unknown> | undefined;
   let connects = 0;
+  let credentialShareAttempts = 0;
+  let connectionShareAttempts = 0;
+  let resultChecks = 0;
   let notionDiscovery: typeof fixture.warehouseDiscovery | undefined;
   const pinned = { ...fixture.pinnedSnapshots };
+  const agent = structuredClone(fixture.agent);
   const groups = 'all' as const;
   const type = 'mcp-oauth';
   const account = 'Northstar Operations';
@@ -98,7 +102,14 @@ async function mockRunner(page: Page) {
         }
         return list([fixture.credentialRow, ...(credential ? [credential] : [])]);
       case `/credentials/${credentialId}`:
-        if (method === 'PATCH') credential = { ...credential, ...data() };
+        if (method === 'PATCH') {
+          if (++credentialShareAttempts === 1)
+            return route.fulfill({
+              status: 503,
+              json: { error: { message: 'Fixture: credential sharing temporarily unavailable.' } },
+            });
+          credential = { ...credential, ...data() };
+        }
         return json(credential);
       case `/credentials/${credentialId}/oauth-discover`: {
         const config = {
@@ -199,7 +210,10 @@ async function mockRunner(page: Page) {
         }
         return list(connections);
       case `/mcp-servers/${connectionId}`:
-        if (method === 'PATCH') Object.assign(selected(), data());
+        if (method === 'PATCH') {
+          expect(++connectionShareAttempts).toBe(1);
+          Object.assign(selected(), data());
+        }
         return json(selected());
       case `/mcp-servers/${connectionId}/discover`:
         expect(connects).toBe(1);
@@ -298,9 +312,36 @@ async function mockRunner(page: Page) {
           { kind: 'compute', resource_id: fixture.agent.id, cost_usd: '11.04' },
         ]);
       case `/projects/${fixture.project.id}/agents`:
-        return list([fixture.agent]);
+        return list([agent]);
       case `/projects/${fixture.project.id}/agents/${fixture.agent.id}`:
-        return json(fixture.agent);
+        if (method === 'PATCH') {
+          const { name, status, group_id, description, ...config } = data();
+          Object.assign(agent, { name, status, group_id, description });
+          Object.assign(agent.config, config);
+        }
+        return json(agent);
+      case `/projects/${fixture.project.id}/agents/${fixture.agent.id}/tool-calls`:
+        return list(
+          ++resultChecks === 1
+            ? []
+            : [
+                {
+                  server_id: connectionId,
+                  tool: 'search',
+                  step_run_id: 'step_sample',
+                  created_at: new Date().toISOString(),
+                },
+              ],
+        );
+      case `/projects/${fixture.project.id}/agents/${fixture.agent.id}/activity`:
+        return json({
+          busy_ms: 0,
+          idle_ms: 0,
+          recent:
+            resultChecks > 1
+              ? [{ execution_id: 'exe_sample', step_run_id: 'step_sample', status: 'succeeded' }]
+              : [],
+        });
       default:
         return route.fulfill({
           json: { error: { message: 'Unsupported mock runner route' } },
@@ -308,7 +349,7 @@ async function mockRunner(page: Page) {
         });
     }
   });
-  return { selected, credential: () => credential };
+  return { selected, credential: () => credential, agent };
 }
 type ConnectionFromFixture = (typeof fixture.existingConnections)[number];
 
@@ -353,6 +394,16 @@ test('walks Runner and completes signed OAuth, pinning and project sharing', asy
   await page.getByRole('link', { name: 'Connect a system' }).click();
   await expect(page.getByRole('heading', { name: 'Choose a system' })).toBeVisible();
   await shot('connect-preset');
+  if (info.project.name.startsWith('desktop')) {
+    const notion = page.getByRole('radio', { name: /Notion/ });
+    await notion.focus();
+    await notion.press('ArrowRight');
+    const meta = page.getByRole('radio', { name: /Meta Ads/ });
+    await expect(meta).toBeFocused();
+    await meta.press('ArrowRight');
+    await expect(page.getByRole('radio', { name: /Angler MCP/ })).toBeFocused();
+    await notion.check();
+  }
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByRole('button', { name: 'Continue to discovery' }).click();
   await page.getByRole('button', { name: 'Discover OAuth endpoints' }).click();
@@ -377,11 +428,17 @@ test('walks Runner and completes signed OAuth, pinning and project sharing', asy
   await page.getByRole('button', { name: 'Block all writes' }).click();
   await shot('connect-review-tools');
   await page.getByRole('button', { name: 'Review and pin' }).click();
+  await shot('connect-pin-confirm');
+  await page.getByRole('button', { name: 'Pin 1 allowed tool · keep 1 blocked' }).click();
   await expect(page.getByRole('tab', { name: 'Sharing' })).toHaveAttribute('data-state', 'active');
   await page.getByLabel('Project access').selectOption('selected');
   await page.getByRole('checkbox', { name: 'Operations' }).check();
-  await shot('connect-sharing');
   await page.getByRole('button', { name: 'Save project access' }).click();
+  await expect(
+    page.getByText('Connection access was saved. The linked credential could not be shared.'),
+  ).toBeVisible();
+  await shot('connect-share-retry');
+  await page.getByRole('button', { name: 'Retry credential sharing' }).click();
   await expect(page.getByText('Project access saved.')).toBeVisible();
   expect(mock.selected()).toMatchObject({
     sharing: { projects: [fixture.project.id] },
@@ -390,6 +447,47 @@ test('walks Runner and completes signed OAuth, pinning and project sharing', asy
     tool_labels: { search: 'read' },
   });
   expect(mock.credential()).toMatchObject({ sharing: { projects: [fixture.project.id] } });
+  await expect(page.getByRole('link', { name: 'Choose an agent in Operations' })).toBeVisible();
+  await shot('connect-sharing');
+  await page.getByRole('link', { name: 'Choose an agent in Operations' }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Grant Notion tools in Operations' }),
+  ).toBeVisible();
+  await page.getByRole('link', { name: fixture.agent.name, exact: true }).click();
+  const search = page.getByRole('checkbox', { name: 'search Read', exact: true });
+  await expect(search).not.toBeChecked();
+  await search.check();
+  const grant = page.getByRole('checkbox', { name: /^Notion · MCP/ });
+  await grant.check();
+  await page.getByRole('button', { name: 'Save configuration' }).click();
+  await expect(
+    page.getByText(`Agent ${fixture.agent.name} can now use Notion search.`),
+  ).toBeVisible();
+  expect(mock.agent.config).toMatchObject({
+    mcp: expect.arrayContaining([{ server_id: connectionId, tool: 'search' }]),
+    credentials: expect.arrayContaining([{ credential_id: credentialId, delivery: 'mcp' }]),
+  });
+  await expect(page.getByText('Waiting for a tool call.')).toBeVisible();
+  await page.getByRole('button', { name: 'Check latest result' }).click();
+  await expect(page.getByText('Notion search succeeded.')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'View test run' })).toHaveAttribute(
+    'href',
+    '/x/exe_sample?view=steps&step=step_sample',
+  );
+  await page.reload();
+  await expect(
+    page.getByText(`Agent ${fixture.agent.name} can now use Notion search.`),
+  ).toBeVisible();
+  await expect(page.getByText('Notion search succeeded.')).toBeVisible();
+  await shot('connect-agent-ready');
+  await page.getByRole('link', { name: 'View setup checklist' }).click();
+  const task = page.getByRole('listitem').filter({ hasText: 'An agent can use a shared tool' });
+  await expect(task.getByText('Done', { exact: true })).toBeAttached();
+  await expect(page.getByRole('link', { name: 'A first step ran' })).toHaveAttribute(
+    'href',
+    '/x/exe_sample',
+  );
+  await shot('overview');
 
   const pages = [
     ['models', '/runner/models', 'Model providers'],
@@ -397,10 +495,10 @@ test('walks Runner and completes signed OAuth, pinning and project sharing', asy
     ['environment', '/runner/environments/environment_sample', 'Environment budgets'],
     ['budgets', '/runner/budgets', 'Budgets'],
     ['policy', '/runner/policy', 'Organization budgets'],
-    ['agents', '/runner/agents', 'Agents'],
+    ['agents', '/runner/agents', 'All agents'],
     [
       'agent-editor',
-      '/p/operations/agents/agent_sample?tab=configuration',
+      '/p/operations/agents/agent_sample?tab=configuration&connection=notion-connection',
       'Connections and tools',
     ],
     ['audit', '/runner/audit', 'Audit'],
@@ -414,6 +512,52 @@ test('walks Runner and completes signed OAuth, pinning and project sharing', asy
     ).toBeVisible();
     if (name === 'agent-editor') {
       await expect(page.getByRole('checkbox', { name: 'search Read', exact: true })).toBeChecked();
+    }
+    if (name === 'models') {
+      await page.getByRole('button', { name: 'Add provider', exact: true }).click();
+      await page.getByRole('button', { name: 'Add provider key' }).click();
+      await expect(page.getByRole('dialog', { name: 'Add provider key' })).toBeVisible();
+      await shot('provider-key');
+      await page
+        .getByRole('dialog', { name: 'Add provider key' })
+        .getByRole('button', { name: 'Close' })
+        .click();
+      await page
+        .getByRole('dialog', { name: 'Add model provider' })
+        .getByRole('button', { name: 'Cancel' })
+        .click();
+    }
+    if (name === 'budgets') {
+      await page.getByText('26 blocked', { exact: true }).click();
+      await expect(page.getByText('25 of 26 blocked steps')).toBeVisible();
+      await expect(page.getByRole('link', { name: 'Check warehouse freshness' })).toHaveAttribute(
+        'href',
+        '/x/exe_sample?view=steps&step=step_sample',
+      );
+    }
+    if (name === 'policy') {
+      await page.getByLabel('Operations monthly cap').fill('');
+      await page.getByRole('button', { name: 'Save limits' }).first().click();
+      await expect(page.getByRole('dialog', { name: 'Review budget increases' })).toBeVisible();
+      await shot('budget-cap-confirm');
+      await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await page.getByLabel('Operations monthly cap').fill('400');
+      const dailyCap = page.getByLabel('Operations daily cap', { exact: true });
+      await dailyCap.fill('-1');
+      await page.getByRole('button', { name: 'Save limits' }).first().click();
+      await expect(dailyCap).toBeFocused();
+      await expect(dailyCap).toHaveAttribute('aria-invalid', 'true');
+      await shot('budget-validation');
+      await page.reload();
+      await expect(page.getByRole('heading', { name: 'Organization budgets' })).toBeVisible();
+    }
+    if (name === 'environments') {
+      await page.getByLabel('Registry hostnames').fill('registry.new.test');
+      await page.getByRole('button', { name: 'Save registries' }).click();
+      await expect(page.getByRole('dialog', { name: 'Review registry access' })).toBeVisible();
+      await shot('registry-confirm');
+      await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await page.getByLabel('Registry hostnames').fill('registry.example.test');
     }
     if (name === 'credentials') {
       await page.getByRole('button', { name: fixture.credentialRow.name }).click();

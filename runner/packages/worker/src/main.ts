@@ -1,3 +1,4 @@
+import { inSpan, withStep } from '@runbook/runner-shared/telemetry';
 import { CapabilityVerifier } from '@runbook/runner-shared/capability';
 import { loadConfig, required } from '@runbook/runner-shared/config';
 import { loadRedaction } from '@runbook/runner-shared/redact';
@@ -18,11 +19,17 @@ export async function main(): Promise<void> {
   const image = required(process.env.RUNNER_SANDBOX_IMAGE, 'RUNNER_SANDBOX_IMAGE');
   const redaction = await loadRedaction();
   const installId = required(process.env.RUNNER_INSTALL_ID, 'RUNNER_INSTALL_ID');
-  const worker = admissionLoop(capacity, clients.admit, (item, signal) => runClaim(item, {
-    ...clients,
-    onSlotReleaseFailure: () => log.warn('scheduler slot release incomplete'),
-    execute: claimExecutor(config, clients, verifier, image, { redaction, installId }),
-  }, signal), () => log.error('worker admission or teardown failed'));
+  const execute = claimExecutor(config, clients, verifier, image, { redaction, installId });
+  const worker = admissionLoop(capacity, clients.admit, (item, signal) => withStep(item.step_run_id, () =>
+    inSpan('runner.step', async () => {
+      const finished = await runClaim(item, {
+        ...clients,
+        onSlotReleaseFailure: () => log.warn('scheduler slot release incomplete'),
+        execute,
+      }, signal);
+      if (finished) log.info('runner step finished');
+      return finished;
+    })), () => log.error('worker admission or teardown failed'));
   const server = createJsonServer({ log, decisionSupport: true, inboundTokens: config.inboundTokens, routes: [{
     method: 'POST', path: '/internal/wake', callers: ['api'],
     async handle() {

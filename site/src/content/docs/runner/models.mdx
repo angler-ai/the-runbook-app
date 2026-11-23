@@ -1,0 +1,21 @@
+---
+title: Models
+description: Configure runner model providers, prices, and profiles.
+sidebar:
+  order: 5
+---
+
+A model provider defines the destination, authentication, and per-model prices. A profile selects one model and sets options such as the output token limit. In **Runner › Models**, share the provider and profile with the projects that need them, then select the profile in the project's agent configuration.
+
+## Vertex AI with the runner's Google identity
+
+1. Enable billing and the **Vertex AI API** (`aiplatform.googleapis.com`) in each model-serving project. On GKE, set `runner_vault_vertex_enabled = true` and set `runner_vertex_targets` to the allowed projects and locations, for example `{ "my-model-project" = ["global", "us-east5"] }`. Terraform creates a dedicated Vertex service account, grants it a custom role with only `aiplatform.endpoints.predict` on each listed project, and lets the vault impersonate that account through IAM Credentials. For Docker, [configure vault ADC and the inference account](/runner/setup/#give-the-docker-vault-a-google-identity).
+2. For Claude, open the desired Claude model in **Model Garden** in that project and enable it. An administrator with the required Marketplace permissions may need to accept the partner terms and complete Google's business verification. Check that the chosen model ID is enabled in the project. [Enable partner models](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/partner-models/use-partner-models).
+3. Choose `global` for higher availability if you have flexibility about where requests are processed. Choose a region such as `us-east5` when the model supports it and you need regional processing. Check the model's processing terms and supported locations. Check quota for the exact project, model or model family, and location you plan to use. Global and regional quotas can be separate. A `429 RESOURCE_EXHAUSTED` can indicate capacity or quota limits. [Locations](https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/locations) · [Claude quotas](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/partner-models/claude/quotas).
+4. Select **Vertex Claude** or **Vertex Gemini** in the provider form. For Gemini, choose **Runner’s Google identity**. Enter the Google Cloud project ID and location. Enter base per-million-token prices for each model, including cache rates if you know them. The runner applies its 10% regional uplift to attached Vertex prices outside `global`. Save the provider, then create the profile.
+
+The runner derives the API host from the location: `https://aiplatform.googleapis.com` for `global` and `https://REGION-aiplatform.googleapis.com` for a region. It binds the provider to the project, location, and Anthropic or Google publisher on that host. The vault accepts only projects and locations the installer allows. It mints a fresh 10-minute token for the inference account at release and renewal. The gateway uses it for the bound model, and Google Cloud IAM controls what a copied token can access.
+
+For the CLI, the corresponding provider fields are `type: "vertex"` or `"vertex-gemini"`, `auth: "attached"`, `project_id`, `region`, `models`, and `sharing`. Omit `credential_id` and `endpoint`. To rebind an existing provider, pass the full new destination as `confirm_binding`, including `/v1/projects/PROJECT/locations/LOCATION/publishers/PUBLISHER/models`.
+
+The rebind confirmation checks the displayed destination against the destination in the same request. For catalog proposals, the organization administrator’s approval confirms the proposed destination. The vault applies the installer’s allowlist independently of that confirmation.

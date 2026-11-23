@@ -16,6 +16,9 @@ const ROLES = {
   migrate: '@runbook/runner-shared/migrate-main',
 };
 
+import { createLogger, errorFields, initLogRedaction, setLogSink } from '@runbook/runner-shared/log';
+import { initTelemetry } from '@runbook/runner-shared/telemetry';
+
 const role = process.argv[2] ?? process.env.RUNNER_ROLE;
 const target = role === undefined ? undefined : ROLES[role];
 if (target === undefined) {
@@ -23,7 +26,10 @@ if (target === undefined) {
   process.exit(2);
 }
 if (role !== 'migrate') process.env.RUNNER_ROLE ??= role;
+const logStream = ['migrate', 'ledger-reconcile', 'vault-identity'].includes(role) ? process.stderr : process.stdout;
+setLogSink((line) => logStream.write(line + '\n'));
 
+let provider;
 try {
   if (process.env.RUNNER_SECRET_ENV_FILE) {
     let secrets;
@@ -40,12 +46,21 @@ try {
       throw new Error('invalid runner process secret mount');
     }
   }
+  await initLogRedaction();
+  provider = initTelemetry(role);
+  process.once('beforeExit', () => { void provider.shutdown().catch(() => undefined); });
   const { main } = await import(target);
   await main();
 } catch (error) {
-  // Name and message only: no stack frames with argument values, no causes.
-  const name = error instanceof Error ? error.name : 'Error';
-  const message = error instanceof Error ? error.message : 'unknown failure';
-  console.error(JSON.stringify({ level: 'fatal', process: role, error: name, message }));
-  process.exit(1);
+  createLogger(role).error('runner startup failed', errorFields(error));
+  let timeout;
+  try {
+    await Promise.race([
+      Promise.allSettled([provider?.shutdown(), new Promise((resolve) => logStream.write('', resolve))]),
+      new Promise((resolve) => { timeout = setTimeout(resolve, 1000); }),
+    ]);
+  } finally {
+    clearTimeout(timeout);
+    process.exit(1);
+  }
 }

@@ -8,6 +8,16 @@ mod database;
 mod runner_fixture;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD as B64};
 use ed25519_dalek::{Signer, SigningKey};
+use opentelemetry::{
+    Context, global,
+    propagation::TextMapPropagator,
+    trace::{SpanKind, TraceContextExt, Tracer},
+};
+use opentelemetry_sdk::{
+    error::OTelSdkResult,
+    propagation::TraceContextPropagator,
+    trace::{Sampler, SdkTracerProvider, SpanData, SpanExporter},
+};
 use runbook_core::{
     directory::{DirectoryCommit, DirectoryMutation, DirectoryStore},
     signing::{Jwks, USER_TYP, UserAssertionClaims, verify},
@@ -117,6 +127,155 @@ impl MockRunner {
     fn count(&self) -> usize {
         self.seen.lock().unwrap().len()
     }
+}
+
+async fn return_to_core(f: &Fixture, reg: &Registered, headers: &BTreeMap<String, String>) {
+    let propagator = TraceContextPropagator::new();
+    let mut inbound = http::HeaderMap::new();
+    inbound.insert("traceparent", headers["traceparent"].parse().unwrap());
+    let parent = propagator.extract_with_context(
+        &Context::new(),
+        &opentelemetry_http::HeaderExtractor(&inbound),
+    );
+    let tracer = global::tracer("runner-fixture");
+    let server = parent.with_span(
+        tracer
+            .span_builder("runner.fixture.server")
+            .with_kind(SpanKind::Server)
+            .start_with_context(&tracer, &parent),
+    );
+    let client = server.with_span(
+        tracer
+            .span_builder("runner.fixture.client")
+            .with_kind(SpanKind::Client)
+            .start_with_context(&tracer, &server),
+    );
+    let mut carrier = std::collections::HashMap::new();
+    propagator.inject_context(&client, &mut carrier);
+    let response = f
+        .request(
+            "GET",
+            &format!("/v1/runner-installs/{}/groups", reg.install),
+            Some(&reg.directory),
+            &[("traceparent", &carrier["traceparent"])],
+            Value::Null,
+        )
+        .await;
+    assert_eq!(response.status, 200);
+    client.span().end();
+    server.span().end();
+}
+
+#[derive(Clone, Debug, Default)]
+struct TestSpans(Arc<Mutex<Vec<SpanData>>>);
+
+impl SpanExporter for TestSpans {
+    async fn export(&self, batch: Vec<SpanData>) -> OTelSdkResult {
+        self.0.lock().unwrap().extend(batch);
+        Ok(())
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL; owned databases only"]
+async fn sampled_trace_round_trips_through_native_runner_proxy() {
+    let spans = TestSpans::default();
+    let provider = SdkTracerProvider::builder()
+        .with_sampler(Sampler::ParentBased(Box::new(Sampler::AlwaysOn)))
+        .with_simple_exporter(spans.clone())
+        .build();
+    global::set_tracer_provider(provider);
+    with_fixture_config(
+        |config| config.runner.private_networks = true,
+        async |f| {
+            let runner = MockRunner::start();
+            let reg = f.register_runner(&runner.url()).await;
+            f.heartbeat(&reg).await;
+            let trace_id = "391665d8aa4a13d6a8a5bea9ea3bebff";
+            let browser_span = "9012233445566778";
+            let traceparent = format!("00-{trace_id}-{browser_span}-01");
+            let reply = f
+                .request(
+                    "GET",
+                    &proxy(&reg, "runner/v1/groups"),
+                    Some(&reg.admin),
+                    &[
+                        ("traceparent", &traceparent),
+                        ("tracestate", "fixture=not-a-log-field"),
+                        CSRF,
+                    ],
+                    Value::Null,
+                )
+                .await;
+            assert_eq!(reply.status, 200, "{}", reply.body);
+            let forwarded = runner.last();
+            let forwarded_context = &forwarded.headers["traceparent"];
+            let fields: Vec<_> = forwarded_context.split('-').collect();
+            let core_trace = fields[1];
+            assert_ne!(core_trace, trace_id);
+            return_to_core(f, &reg, &forwarded.headers).await;
+            let rejected = f
+                .request(
+                    "GET",
+                    &format!("/v1/runner-installs/{}/groups", reg.install),
+                    Some(&reg.claim),
+                    &[("traceparent", &traceparent)],
+                    Value::Null,
+                )
+                .await;
+            assert_eq!(rejected.status, 403);
+            {
+                let spans = spans.0.lock().unwrap();
+                assert!(
+                    spans
+                        .iter()
+                        .all(|span| span.span_context.trace_id().to_string() != trace_id)
+                );
+                let root = spans
+                    .iter()
+                    .find(|span| {
+                        span.name == "http.server"
+                            && span.span_context.trace_id().to_string() == core_trace
+                            && span.parent_span_id == opentelemetry::trace::SpanId::INVALID
+                    })
+                    .unwrap();
+                let mut parent = root.span_context.span_id().to_string();
+                for name in [
+                    "runner.http.client",
+                    "runner.fixture.server",
+                    "runner.fixture.client",
+                    "http.server",
+                ] {
+                    let span = spans
+                        .iter()
+                        .find(|span| span.parent_span_id.to_string() == parent && span.name == name)
+                        .unwrap_or_else(|| panic!("missing span: {name}"));
+                    assert_eq!(span.span_context.trace_id().to_string(), core_trace);
+                    assert!(span.span_context.trace_state().header().is_empty());
+                    parent = span.span_context.span_id().to_string();
+                }
+            }
+
+            let dropped = TestSpans::default();
+            let disabled_roots = SdkTracerProvider::builder()
+                .with_sampler(Sampler::ParentBased(Box::new(Sampler::AlwaysOff)))
+                .with_simple_exporter(dropped.clone())
+                .build();
+            global::set_tracer_provider(disabled_roots);
+            let reply = f
+                .request(
+                    "GET",
+                    "/v1/meta",
+                    None,
+                    &[("traceparent", &traceparent)],
+                    Value::Null,
+                )
+                .await;
+            assert_eq!(reply.status, 200);
+            assert!(dropped.0.lock().unwrap().is_empty());
+        },
+    )
+    .await;
 }
 
 async fn with_runner(f: impl AsyncFnOnce(&Fixture, &MockRunner, &Registered)) {

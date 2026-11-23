@@ -1,3 +1,4 @@
+import { clientKind, inSpan } from '@runbook/runner-shared/telemetry';
 import Docker from 'dockerode';
 import { CapabilityVerifier } from '@runbook/runner-shared/capability';
 import { loadConfig, required } from '@runbook/runner-shared/config';
@@ -98,7 +99,22 @@ function sandboxLabels(raw = '{}'): Record<string, string> {
 
 async function dockerBackend(image: string, socketPath: string) {
   const gateway = required(process.env.RUNNER_GATEWAY_CONTAINER, 'RUNNER_GATEWAY_CONTAINER');
-  const docker = new Docker({ socketPath: socketPath });
+  const docker = new Docker({ socketPath });
+  const dial = docker.modem.dial.bind(docker.modem);
+  docker.modem.dial = (options, callback) => {
+    if (!callback) return dial(options);
+    let called = false;
+    void inSpan('docker.api', () => new Promise<void>((resolve, reject) => {
+      dial(options, (error, result) => {
+        called = true;
+        if (error) reject(error);
+        else resolve();
+        callback(error, result);
+      });
+    }), clientKind).catch((error: unknown) => {
+      if (!called) callback(error instanceof Error ? error : new Error('Docker API failed'), null);
+    });
+  };
   await docker.ping().catch(() => { throw new Error('Docker is unreachable'); });
   await requireDockerIsolation(docker);
   const inspected = await docker.getImage(image).inspect().catch(() => { throw new Error('sandbox image is unavailable'); });

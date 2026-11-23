@@ -21,7 +21,14 @@ import {
 import { OAuthCredentialActions, oauthReturn } from './OAuthCredentialActions';
 import { canonicalJson, destinationBinding } from './destination-binding';
 import { Field, panel, Rows } from './presentation';
-import { ShareFields, readShare, requiredText, selectClasses } from './runnerForms';
+import {
+  FieldError,
+  RunnerForm,
+  ShareFields,
+  readShare,
+  requiredText,
+  selectClasses,
+} from './runnerForms';
 import { formDestination, validateSecret } from './credentialForm';
 import type { Project, Share } from './resources';
 import { StatusPill } from '../../ui/status/StatusPill';
@@ -76,19 +83,23 @@ export function Credentials({
   editable,
   projects = [],
   selectedCredential,
+  providerKey,
 }: {
   status: RunnerStatus;
   org: string;
   editable: boolean;
   projects?: Project[];
   selectedCredential?: string;
+  providerKey?: { type: string; endpoint: string; onSaved(credential: Credential): void };
 }) {
   const data = useRunnerQuery<Items<Credential>>(status, '/credentials');
   const client = useQueryClient();
   const mutation = useRunnerMutation(status);
-  const [oauth] = useState(oauthReturn);
-  const [selected, select] = useState<string | null>(selectedCredential ?? oauth?.id ?? null);
-  const [type, setType] = useState('');
+  const [oauth] = useState(() => (providerKey ? undefined : oauthReturn()));
+  const [selected, select] = useState<string | null>(
+    providerKey ? 'new' : (selectedCredential ?? oauth?.id ?? null),
+  );
+  const [type, setType] = useState(providerKey ? 'model-provider' : '');
   const [sourceOverride, setSourceOverride] = useState<string>();
   const [registrationOverride, setRegistrationOverride] = useState<string>();
   const [groupsOverride, setGroupsOverride] = useState<boolean>();
@@ -153,12 +164,12 @@ export function Credentials({
           {runnerError(data.error)}
         </p>
       )}
-      {editable && !selectedCredential && (
+      {editable && !selectedCredential && !providerKey && (
         <Button className="w-fit" disabled={locked} onClick={() => choose('new')}>
           Add credential
         </Button>
       )}
-      {!selectedCredential && (
+      {!selectedCredential && !providerKey && (
         <Rows
           label="Credentials"
           stackOnMobile
@@ -201,7 +212,7 @@ export function Credentials({
       {selected && (!selectedCredential || credential) && (
         <section className={panel}>
           <h2 className="mb-3 font-semibold">{credential?.name ?? 'Add credential'}</h2>
-          {selected === 'new' && (
+          {selected === 'new' && !providerKey && (
             <Field label="Credential type">
               <select
                 className={fieldClasses + ' h-10'}
@@ -222,7 +233,7 @@ export function Credentials({
             </Field>
           )}
           {manifest && (
-            <form
+            <RunnerForm
               key={selected + manifest.type}
               className="mt-3"
               noValidate
@@ -286,7 +297,12 @@ export function Credentials({
                           : [];
                       const value = String(fields.get(`secret:${field.name}`) ?? '');
                       if (value || !credential || sourceChanged)
-                        validateSecret(value, field.label, manifest.type === 'mcp-bearer');
+                        validateSecret(
+                          value,
+                          field.label,
+                          manifest.type === 'mcp-bearer',
+                          `secret:${field.name}`,
+                        );
                       return value ? [[field.name, value]] : [];
                     }),
                   );
@@ -331,7 +347,9 @@ export function Credentials({
                     },
                   );
                   setMessage('Credential saved.');
+                  providerKey?.onSaved(updated);
                 } catch (error) {
+                  if (error instanceof FieldError) throw error;
                   setError(runnerError(error));
                 } finally {
                   for (const { name } of manifest.secretFields) {
@@ -413,6 +431,17 @@ export function Credentials({
                         </select>
                       </Field>
                     );
+                  if (providerKey && (field.name === 'provider' || field.name === 'endpoint')) {
+                    const value =
+                      field.name === 'provider' ? providerKey.type : providerKey.endpoint;
+                    return (
+                      <div key={field.name} className="text-sm break-all">
+                        <span className="font-medium">{field.label} </span>
+                        {value}
+                        <input type="hidden" name={field.name} value={value} />
+                      </div>
+                    );
+                  }
                   const value = credential?.config[field.name];
                   const initial =
                     value == null
@@ -563,7 +592,8 @@ export function Credentials({
                         </Field>
                         <p className="text-xs text-fg-muted sm:col-span-2">
                           The vault reads this version at release. “latest” picks up rotations in
-                          Secret Manager.
+                          Secret Manager. Your runner operator must allow this secret for this
+                          destination and grant the vault access.
                         </p>
                       </div>
                     )}
@@ -592,7 +622,7 @@ export function Credentials({
                   </Button>
                 )}
               </fieldset>
-            </form>
+            </RunnerForm>
           )}
           {credential?.type === 'mcp-oauth' && credential.status !== 'revoked' && (
             <OAuthCredentialActions

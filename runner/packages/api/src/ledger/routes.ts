@@ -1,3 +1,4 @@
+import { inSpan, setLabels } from '@runbook/runner-shared/telemetry';
 import { createHash, randomUUID } from 'node:crypto';
 import type { EnvironmentBudgets } from '@runbook/runner-shared/contracts/environments';
 import type pg from 'pg';
@@ -82,7 +83,10 @@ export function ledgerRoutes(pool: pg.Pool, verifier: CapabilityVerifier, orgId:
               alerts: configuredAlerts(context, claims.project_id, context.agent_limits ?? undefined, context.environment_budgets ?? undefined),
               caps: configuredCaps(context, claims.project_id, context.agent_limits ?? undefined, Number(context.max_cost_usd), context.environment_budgets ?? undefined),
             };
-            const reservation = await tryReserve(client, budgetContext, request.amount_usd, request.kind, new Date(), request.minimum_usd, request.headroom_usd);
+            const reservation = await inSpan('ledger.reserve', async () => {
+              setLabels({ org: orgId, project: claims.project_id, run: context.execution_id, step_run: claims.sub });
+              return tryReserve(client, budgetContext!, request.amount_usd, request.kind, new Date(), request.minimum_usd, request.headroom_usd);
+            });
             if (reservation instanceof CapExceeded) return reservation;
             await client.query('UPDATE ledger_reservations SET capability_hash = $2, decision_lease_id = $3, slot_id = $4 WHERE id = $1',
               [reservation.reservation_id, createHash('sha256').update(request.capability).digest(), claims.reach === 'read' ? claims.claim_id : null, context.slot_id]);

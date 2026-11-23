@@ -1,3 +1,4 @@
+import { fetchWithTrace } from '@runbook/runner-shared/telemetry';
 import type pg from 'pg';
 import type { Config } from '@runbook/runner-shared/config';
 import type { IngestKeyResponse, SealResponse, TestResponse } from '@runbook/runner-shared/contracts/internal';
@@ -34,7 +35,7 @@ type CredentialRow = {
 
 export function credentialResources(pool: pg.Pool, dependencies: Config, sync = async () => {}) {
   async function vault<T>(path: string, payload?: unknown, assertion?: NonNullable<PublicRequest['assertion']>, timeout = 10_000): Promise<T> {
-    const response = await fetch(`${dependencies.urls.vault}${path}`, {
+    const response = await fetchWithTrace(`${dependencies.urls.vault}${path}`, {
       method: assertion || payload !== undefined ? 'POST' : 'GET',
       headers: { authorization: `Bearer ${dependencies.outboundTokens.vault}`, 'content-type': 'application/json',
         ...(assertion && { 'runbook-assertion': assertion.token }) },

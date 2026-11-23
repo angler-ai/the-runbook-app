@@ -102,12 +102,13 @@ export const budgetRows: Budget[] = [
     percentage: 100,
     daily_spend: history,
     alert_threshold_percent: 80,
-    blocked: [
-      {
-        step_run_id: 'step_sample',
-        reason: 'Environment Warehouse analytics: daily budget $20.00 reached',
-      },
-    ],
+    blocked_count: 26,
+    blocked: Array.from({ length: 25 }, (_, i) => ({
+      step_run_id: i ? `step_sample_${i}` : 'step_sample',
+      execution_id: 'exe_sample',
+      title: i ? `Check warehouse partition ${i}` : 'Check warehouse freshness',
+      reason: 'Environment Warehouse analytics: daily budget $20.00 reached',
+    })),
   },
   {
     scope: 'environment',

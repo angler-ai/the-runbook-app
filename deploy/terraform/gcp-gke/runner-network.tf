@@ -1,5 +1,5 @@
 resource "google_dns_managed_zone" "runner_googleapis" {
-  count       = var.runner_enabled ? 1 : 0
+  count       = var.runner_enabled && var.runner_google_api_dns == "vpc" ? 1 : 0
   project     = var.project_id
   name        = "${var.name_prefix}runbook-googleapis"
   labels      = local.additional_labels
@@ -15,17 +15,17 @@ resource "google_dns_managed_zone" "runner_googleapis" {
 }
 
 resource "google_dns_record_set" "runner_googleapis_vip" {
-  count        = var.runner_enabled ? 1 : 0
+  count        = var.runner_enabled && var.runner_google_api_dns == "vpc" ? 1 : 0
   project      = var.project_id
   managed_zone = google_dns_managed_zone.runner_googleapis[0].name
   name         = "restricted.googleapis.com."
   type         = "A"
   ttl          = 300
-  rrdatas      = ["199.36.153.4", "199.36.153.5", "199.36.153.6", "199.36.153.7"]
+  rrdatas      = local.runner_restricted_vip
 }
 
 resource "google_dns_record_set" "runner_googleapis_alias" {
-  count        = var.runner_enabled ? 1 : 0
+  count        = var.runner_enabled && var.runner_google_api_dns == "vpc" ? 1 : 0
   project      = var.project_id
   managed_zone = google_dns_managed_zone.runner_googleapis[0].name
   name         = "*.googleapis.com."
@@ -51,6 +51,20 @@ locals {
     tonumber(local.runner_master_version_parts[0]) > 1 ||
     tonumber(local.runner_master_version_parts[0]) == 1 && tonumber(local.runner_master_version_parts[1]) >= 32, false
   )
+  runner_restricted_vip = ["199.36.153.4", "199.36.153.5", "199.36.153.6", "199.36.153.7"]
+  # In "pods" mode, only runner pods resolve these names to the restricted VIP.
+  runner_google_api_hosts = sort(distinct(concat([
+    for service in ["aiplatform", "cloudkms", "iamcredentials", "logging", "oauth2", "secretmanager", "sqladmin", "storage", "sts", "telemetry", "www"] :
+    "${service}.googleapis.com"
+    ], flatten([
+      for locations in values(var.runner_vertex_targets) : [
+        for location in locations : "${location}-aiplatform.googleapis.com"
+        if location != "global"
+      ]
+  ]))))
+  runner_google_api_host_aliases = var.runner_google_api_dns == "pods" ? {
+    hostAliases = [for ip in local.runner_restricted_vip : { ip = ip, hostnames = local.runner_google_api_hosts }]
+  } : {}
   runner_google_cidrs = {
     "199.36.153.4/30"    = 443
     "169.254.169.254/32" = 80

@@ -597,3 +597,13 @@ it('settles only measured usage when a 503 is followed by success', async () => 
     usage: { input_tokens: 1000, output_tokens: 10, cached_tokens: 0, cache_write_tokens: 0 },
   });
 });
+
+it.each(['claude-haiku-5-5@20261001', 'publishers/anthropic/models/claude-haiku-5-5@20261001'])(
+  'prices long-context Vertex Haiku requests with model ID %s', async (id) => {
+    const { modelCachePricing } = await import('@runbook/runner-shared/model-pricing');
+    const { modelCost, estimateWorstCase } = await import('../src/model/pricing.ts');
+    const rates = { inputUsdPerMillion: 1.1, outputUsdPerMillion: 5.5, ...modelCachePricing('vertex', id, 1.1) };
+    expect(modelCost(rates, 150_000, 1000)).toBeCloseTo(0.8525);
+    expect(estimateWorstCase(rates, { prompt: 'x'.repeat(600_000), max_tokens: 1000 })).toBeCloseTo(6.638764);
+  },
+);

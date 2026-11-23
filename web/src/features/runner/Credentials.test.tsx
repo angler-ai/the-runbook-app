@@ -140,9 +140,7 @@ it('flags an OAuth issuer on a different host before confirmation', async () => 
   );
   fireEvent.click(screen.getByRole('button', { name: 'Discover OAuth endpoints' }));
   expect(
-    await screen.findByText(
-      /OAuth issuer \(issuer\.example\) differs from the MCP server host \(resources\.example\)/,
-    ),
+    await screen.findByText(/Check this sign-in domain with your workspace administrator/),
   ).toBeVisible();
   expect(screen.getByRole('button', { name: 'Confirm endpoints' })).toBeEnabled();
 });

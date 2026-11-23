@@ -99,7 +99,9 @@ impl ExecutionBackend for PostgresExecutionBackend {
         scope: &TenantScope,
         execution: &ExecutionId,
     ) -> Result<ExecutionDocumentView, Error> {
-        Ok(self.document(scope, execution).await?.1)
+        let (_, mut document) = self.document(scope, execution).await?;
+        document.trace_project = crate::telemetry::project().map(str::to_owned);
+        Ok(document)
     }
     async fn report_markdown(
         &self,

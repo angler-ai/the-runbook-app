@@ -1,3 +1,4 @@
+import { fetchWithTrace } from '@runbook/runner-shared/telemetry';
 import type { Config } from '@runbook/runner-shared/config';
 import type { CapabilityVerifier } from '@runbook/runner-shared/capability';
 import type { RunningSandbox } from './server.ts';
@@ -16,7 +17,7 @@ export async function reapSandboxes(entries: Iterable<RunningSandbox>,
 
 export async function refreshedGrant(config: Config, verifier: Pick<CapabilityVerifier, 'verifyCapability'>,
   claims: RunningSandbox['claims']) {
-  const response = await fetch(`${config.urls.vault}/internal/capability`, {
+  const response = await fetchWithTrace(`${config.urls.vault}/internal/capability`, {
     method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${config.outboundTokens.vault}` },
     body: JSON.stringify({ step_run_id: claims.sub, runner_id: claims.runner_id, claim_id: claims.claim_id,
       generation: claims.generation }), redirect: 'error', signal: AbortSignal.timeout(4000),

@@ -449,9 +449,12 @@ impl Drainer {
             ),
         ] {
             if count > 0 {
-                eprintln!(
-                    "warning: archive job: kept {count} run(s) ({code}): {}",
-                    runbook_core::archives::job::refusal_message(code).unwrap_or_default()
+                crate::log::warning(
+                    "archive",
+                    &format!(
+                        "archive job: kept {count} run(s) ({code}): {}",
+                        runbook_core::archives::job::refusal_message(code).unwrap_or_default()
+                    ),
                 );
             }
         }

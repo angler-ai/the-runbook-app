@@ -54,6 +54,9 @@ resource "kubernetes_config_map" "runbook_config" {
       # client would look like the load balancer and share its limits.
       RUNBOOK_TRUSTED_PROXIES = "35.191.0.0/16,130.211.0.0/16,${google_compute_global_address.ingress_ip[0].address}"
     } : {},
+    var.retention_live_days != "off" ? {
+      RUNBOOK_RETENTION_LIVE_DAYS = var.retention_live_days
+    } : {},
     var.runner_enabled ? {
       RUNBOOK_RUNNER_PRIVATE_NETWORKS = "true"
       RUNBOOK_RUNNER_PRIVATE_URL      = local.runner_api_url
@@ -67,7 +70,9 @@ resource "kubernetes_config_map" "runbook_config" {
     } : {},
     var.slack_default_channel != "" ? {
       RUNBOOK_SLACK_DEFAULT_CHANNEL = var.slack_default_channel
-    } : {}
+    } : {},
+    # Trace sampling and export (observability.tf).
+    local.trace_environment
   )
 }
 

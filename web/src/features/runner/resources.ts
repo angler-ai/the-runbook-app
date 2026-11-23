@@ -12,6 +12,17 @@ import type {
   EnvironmentBudgets,
 } from '../../../../runner/packages/shared/src/contracts/environments.ts';
 
+export type AgentToolCall = {
+  id: string;
+  archived?: true;
+  archived_at?: string;
+  server_id: string | null;
+  tool: string;
+  error?: string | null;
+  step_run_id: string;
+  created_at: string;
+};
+
 export type ToolLabel = 'read' | 'write' | 'destructive';
 export type EgressRule = { host: string; label: 'read' | 'write' };
 export type Share = { projects: 'all' | 'none' | string[] };

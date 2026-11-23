@@ -2471,6 +2471,13 @@
               "$ref": "#/components/schemas/StepSection"
             },
             "type": "array"
+          },
+          "trace_project": {
+            "description": "Google Cloud project used to link this run's traces.",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -3969,6 +3976,13 @@
               }
             ],
             "description": "UI-1: the operator's theme colour override (`RUNBOOK_THEME_*`);\nabsent when no theme variable is set."
+          },
+          "trace_sample_ratio": {
+            "description": "Root trace sampling ratio for browser API calls (decimal from 0 to 1).",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "usage": {
             "additionalProperties": {
@@ -6306,6 +6320,13 @@
               "$ref": "#/components/schemas/StepCredentialRelease"
             },
             "type": "array"
+          },
+          "trace_id": {
+            "description": "The most recent sampled runner claim's W3C trace ID (32 lowercase hex digits).",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "waiting_detail": {
             "description": "The runner's words for people about the wait, if it gave any.",

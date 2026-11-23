@@ -35,6 +35,7 @@ pub async fn serve_until(
     shutdown: impl std::future::Future<Output = ()>,
 ) -> Result<(), Error> {
     log::init(config.log_format);
+    let telemetry = crate::telemetry::init();
     if let Some(warning) = config.insecure_origin_warning() {
         log::warning("server", warning);
     }
@@ -150,6 +151,7 @@ pub async fn serve_until(
             Instant::now().duration_since(started).as_millis()
         ),
     );
+    let _ = telemetry.shutdown_with_timeout(deadline.saturating_duration_since(Instant::now()));
     Ok(())
 }
 

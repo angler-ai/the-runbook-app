@@ -1,3 +1,4 @@
+import { inSpan, requestContext, serverKind } from '@runbook/runner-shared/telemetry';
 import type http from 'node:http';
 import { createConnection } from 'node:net';
 import { HttpError, sameToken, type Route } from '@runbook/runner-shared/http';
@@ -30,7 +31,7 @@ export function addOAuthTunnel(server: http.Server, vaultToken: string | undefin
     const deadline = setTimeout(() => downstream.destroy(), deadlineMs);
     deadline.unref();
     downstream.once('close', () => clearTimeout(deadline));
-    void (async () => {
+    void inSpan('oauth.connect', async () => {
       let target;
       try {
         target = await pinnedAddress(connectHost(request.url ?? ''));
@@ -46,12 +47,17 @@ export function addOAuthTunnel(server: http.Server, vaultToken: string | undefin
         else downstream.destroy();
       });
       let established = false;
-      upstream.once('connect', () => {
-        established = true;
-        downstream.write('HTTP/1.1 200 Connection Established\r\n\r\n');
-        if (head.length) upstream.write(head);
-        downstream.pipe(upstream).pipe(downstream);
+      await new Promise<void>((resolve) => {
+        upstream.once('error', () => resolve());
+        upstream.once('close', () => resolve());
+        upstream.once('connect', () => {
+          established = true;
+          downstream.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+          if (head.length) upstream.write(head);
+          downstream.pipe(upstream).pipe(downstream);
+          resolve();
+        });
       });
-    })();
+    }, serverKind, requestContext(request.headers)).catch(() => downstream.destroy());
   });
 }

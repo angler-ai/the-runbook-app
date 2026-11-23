@@ -878,6 +878,21 @@ pub fn apply(
             }
             approval.agent_notes.push(note.clone());
         }
+        Event::RunnerTraceRecorded {
+            step_run_id,
+            trace_id,
+        } => {
+            if trace_id.len() != 32
+                || !trace_id
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                || trace_id.bytes().all(|b| b == b'0')
+            {
+                return Err(EngineError::new("runner.trace_invalid"));
+            }
+            let index = state.step_index(step_run_id)?;
+            next.steps[index].runner.trace_id = Some(trace_id.clone());
+        }
         Event::StepCostReported {
             step_run_id, cost, ..
         } => crate::runner::cost_reported(&mut next, state, step_run_id, cost)?,
