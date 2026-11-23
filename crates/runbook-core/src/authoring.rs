@@ -69,6 +69,7 @@ pub fn sync_response(
         .iter()
         .zip(published)
         .map(|(op, view)| SyncRunbookView {
+            warnings: op.prepared.warnings.clone(),
             path: Some(op.path.clone()),
             slug: op.slug.clone(),
             runbook_id: Some(op.runbook_id.clone()),
@@ -87,6 +88,7 @@ pub fn sync_response(
         })
         .collect();
     runbooks.extend(archive.iter().map(|(slug, id)| SyncRunbookView {
+        warnings: Vec::new(),
         path: None,
         slug: slug.clone(),
         runbook_id: Some(id.clone()),
@@ -105,9 +107,21 @@ pub fn sync_response(
         etag: None,
     }
 }
+/// R0-3: what publish resolves agent steps against.
+#[derive(Clone, Debug, Default)]
+pub struct RunnerAgents {
+    pub agents: Vec<runbook_model::AgentDirectoryEntry>,
+    pub default_agent: Option<String>,
+}
+
 pub trait AuthoringStore {
     type Catalog: CatalogStore + BlobStore;
     fn catalog(&self) -> &Self::Catalog;
+    /// R0-3: the project's agent directory and default agent. Hosts
+    /// without a runner registry have none.
+    fn runner_agents(&self) -> impl Future<Output = Result<RunnerAgents, StoreError>> {
+        std::future::ready(Ok(RunnerAgents::default()))
+    }
     fn catalog_runbooks(&self) -> impl Future<Output = Result<Vec<RunbookRecord>, StoreError>>;
     /// UI-1c: this project's runbook whose slug is exactly `slug`, if any
     /// (`GET /v1/projects/{p}/runbooks/{slug}`). The SQL stores read the

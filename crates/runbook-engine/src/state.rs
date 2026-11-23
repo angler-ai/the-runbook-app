@@ -46,6 +46,7 @@ pub struct StepState {
     pub catch_source: Option<StepRunId>,
     pub skip_reason: Option<crate::SkipReason>,
     pub attempt: u32,
+    pub(crate) contributors: Rc<crate::approval::Contributors>,
     pub attempt_history: Vec<Rc<crate::AttemptRecord>>,
     pub recovery_pending: bool,
     pub retry_timer: Option<crate::RetryTimer>,
@@ -61,6 +62,8 @@ pub struct StepState {
     /// the base its reminders and escalation count from; how many
     /// reminders were sent since; and its follow-up escalation, if any.
     pub opened_at_ms: Option<i64>,
+    pub(crate) due_after_ms: Option<u64>,
+    pub overdue_since_ms: Option<i64>,
     pub reminders_sent: u32,
     pub followup_escalation: Option<crate::EscalationSnapshot>,
     pub revision: u64,
@@ -79,6 +82,8 @@ pub struct StepState {
     pub memory_saved: Vec<MemoryId>,
     /// MEM6: entries this step run edited, in edit order.
     pub memory_edited: Vec<MemoryId>,
+    /// R0-4: the runner agent's work on this step.
+    pub runner: crate::RunnerStepState,
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct ExecutionState {
@@ -240,6 +245,7 @@ impl StepState {
             group_finally: None,
             skip_reason: None,
             attempt: 1,
+            contributors: Default::default(),
             attempt_history: vec![],
             recovery_pending: false,
             retry_timer: None,
@@ -250,12 +256,15 @@ impl StepState {
             routing_error: None,
             blocked_notification_queued: false,
             opened_at_ms: None,
+            due_after_ms: node.due_after.map(|due| due.millis),
+            overdue_since_ms: None,
             reminders_sent: 0,
             followup_escalation: None,
             revision: 0,
             actor: None,
             finished_at_ms: None,
             reads: vec![],
+            runner: crate::RunnerStepState::default(),
             original: None,
             amendments: vec![],
             amended: false,

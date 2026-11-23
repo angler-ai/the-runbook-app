@@ -1,0 +1,22 @@
+---
+title: Limits and budgets
+description: Bound concurrency and spend from the organization down to one step.
+sidebar:
+  order: 5
+---
+
+Set the organization defaults in **Settings › Organization › Runner › Policy & budgets**. Set lower limits for expensive agents or steps. The scheduler evaluates the limits together before admitting work.
+
+| Level | Capacity | Budget |
+| --- | --- | --- |
+| Organization | Concurrent steps across groups | Daily and monthly |
+| Group | Concurrent steps in the group | Daily and monthly |
+| Runner | Sandbox slots, CPU, and memory | Counts toward the group |
+| Project | Concurrent steps | Daily |
+| Agent | Concurrent steps | Per agent where configured |
+| Run | | Optional per-run cap |
+| Step | Wall-clock, idle, turn, and token limits | Per-step cap |
+
+The gateway reserves the maximum estimated cost before sending a model call and settles the reservation against the actual cost afterward. A working turn also keeps room for the step's final answer: about the cost of sending the turn's maximum output plus 96K tokens of context again, and 4,096 output tokens. If a step's budget can't cover that, the agent gets no working turn. It starts on its final turn and usually reports blocked. At Claude Sonnet 5.5 prices that room is about $0.35, so keep step budgets for Sonnet at $0.50 or more, and higher for larger models. Lower an agent's `max_tokens` to make each turn's reservation smaller. Metered sandbox compute can count toward the same budgets. If a budget blocks work, the run page shows a waiting or stop reason. Calendar budgets use the policy's time zone.
+
+Sandboxes are created for individual steps and reclaimed when they finish, are canceled, or lose the lease. Idle steps stop after the configured timeout, freeing the slot and sandbox. Use the Runner overview for registration, capacity, and organization spend. Use the agent Activity tab for available usage data and the run page for reported model and compute cost per step.

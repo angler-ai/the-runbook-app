@@ -16,7 +16,8 @@
 //     401 {code: "auth.no_session"}   unknown, expired, revoked, malformed, or
 //         minted for another resource
 import type { Hono } from 'hono';
-import type { Auth } from './app';
+import type { AppDeps, Auth } from './app';
+import { deliverMfaNotifications, mfaEnrolled, sessionFacts } from './mfa';
 import { migrateCookieHeader } from './cookies';
 import type { OAuthAuth } from './oauth';
 import type { AuthConfig } from './config';
@@ -66,6 +67,7 @@ export function mountInternal(
   app: Hono,
   config: AuthConfig,
   auth: Auth | null,
+  deps: AppDeps,
   mail: InternalMail | null = null,
 ): void {
   app.use('/internal/*', async (c, next) => {
@@ -87,17 +89,7 @@ export function mountInternal(
       result = null;
     }
     if (!result) return unauthorized('auth.no_session', 'No live session.');
-    const { session, user } = result;
-    return c.json({
-      auth_user_id: user.id,
-      email: user.email,
-      email_verified: user.emailVerified === true,
-      // Google's name and photo, for the account a first sign-in creates.
-      ...(typeof user.name === 'string' && user.name.trim() !== '' ? { name: user.name.trim() } : {}),
-      ...(typeof user.image === 'string' && user.image.startsWith('https://') ? { image: user.image } : {}),
-      session_id: session.id,
-      expires_at: new Date(session.expiresAt).getTime(),
-    });
+    return c.json(await sessionFacts(auth, result));
   });
 
   // Re-check 2: a backend failure is 503 (Rust answers it as unavailable),
@@ -132,6 +124,54 @@ export function mountInternal(
   // NOTIFY1: the Worker's mail sender. The body is a rendered message
   // from a Rust outbox row; the transport is this service's own (SMTP,
   // the Email binding, or capture in tests). No content is logged.
+  app.post('/internal/mfa/enrollment', async (c) => {
+    const { auth_user_ids } = (await body(c)) ?? {};
+    if (!auth) return unavailable();
+    if (!Array.isArray(auth_user_ids) || auth_user_ids.length === 0 || auth_user_ids.length > 64
+      || auth_user_ids.some((id) => typeof id !== 'string' || id.length === 0 || id.length > 256)) {
+      return c.json({ code: 'auth.invalid_request' }, 400);
+    }
+    try {
+      for (const id of new Set<string>(auth_user_ids)) {
+        if (await mfaEnrolled(auth, { id })) return c.json({ enrolled: true });
+      }
+      return c.json({ enrolled: false });
+    } catch {
+      return unavailable();
+    }
+  });
+  //   POST /internal/mfa/factors   {"auth_user_ids": [...]}   (1–256 IDs)
+  //     200 {factors: [{auth_user_id, email, passkeys, authenticator}]}
+  // Enrolled factors per auth user, for `/v1/me/security` and the
+  // organization policy preview. Unknown IDs are left out.
+  app.post('/internal/mfa/factors', async (c) => {
+    const { auth_user_ids } = (await body(c)) ?? {};
+    if (!auth) return unavailable();
+    if (!Array.isArray(auth_user_ids) || auth_user_ids.length === 0 || auth_user_ids.length > 256
+      || auth_user_ids.some((id) => typeof id !== 'string' || id.length === 0 || id.length > 256)) {
+      return c.json({ code: 'auth.invalid_request' }, 400);
+    }
+    try {
+      return c.json({ factors: await deps.store.mfaFactors([...new Set<string>(auth_user_ids)]) });
+    } catch {
+      return unavailable();
+    }
+  });
+  app.post('/internal/mfa/reset', async (c) => {
+    const { auth_user_ids, actor } = (await body(c)) ?? {};
+    if (!Array.isArray(auth_user_ids) || auth_user_ids.length === 0 || auth_user_ids.length > 64
+      || auth_user_ids.some((id) => typeof id !== 'string' || id.length === 0 || id.length > 256)
+      || typeof actor !== 'string' || actor.length === 0 || actor.length > 256) {
+      return c.json({ code: 'auth.invalid_request' }, 400);
+    }
+    try {
+      const found = await deps.store.resetMfa(null, [...new Set(auth_user_ids)], actor);
+      for (const user of found) await deliverMfaNotifications(deps, user.id);
+      return c.json({ reset: found.length > 0 });
+    } catch {
+      return unavailable();
+    }
+  });
   app.post('/internal/email/send', async (c) => {
     const found = await body(c);
     if (!mail) return unavailable();

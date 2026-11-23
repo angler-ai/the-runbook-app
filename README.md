@@ -1,10 +1,12 @@
 # The Runbook
 
-**Runbooks that people and AI agents run together.** Write a procedure once as a short YAML file. Agents claim and do their steps, people approve and take over where judgment matters, and every run leaves a readable record of who did what, with logs, outputs and evidence.
+**A system of record for operations, run by agents and people.** Write a
+procedure once as a short YAML file. Agents do their steps, people approve
+and take over where judgment matters, and every run leaves a readable record
+of who did what, with logs, outputs and evidence.
 
-Open source and self-hosted: one container with PostgreSQL, or your own Cloudflare account. Built by [Angler AI](https://getangler.ai).
-
-> **Status:** pre-release. The server, CLI, MCP server and web UI work end to end; the first release, `v0.1.0`, is coming.
+Open source and self-hosted on containers with PostgreSQL or on your own
+Cloudflare account. Built by [Angler AI](https://getangler.ai).
 
 ---
 
@@ -34,7 +36,9 @@ Start it from CI after a deploy:
 runbook run start post-deploy-checks --project prod --input service=api
 ```
 
-Your agent (Claude Code, Codex, Cursor, or a script) is told there's work through a webhook or MCP. It claims each step, reports its result and attaches logs. You get a run page that reads like a document, and you can export it as Markdown, JUnit or PDF.
+Connect an agent through the CLI or MCP, or target a project agent on your
+own runner. It claims each step, reports its result and attaches evidence.
+The run page reads like a document and exports as Markdown, JSON, JUnit or PDF.
 
 ### A step that runs a real command
 
@@ -55,6 +59,7 @@ The CLI holds the step's lease while the command runs, streams its output into t
   approval:
     prompt: Ship ${{ inputs.version }} to every region?
     options: [ship, hold]
+    approves: [ship]
     approvers: { teams: [oncall] }
 - id: rollout
   foreach:
@@ -64,115 +69,63 @@ The CLI holds the step's lease while the command runs, streams its output into t
     max_items: 10
     steps:
       - id: deploy
+        if: "${{ steps.go_no_go.outputs.decision == 'ship' }}"
         destructive: true
         instructions: Roll out to ${{ region }}.
 ```
 
-Agents do the canaries in parallel, a person on call approves, and the rollout goes one region at a time. Destructive steps and approvals keep agents from doing what should need a human.
-
-### Customer onboarding with your own app in the loop
-
-Steps can wait for a signal, so your product marks them done when the customer acts:
-
-```yaml
-- id: connect_shopify
-  wait: { signal: shopify_connected, timeout: 14d }
-```
-
-```sh
-curl -X POST "$RUNBOOK/v1/executions/$RUN/signals/shopify_connected" \
-  -H "Authorization: Bearer $TOKEN" -d '{"connected_by": "…"}'
-```
-
-Internal people, agents, customers and APIs each advance their part of the same run, in any order where it doesn't matter.
-
-### Runs that start themselves
-
-A schedule or a call from another system starts a run of the latest published version. Set them up in the editor's Triggers form, or in YAML:
-
-```yaml
-spec:
-  triggers:
-    schedule:
-      - { id: weekday_check, cron: "0 9 * * 1-5", timezone: America/New_York, inputs: { service: api } }
-    webhook:
-      - id: on_deploy
-        payload: { status: { type: string }, service: { type: string } }
-        when: "${{ payload.status == 'success' }}"
-        inputs: { service: "${{ payload.service }}" }
-```
-
-### Ask your agent to write the runbook
-
-Over MCP, an agent can draft a runbook (`save_runbook_draft`), validate it and show you the diff. A person publishes it.
-
----
+Agents do the canaries in parallel. The rollout runs one region at a time
+if a person on call chooses `ship`.
 
 ## Capabilities
 
-**Runbook language**
-- YAML with steps of many kinds:
-  - tasks, checks and approvals;
-  - `parallel` branches with `join: all | any | at_least`;
-  - `switch` and `if`, `foreach`, and `loop` with `until` or `while`;
-  - `wait` for signals, `set` for variables and fields;
-  - `call` to run another runbook as a child;
-  - `end`, plus `catch` and `finally`.
-- Typed inputs, outputs and fields; expressions; per-step timeouts; retries by failure type, catches and handoffs; reminders and escalation; concurrency keys.
-- Triggers: schedules (cron in a time zone) and webhooks that start runs on their own.
-- Only IDs are required. A runbook can be three lines long.
-
-**People and agents**
-- Each step is for a person, an agent or anyone. An assignee is guidance unless a step makes it strict.
-- People can take over an agent's step, and the takeover is recorded.
-- Agents work through the CLI (`runbook step next / claim / report / exec`) or MCP, under leases with heartbeats, so a crashed agent never holds a step forever.
-- Agent skills can be attached to steps.
-- Memory: agents and people save what they learn per runbook, and the next run's steps see it. People can lock, restore, accept or archive entries.
-
-**Web app**
-- Home, My tasks and the runbooks list, with people's photos and project images.
-- A graph-first runbook page, its runs beside the selected run, and a visual builder (with a Triggers form) kept in sync with the YAML.
-- A live run page with an execution graph, plus a document-style run log.
-- Evidence uploads with thumbnails.
-- Account settings, organization and project administration, webhooks, skills and daily archives.
-
-**Integrations**
-- **MCP server:** local over stdio, or remote at `/mcp` with OAuth sign-in for Claude, Cursor and other clients.
-- **Webhooks:** signed, with delivery logs, redelivery and secret rotation.
-- **Reports:** JSON, Markdown, JUnit and PDF.
-- **CLI:** for scripts, CI and agents. `runbook login https://your-server` asks nothing else; contexts hold several servers, each with a default project. `runbook push`, `diff` and `publish` keep runbooks in git. Install it on macOS or Linux with `curl -fsSL https://github.com/angler-ai/the-runbook-app/releases/latest/download/install.sh | sh`.
-- **REST API:** full, with an OpenAPI contract (`api/openapi.draft.json`).
-
-**Security and control**
-- **Sign-in:** email codes or Google, never passwords. Invitations only, optionally limited to your email domain.
-- **Roles:** organization roles (owner, admin, member) and project roles (viewer, operator, editor, admin). Organization owners and admins are admins of every project.
-- **API tokens:** scoped to chosen permissions and projects.
-- **Secret redaction** in logs.
-- **An audit trail:** every run event records who did it.
-
-**Operations**
-- **Self-host with Docker:** one container and PostgreSQL, with several replicas behind a load balancer.
-- **Run it on any container platform:** Cloud Run, Kubernetes, ECS. There's Terraform for GKE with Cloud SQL.
-- **Run it on Cloudflare:** Workers, Durable Objects, D1 and R2 (needs Workers Paid).
-- **File storage:** files stay in Postgres by default, or go to GCS or S3.
-- **Daily archives and retention**, and project import and export.
-- **One-command updates** with automatic rollback.
-- **Limits you set:** an optional cap on steps per run (`RUNBOOK_LIMIT_STEP_RUNS`), run size, request size and monthly runs.
-
----
+- **Runbook language.** Steps, checks and approvals, parallel work, loops,
+  retries, handoffs and waits for signals. Schedules and webhooks start runs.
+  Keep YAML in Git or edit it in the visual builder.
+- **People and agents.** Assign steps, take over an agent's work, or approve from
+  the web app or Slack. Leases keep crashed agents from holding work forever.
+  The CLI, MCP and REST API let agents and scripts work steps, attach evidence
+  and turn what they learn into runbook memory for human review.
+- **Optional runner.** Set up model providers, MCP servers, credentials, policy
+  and budgets at the organization level. Configure agents in each project and
+  target them from steps. The runner starts a sandbox when an agent needs to
+  run code. A person must approve destructive runner steps. Routine approvals
+  can opt in to a read-only agent decision.
+- **Security.** Passkeys, authenticator apps and backup codes, with organization
+  MFA policy and fresh checks for sensitive actions. Tokens are scoped and
+  activity is audited. Runner credentials are sealed from the browser or CLI
+  to the registered vault identity, encrypted at rest and released to the
+  gateway for a live lease and a bound destination. The gateway applies
+  credentials outside the sandbox.
 
 ## Get started
 
 | You want to | Read |
 | --- | --- |
-| Run it with Docker | [`deploy/README.md`](deploy/README.md) |
-| Run it on Cloud Run, Kubernetes or GKE with Cloud SQL | [`deploy/platforms.md`](deploy/platforms.md), [`deploy/terraform/gcp-gke/`](deploy/terraform/gcp-gke/) |
-| Run it on your Cloudflare account | [`cloudflare/README.md`](cloudflare/README.md) |
-| Set up people, sign-in and agents | [`docs/install.md`](docs/install.md) |
-| Learn the runbook language | [`docs/pilot-profile.md`](docs/pilot-profile.md) |
-| Keep runbooks in a Git repository | [`docs/git-sync.md`](docs/git-sync.md) |
-| Approve from Slack | [`docs/slack.md`](docs/slack.md) |
-| Teach your agent | `runbook skill install --therunbook` (Claude Code, Codex, Cursor), `npx skills add angler-ai/the-runbook-app` (other agents), the Claude Code plugin (`/plugin install therunbook --marketplace angler-ai/the-runbook-app`), or [`therunbook-skill.zip`](https://github.com/angler-ai/the-runbook-app/releases/latest/download/therunbook-skill.zip) for Claude and ChatGPT; the skill lives in [`skills/therunbook/`](skills/therunbook/) |
+| Run it with Docker and PostgreSQL | [Docker quick start](https://docs.therunbook.app/getting-started/docker/) |
+| Run it on Kubernetes or GKE with Cloud SQL | [Container platforms](deploy/platforms.md) and [GKE quick start](https://docs.therunbook.app/getting-started/gke/) |
+| Run it in your Cloudflare account | [Cloudflare quick start](https://docs.therunbook.app/getting-started/cloudflare/) |
+| Write your first runbook | [First runbook](https://docs.therunbook.app/getting-started/first-runbook/) |
+| Connect your agent or install the runner | [Agents](https://docs.therunbook.app/agents/) and [runner setup](https://docs.therunbook.app/runner/setup/) |
+| Install the CLI or configure sign-in | [CLI quick start](https://docs.therunbook.app/getting-started/cli/) and [multi-factor sign-in](https://docs.therunbook.app/security/multi-factor/) |
+
+## Upgrade to v0.1.1
+
+1. Back up and update the core and sign-in service together. Use
+   `deploy/update.sh` for Docker Compose or `npm run update` from
+   `cloudflare/`. Check that `GET /v1/meta` reports the new release and
+   `runner_contract_version` of at least 4 before updating the runner.
+2. If you already run a runner, stop old runner API instances before applying
+   its database migrations. Update the runner and register its vault identity
+   before entering credentials from the updated browser or CLI.
+3. Turn on organization MFA after verifying sign-in and reviewing who the
+   policy covers.
+
+See the [release notes](https://docs.therunbook.app/changelog/#011) and
+[upgrade guide](https://docs.therunbook.app/operating/upgrades/) for the
+edition-specific steps.
+
+---
 
 ## Develop
 

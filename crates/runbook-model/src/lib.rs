@@ -12,6 +12,22 @@ pub use document::*;
 pub use inbox::*;
 pub use memory::*;
 
+/// The canonical API address for a run on this origin.
+pub fn execution_api_url(origin: &str, id: &ExecutionId) -> String {
+    format!("{}/v1/executions/{id}", origin.trim_end_matches('/'))
+}
+
+/// Derive the browser link from a run's stored API address.
+pub fn execution_web_url(url: &str, id: &ExecutionId) -> String {
+    let api_path = format!("/v1/executions/{id}");
+    let web_path = format!("/x/{id}");
+    let origin = url
+        .strip_suffix(&api_path)
+        .or_else(|| url.strip_suffix(&web_path))
+        .unwrap_or_default();
+    format!("{origin}{web_path}")
+}
+
 pub type Data = BTreeMap<String, Value>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -51,6 +67,40 @@ pub struct ReportRequest {
     pub evidence: Vec<String>,
     #[serde(default)]
     pub logs: Vec<String>,
+    /// R0-6: what the step cost (runner agents report it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost: Option<StepCost>,
+}
+
+/// R0-6: a step's cost: model and compute spend in US dollars and the
+/// model tokens. Finite and never negative.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct StepCost {
+    #[serde(default)]
+    pub model_usd: f64,
+    #[serde(default)]
+    pub compute_usd: f64,
+    #[serde(default)]
+    pub input_tokens: u64,
+    #[serde(default)]
+    pub output_tokens: u64,
+    #[serde(default)]
+    pub cached_tokens: u64,
+}
+impl StepCost {
+    /// Every amount finite and at least zero.
+    pub fn valid(&self) -> bool {
+        [self.model_usd, self.compute_usd]
+            .iter()
+            .all(|v| v.is_finite() && *v >= 0.0)
+    }
+    pub fn add(&mut self, other: &StepCost) {
+        self.model_usd += other.model_usd;
+        self.compute_usd += other.compute_usd;
+        self.input_tokens = self.input_tokens.saturating_add(other.input_tokens);
+        self.output_tokens = self.output_tokens.saturating_add(other.output_tokens);
+        self.cached_tokens = self.cached_tokens.saturating_add(other.cached_tokens);
+    }
 }
 
 macro_rules! domain_id {
@@ -116,6 +166,10 @@ domain_id!(ProjectId, "prj_", "^prj_[0-7][0-9A-HJKMNP-TV-Z]{25}$");
 domain_id!(EvidenceId, "evd_", "^evd_[0-7][0-9A-HJKMNP-TV-Z]{25}$");
 // A pending organization invitation (D45).
 domain_id!(InvitationId, "inv_", "^inv_[0-7][0-9A-HJKMNP-TV-Z]{25}$");
+// R0-2: a runner install (control plane), a runner group and a runner.
+domain_id!(RunnerInstallId, "ri_", "^ri_[0-7][0-9A-HJKMNP-TV-Z]{25}$");
+domain_id!(RunnerGroupId, "rg_", "^rg_[0-7][0-9A-HJKMNP-TV-Z]{25}$");
+domain_id!(RunnerId, "rn_", "^rn_[0-7][0-9A-HJKMNP-TV-Z]{25}$");
 
 /// CLI diagnostics have no YAML source span. Parser diagnostics remain separate.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -298,8 +352,54 @@ pub enum ActorRef {
         session_id: String,
         name: String,
         model: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        service_attribution: Option<Box<ServiceTokenAttribution>>,
     },
     System,
+}
+
+/// Service credential provenance recorded when work is performed.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ServiceTokenAttribution {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub creator: Option<UserId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<UserId>,
+}
+
+impl ServiceTokenAttribution {
+    pub fn users(&self) -> impl Iterator<Item = &UserId> {
+        self.creator.iter().chain(&self.owner)
+    }
+}
+
+impl ActorRef {
+    /// Claim ownership is tied to the principal and session. Attribution can
+    /// change between the claim and a subsequent report.
+    pub fn same_claim_actor(&self, other: &Self) -> bool {
+        match (self, other) {
+            (
+                Self::Agent {
+                    principal_id,
+                    session_id,
+                    name,
+                    model,
+                    ..
+                },
+                Self::Agent {
+                    principal_id: their_id,
+                    session_id: their_session,
+                    name: their_name,
+                    model: their_model,
+                    ..
+                },
+            ) => {
+                (principal_id, session_id, name, model)
+                    == (their_id, their_session, their_name, their_model)
+            }
+            _ => self == other,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -383,6 +483,66 @@ pub struct StepView {
     /// follow-up escalation, once either has happened.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub followup: Option<StepFollowupView>,
+    /// R0: the runner agent an agent step targets, and what the runner
+    /// did with it. Omitted for steps open to external agents.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runner: Option<StepRunnerView>,
+    /// R0-6: what the step's reports said it cost (all attempts).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost: Option<StepCost>,
+}
+
+/// R0: a runner agent's step on the run page.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct StepRunnerView {
+    pub agent_id: String,
+    pub agent_name: String,
+    /// The most recent sampled runner claim's W3C trace ID (32 lowercase hex digits).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_id: Option<String>,
+    /// The model profile the step asked for, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// The agent version the current (or last) claim pinned.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_version_id: Option<String>,
+    /// Why the step waits for its runner, until it is claimed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub waiting_reason: Option<String>,
+    /// The runner's words for people about the wait, if it gave any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub waiting_detail: Option<String>,
+    /// Credentials released to the step's claims (never values).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub releases: Vec<StepCredentialRelease>,
+    /// Credentials were released to a claim that ended without a report.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub released_never_reported: bool,
+    /// R1-D2: on an approval the agent may decide, when its decision work
+    /// becomes ready (`agent.after` past the approval opening; epoch ms).
+    /// Omitted for task steps and before the approval is requested.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision_ready_at_ms: Option<i64>,
+    /// R1-D2: the runner agent reviewing the approval now (a decision
+    /// lease is held). People can still decide while it reviews.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision_lease: Option<DecisionLeaseView>,
+    /// R1-D2: the agent's abstentions on the approval (agent-written,
+    /// untrusted text).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agent_notes: Vec<ApprovalAgentNote>,
+}
+/// R0: one credential release in a step's record.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct StepCredentialRelease {
+    pub credential_id: String,
+    pub credential_version: u64,
+    pub delivery: String,
+    pub runner_id: String,
+    /// Epoch milliseconds.
+    pub at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revoked: Option<String>,
 }
 
 /// LANG9: follow-ups that have already happened for a step's current
@@ -488,6 +648,15 @@ pub struct ExecutionParentView {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct ExecutionView {
+    /// Milestones that passed their run-relative deadline and are still unfinished.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub overdue_steps: Vec<OverdueStepView>,
+    /// The run's API address.
+    #[serde(default)]
+    pub url: String,
+    /// The run page to share with people.
+    #[serde(default)]
+    pub web_url: String,
     #[schemars(range(max = 4294967295_u64))]
     pub schema_revision: NonZeroU32,
     pub id: ExecutionId,
@@ -550,6 +719,19 @@ pub struct ExecutionView {
     /// UI-2: top-level step progress. Absent before the run starts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub progress: Option<ExecutionProgressView>,
+    /// R0-6: what the run's steps reported they cost, summed. Absent when
+    /// no step reported a cost.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost: Option<StepCost>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct OverdueStepView {
+    pub path: String,
+    pub title: String,
+    pub due_at_ms: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step_run_id: Option<StepRunId>,
 }
 
 /// LANG3: a run cancelled because a newer run took its concurrency key.
@@ -606,12 +788,24 @@ pub enum DecisionRecord {
     /// before this variant existed keep their `System { policy:
     /// "agent:<name>" }` shape.
     Agent {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        principal: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        evidence: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        evidence_source: Option<AgentEvidenceSource>,
         agent_name: String,
         model: Option<String>,
         session_id: String,
         option: String,
         comment: Option<String>,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentEvidenceSource {
+    RunnerReported,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -624,10 +818,36 @@ pub struct ApprovalView {
     pub options: Vec<ApprovalOption>,
     pub eligible_recipients: Vec<RecipientRef>,
     pub escalation_recipients: Vec<RecipientRef>,
+    /// People who completed work this approval must independently review.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub excluded_completers: Vec<UserId>,
+    /// Why a pending approval has no independent reviewers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blocked_reason: Option<String>,
     pub escalated: bool,
     #[schemars(range(max = 4294967295_u64))]
     pub quorum: NonZeroU32,
     pub decisions: Vec<DecisionRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision_lease: Option<DecisionLeaseView>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agent_notes: Vec<ApprovalAgentNote>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct DecisionLeaseView {
+    pub lease_id: ClaimId,
+    pub agent_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ApprovalAgentNote {
+    pub lease_id: ClaimId,
+    pub principal: String,
+    pub agent_name: String,
+    pub model: Option<String>,
+    pub reason: String,
+    pub at_ms: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -649,6 +869,11 @@ pub struct ReadyWork {
     pub path: String,
     pub title: String,
     pub actor_kind: ActorKind,
+    /// R0-4: the runner agent the step targets, and its group.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -659,6 +884,12 @@ pub struct CommentView {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct ResumeBrief {
+    /// The run's API address.
+    #[serde(default)]
+    pub url: String,
+    /// The run page to share with people.
+    #[serde(default)]
+    pub web_url: String,
     #[schemars(range(max = 4294967295_u64))]
     pub schema_revision: NonZeroU32,
     pub execution_id: ExecutionId,
@@ -833,6 +1064,9 @@ pub struct PublishedVersionView {
     pub runbook_version_id: VersionId,
     #[schemars(range(max = 4294967295_u64))]
     pub runbook_version: NonZeroU32,
+    /// Nonblocking diagnostics emitted when publishing this version.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<Diagnostic>,
 }
 
 /// Any stored version: preview versions have an rbv_ ID but no number, and
@@ -875,8 +1109,10 @@ pub use directory_api::*;
 
 pub mod authoring_api;
 pub mod me_api;
+pub mod mfa_api;
 pub use authoring_api::*;
 pub use me_api::*;
+pub use mfa_api::MFA_ROUTES;
 pub mod pictures_api;
 pub mod search_api;
 pub mod slack_api;
@@ -892,6 +1128,9 @@ pub use webhook_api::*;
 
 pub mod token_api;
 pub use token_api::*;
+// R0: the runner's core API.
+pub mod runner_api;
+pub use runner_api::*;
 
 // T0 contract freeze (plan 2026-11-12): planned post-pilot operations.
 pub mod archive_api;
@@ -943,7 +1182,18 @@ pub struct ClaimedStepRead {
     /// before CF12c.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub evidence: Option<StepEvidencePolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runner_limits: Option<RunnerStepLimits>,
 }
+
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+pub struct RunnerStepLimits {
+    pub model: Option<String>,
+    pub max_tokens: Option<u64>,
+    pub timeout_ms: Option<u64>,
+    pub check: bool,
+}
+
 /// CF12c: a task's `evidence` as a step read carries it.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct StepEvidencePolicy {

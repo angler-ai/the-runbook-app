@@ -119,6 +119,7 @@ pub fn assume_calls_resolve(source: &str, context: &mut runbook_spec::CompileCon
                             depth: 0,
                             reaches: vec![],
                             destructive: false,
+                            agent_decidable: Some(false),
                             inputs: Default::default(),
                             input_schemas: Default::default(),
                             outputs: Default::default(),

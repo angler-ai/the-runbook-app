@@ -365,6 +365,7 @@ impl PostgresExecutionStore {
         if let Some(row) = &latest {
             if hash_of(row.get(2))? == prepared.semantic_hash {
                 return Ok(PublishedVersionView {
+                    warnings: prepared.warnings.clone(),
                     runbook_id: id.clone(),
                     runbook_version_id: parse_id(row.get(0))?,
                     runbook_version: NonZeroU32::new(
@@ -382,6 +383,7 @@ impl PostgresExecutionStore {
             NonZeroU32::new(next).ok_or(StoreError::InvalidBatch("catalog.version_overflow"))?;
         insert_version(c, &self.scope, id, &prepared, Some(number), &None, &None).await?;
         let view = PublishedVersionView {
+            warnings: prepared.warnings.clone(),
             runbook_id: id.clone(),
             runbook_version_id: prepared.version_id.clone(),
             runbook_version: number,
@@ -463,6 +465,7 @@ impl PostgresExecutionStore {
         if let Some(row) = &latest {
             if hash_of(row.get(2))? == prepared.semantic_hash {
                 return Ok(PublishedVersionView {
+                    warnings: prepared.warnings.clone(),
                     runbook_id: id.clone(),
                     runbook_version_id: parse_id(row.get(0))?,
                     runbook_version: NonZeroU32::new(
@@ -489,6 +492,7 @@ impl PostgresExecutionStore {
         )
         .await?;
         let view = PublishedVersionView {
+            warnings: prepared.warnings.clone(),
             runbook_id: id.clone(),
             runbook_version_id: prepared.version_id.clone(),
             runbook_version: number,

@@ -99,7 +99,9 @@ impl ExecutionBackend for PostgresExecutionBackend {
         scope: &TenantScope,
         execution: &ExecutionId,
     ) -> Result<ExecutionDocumentView, Error> {
-        Ok(self.document(scope, execution).await?.1)
+        let (_, mut document) = self.document(scope, execution).await?;
+        document.trace_project = crate::telemetry::project().map(str::to_owned);
+        Ok(document)
     }
     async fn report_markdown(
         &self,
@@ -227,8 +229,9 @@ impl ExecutionBackend for PostgresExecutionBackend {
         &self,
         scope: &TenantScope,
         query: runbook_api::search::SearchQuery,
+        origin: &str,
     ) -> Result<serde_json::Value, Error> {
-        crate::run_search::search(self, scope, query).await
+        crate::run_search::search(self, scope, query, origin).await
     }
 
     async fn execution_project(
@@ -482,8 +485,11 @@ fn initial_view(
     admission: Option<Admission>,
 ) -> ExecutionView {
     ExecutionView {
+        overdue_steps: vec![],
         schema_revision: NonZeroU32::MIN,
         id: id.clone(),
+        url: record.context.url.clone(),
+        web_url: execution_web_url(&record.context.url, id),
         runbook_id: Some(record.runbook_id.clone()),
         runbook_slug: None,
         project_id: None,
@@ -519,6 +525,7 @@ fn initial_view(
             .as_ref()
             .map(runbook_core::execution_document::parent_view),
         progress: None,
+        cost: None,
     }
 }
 fn admission_view(admission: Admission) -> ExecutionAdmissionView {
@@ -641,6 +648,8 @@ fn current_view(
             iterations: None,
             skip_reason: None,
             followup: None,
+            runner: None,
+            cost: None,
         });
     }
     runbook_core::execution_document::apply_amendment_facts(state, &mut view);

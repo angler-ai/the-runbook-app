@@ -44,7 +44,7 @@ use runbook_core::{
     credentials::{TokenKind, parse_secret, secret_hash},
     webhooks::TargetPolicy,
 };
-use runbook_model::ExecutionId;
+use runbook_model::{ExecutionId, OrganizationId};
 use runbook_store_d1::workers::WorkersD1;
 use runbook_store_do::{
     DoObject, DoSql, DoStore, Fault, NotificationCursor, OutboxStream, next_alarm_at,
@@ -281,6 +281,7 @@ pub struct WorkersHost {
     user_content: R2Bucket,
     objects: WorkersObjects,
     webhooks: WorkersWebhookHost,
+    runner_mtls: Option<worker::Fetcher>,
     retention: runbook_core::archives::job::RetentionPolicy,
     retention_offset_ms: i64,
     quota: runbook_core::quotas::QuotaLimits,
@@ -306,6 +307,7 @@ impl WorkersHost {
             blobs: R2Bucket(env.bucket("BLOBS")?),
             user_content: R2Bucket(env.bucket("USER_CONTENT")?),
             objects,
+            runner_mtls: env.service("RUNBOOK_RUNNER_MTLS").ok(),
             webhooks: WorkersWebhookHost {
                 sealer: crate::notify::sealer(env).map(Rc::new),
                 policy: crate::notify::policy(env),
@@ -382,6 +384,12 @@ impl CfHost for WorkersHost {
     fn webhook_host(&self) -> WorkersWebhookHost {
         self.webhooks.clone()
     }
+    async fn runner_fetch(
+        &self,
+        request: runbook_api::runner_proxy::RunnerHttpRequest,
+    ) -> std::result::Result<runbook_api::runner_proxy::RunnerHttpResponse, &'static str> {
+        crate::runner_proxy::fetch(self.runner_mtls.as_ref(), request).await
+    }
     fn now_ms(&self) -> i64 {
         #[allow(clippy::cast_possible_truncation)]
         let now = js_sys::Date::now() as i64;
@@ -430,13 +438,13 @@ impl CfHost for WorkersHost {
     fn auth_methods(&self) -> Vec<String> {
         self.auth_methods.clone()
     }
-    async fn oauth_apps(
+    async fn auth_internal(
         &self,
         route: &'static str,
         body: serde_json::Value,
     ) -> Result<Option<serde_json::Value>, runbook_api::session::Unavailable> {
         match &self.auth {
-            Some(sessions) => sessions.oauth_apps(route, &body).await,
+            Some(sessions) => sessions.auth_internal(route, &body).await,
             None => Ok(None),
         }
     }
@@ -532,7 +540,8 @@ fn worker_router_config(env: &Env) -> runbook_api::router::RouterConfig {
 }
 
 pub(crate) fn origin(env: &Env) -> String {
-    env.var("ORIGIN")
+    env.var("RUNBOOK_ORIGIN")
+        .or_else(|_| env.var("ORIGIN"))
         .map(|v| v.to_string())
         .unwrap_or_else(|_| "http://localhost:8787".into())
 }
@@ -699,6 +708,39 @@ async fn target(
             .map(|(_, exe)| exe)
             .filter(|exe| exe.as_str() == p["exe"]));
     }
+    let step_param = [
+        "/v1/step-runs/{sr}",
+        "/v1/step-runs/{sr}/{rest}",
+        "/v1/step-runs/{sr}/{rest}/{more}",
+        "/v1/step-runs/{sr}/{rest}/{more}/{last}",
+    ]
+    .iter()
+    .find_map(|pattern| match_path(pattern, path))
+    .and_then(|p| p.get("sr").cloned());
+
+    if let Some(sr) = &step_param
+        && runbook_api::runner_access::is_runner(request)
+        && let Some(secret) = request.bearer()
+    {
+        use runbook_core::runners::{RunnerError, RunnerStore, token_hash};
+        // The registry provides the tenant for object routing. The
+        // object's router rechecks the token, route and live claim.
+        let principal = backends
+            .runners()
+            .authenticate(&token_hash(secret))
+            .await
+            .map_err(|error| match error {
+                RunnerError::Store(error) => error,
+                _ => StoreError::Backend("d1.runner_registry"),
+            })?;
+        let Some(principal) = principal else {
+            return Ok(None);
+        };
+        if runbook_api::runner_access::allowed(principal.purpose, &request.method, path).is_none() {
+            return Ok(None);
+        }
+        return step_execution(backends, &principal.org_id, sr).await;
+    }
     // CF7: a session routes by the user it links to (D45), as the router
     // will link it.
     let record = match &request.credential {
@@ -745,27 +787,8 @@ async fn target(
             .filter(|owner| owner.org_id == org)
             .map(|_| exe));
     }
-    let step_param = [
-        "/v1/step-runs/{sr}",
-        "/v1/step-runs/{sr}/{rest}",
-        "/v1/step-runs/{sr}/{rest}/{more}/{last}",
-    ]
-    .iter()
-    .find_map(|pattern| match_path(pattern, path))
-    .and_then(|p| p.get("sr").cloned());
     if let Some(sr) = step_param {
-        let Ok(sr) = sr.parse() else {
-            return Ok(None);
-        };
-        return Ok(backends
-            .execution(TenantScope {
-                org_id: org.clone(),
-                project_id: runbook_api::backends::zero_project(),
-            })
-            .catalog()
-            .step_run_execution(&org, &sr)
-            .await?
-            .map(|(exe, _)| exe));
+        return step_execution(backends, &org, &sr).await;
     }
     // LANG9b: a webhook trigger's call may start a run, so it runs in the
     // object of the run it would create; the router there answers a
@@ -886,7 +909,73 @@ async fn forward(
     }
 }
 
-async fn api(mut req: Request, env: Env, path: String, query: Option<String>) -> Result<Response> {
+async fn step_execution(
+    backends: &CfBackends<WorkersHost>,
+    org: &OrganizationId,
+    step: &str,
+) -> std::result::Result<Option<ExecutionId>, StoreError> {
+    let Ok(step) = step.parse() else {
+        return Ok(None);
+    };
+    backends
+        .execution(TenantScope {
+            org_id: org.clone(),
+            project_id: runbook_api::backends::zero_project(),
+        })
+        .catalog()
+        .step_run_execution(org, &step)
+        .await
+        .map(|result| result.map(|(execution, _)| execution))
+}
+
+/// The API, except that a person who opens a refused `/v1` address in the
+/// browser (say, from an email) gets the sign-in or not-found page rather
+/// than the problem JSON, as natively.
+async fn api(req: Request, env: Env, path: String, query: Option<String>) -> Result<Response> {
+    let header = |name: &str| req.headers().get(name).ok().flatten();
+    let method = if req.method() == Method::Get {
+        "GET"
+    } else {
+        "OTHER"
+    };
+    let navigation = runbook_api::web::is_navigation(
+        method,
+        header("sec-fetch-dest").as_deref(),
+        header("accept").as_deref(),
+    );
+    let callback_failure =
+        || runbook_api::http::oauth_callback_failure(method, &path, "req_callback");
+    let response = match api_inner(req, env, path.clone(), query).await {
+        Ok(response) => response,
+        Err(error) => return callback_failure().map_or(Err(error), to_response),
+    };
+    let problem = response
+        .headers()
+        .get("content-type")
+        .ok()
+        .flatten()
+        .is_some_and(|v| v.starts_with("application/problem+json"));
+    if problem && let Some(failed) = callback_failure() {
+        return to_response(failed);
+    }
+    if navigation
+        && problem
+        && let Some(location) = runbook_api::web::navigation_redirect(&path, response.status_code())
+    {
+        let mut redirect = Response::empty()?.with_status(302);
+        redirect.headers_mut().set("location", location)?;
+        redirect.headers_mut().set("cache-control", "no-store")?;
+        return Ok(redirect);
+    }
+    Ok(response)
+}
+
+async fn api_inner(
+    mut req: Request,
+    env: Env,
+    path: String,
+    query: Option<String>,
+) -> Result<Response> {
     ensure_schema(&env).await?;
     let mut host = WorkersHost::new(&env, WorkersObjects::remote(&env)?)?;
     host.auth_methods = auth_methods(&env).await;
@@ -1043,6 +1132,13 @@ async fn events(req: &Request, env: &Env, path: &str) -> Result<Response> {
     let secret = presented;
     let (scope, execution_id) = match authorize(secret.clone()).await {
         Ok(found) => found,
+        Err((status, code @ "auth.mfa_required")) => {
+            return to_response(runbook_api::problem::Response::error(
+                status,
+                code,
+                "req_events",
+            ));
+        }
         Err((status, code)) => return problem(status, code),
     };
     let stub = env
@@ -1183,7 +1279,8 @@ async fn can_register_route(mut req: Request, env: Env) -> Result<Response> {
     let request_id = nonce(&host)
         .map(|n| format!("req_{n}"))
         .unwrap_or_else(|_| "req_can_register".into());
-    let incoming = read_incoming(&mut req, runbook_api::session::CAN_REGISTER.into(), None).await?;
+    let path = req.url()?.path().to_owned();
+    let incoming = read_incoming(&mut req, path, None).await?;
     let request = match to_request(&incoming, &request_id, String::new(), None) {
         Ok(request) => request,
         Err(response) => return to_response(response),
@@ -1235,6 +1332,23 @@ async fn mcp_route(mut req: Request, env: Env) -> Result<Response> {
 
 #[event(fetch)]
 async fn fetch(req: Request, env: Env, _ctx: worker::Context) -> Result<Response> {
+    let app = origin(&env);
+    let response = fetch_response(req, env, &app).await?;
+    if !app.starts_with("https://") {
+        return Ok(response);
+    }
+    let headers = worker::Headers::new();
+    for (name, value) in response.headers().entries() {
+        headers.append(&name, &value)?;
+    }
+    headers.set(
+        "strict-transport-security",
+        runbook_api::http::STRICT_TRANSPORT_SECURITY,
+    )?;
+    Ok(response.with_headers(headers))
+}
+
+async fn fetch_response(req: Request, env: Env, app: &str) -> Result<Response> {
     // Gate fix B1: the deploy build serves nothing while a test seam is set.
     if let Some(name) = crate::seams::set_in(&env) {
         worker::console_error!("config.test_seam_set: {name}");
@@ -1272,9 +1386,8 @@ async fn fetch(req: Request, env: Env, _ctx: worker::Context) -> Result<Response
         }
     }
     // CF7 (D50): the user-content origin serves only `/u/*`.
-    let app = origin(&env);
-    if usercontent::addressed(&env, &app, &req) {
-        return usercontent::serve(req, env, app).await;
+    if usercontent::addressed(&env, app, &req) {
+        return usercontent::serve(req, env, app.to_owned()).await;
     }
     let url = req.url()?;
     let path = url.path().to_owned();
@@ -1296,7 +1409,9 @@ async fn fetch(req: Request, env: Env, _ctx: worker::Context) -> Result<Response
                 None => problem(503, "auth.not_configured"),
             }
         }
-        (Method::Post, runbook_api::session::CAN_REGISTER) => can_register_route(req, env).await,
+        (Method::Post, runbook_api::session::CAN_REGISTER | runbook_api::mfa::INTERNAL_POLICY) => {
+            can_register_route(req, env).await
+        }
         (_, runbook_api::mcp::PATH) => mcp_route(req, env).await,
         // CF8: the operator's project import and export (absent unless
         // RUNBOOK_OPERATOR_SECRET is bound).

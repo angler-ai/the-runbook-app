@@ -298,10 +298,55 @@ pub fn project_preserving(
                     verdict: step.verdict,
                     outputs: step.outputs.clone(),
                     summary: step.summary.clone(),
+                    runner: runner_projection(state, step),
                 })
             })
             .collect(),
     }
+}
+
+/// R0-4: a runner agent step's agent and limit, for the ready listing.
+fn runner_projection(
+    state: &ExecutionState,
+    step: &runbook_engine::StepState,
+) -> Option<crate::StepRunnerProjection> {
+    use runbook_spec::ir::{AgentTarget, NodeKind};
+    let node = state.node(&step.step_id)?;
+    if let NodeKind::Approval(approval) = &node.kind {
+        let AgentTarget::Runner { agent_id, .. } = approval.agent_target.as_ref()? else {
+            return None;
+        };
+        let record = step.approval.as_ref()?;
+        let limits = approval.agent_limits.as_ref();
+        let decision = (runbook_engine::decision_open(state, step)
+            && state.pause_reasons.is_empty()
+            && record.decision_lease.is_none()
+            && record.agent_notes.is_empty())
+        .then(|| crate::decisions::decision_input(state, step, approval));
+        return Some(crate::StepRunnerProjection {
+            agent_id: agent_id.clone(),
+            ready_at_ms: record.requested.as_ref()?.request.agent_ready_at_ms?,
+            max_cost_usd: limits.and_then(|l| l.max_cost_usd),
+            decision,
+        });
+    }
+    let NodeKind::Task(task) = &node.kind else {
+        return None;
+    };
+    // After a handoff the task continues with a person only (claims refuse
+    // the runner), so it is no longer runner work.
+    if step.human_continuation {
+        return None;
+    }
+    let runbook_spec::ir::AgentTarget::Runner { agent_id, .. } = task.agent_target.as_ref()? else {
+        return None;
+    };
+    Some(crate::StepRunnerProjection {
+        agent_id: agent_id.clone(),
+        ready_at_ms: step.opened_at_ms.unwrap_or(state.at_ms),
+        max_cost_usd: task.agent_limits.as_ref().and_then(|l| l.max_cost_usd),
+        decision: None,
+    })
 }
 
 pub(crate) fn summary_of(state: &ExecutionState, projection: &ExecutionProjection) -> RunSummary {
@@ -606,6 +651,7 @@ where
         Err(crate::directory::DirectoryError::NotFound) => crate::directory::DirectorySnapshot {
             org_id: scope.org_id.clone(),
             revision: 0,
+            security: Default::default(),
             organization: crate::directory::OrganizationRecord {
                 id: scope.org_id.clone(),
                 title: String::new(),

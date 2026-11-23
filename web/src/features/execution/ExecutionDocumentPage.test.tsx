@@ -61,6 +61,8 @@ function briefFor(ready: { sr: string; actor?: 'human' | 'agent' }[]): Schemas['
   return {
     schema_revision: 1,
     execution_id: EXE,
+    url: `/v1/executions/${EXE}`,
+    web_url: `/x/${EXE}`,
     completed_steps: [],
     decisions: [],
     comments: [],
@@ -198,6 +200,24 @@ afterEach(() => {
   for (const id of Object.keys(tabClaims.all())) tabClaims.clear(id);
 });
 
+it('builds the Cloud Trace link using the authenticated run report', async () => {
+  const traceId = '1234567890abcdef1234567890abcdef';
+  const doc = runningDoc((view) => {
+    view.trace_project = 'runbook-fixture';
+    view.header.steps[0]!.runner = {
+      agent_id: 'agt_fixture',
+      agent_name: 'Checker',
+      trace_id: traceId,
+    };
+  });
+  server.use(...baseHandlers(doc));
+  renderDoc();
+  expect(await screen.findByRole('link', { name: traceId })).toHaveAttribute(
+    'href',
+    `https://console.cloud.google.com/traces/list?tid=${traceId}&project=runbook-fixture`,
+  );
+});
+
 describe('execution document actions', () => {
   it('claims before reading the step, then rolls back an optimistic checklist tick on 409', async () => {
     const order: string[] = [];
@@ -320,6 +340,102 @@ describe('execution document actions', () => {
     const actions = await screen.findByTestId(/actions-/);
     await vote(user, actions, /keep deployment/i);
     await waitFor(() => expect(decided).toMatchObject({ option: 'keep' }));
+  });
+
+  // R1-D2: a runner agent reviewing an approval shows on its card, and
+  // people can still decide; its decision links the runner transcript.
+  it('shows a runner agent reviewing an approval, then its decision with the transcript', async () => {
+    let decided: { option?: string } | null = null;
+    let reviewing = true;
+    const doc = () =>
+      runningDoc((d) => {
+        const section = d.sections[0];
+        const step = d.header.steps[0];
+        if (!section || !step) return;
+        section.kind = 'approval';
+        step.kind = 'approval';
+        section.status = reviewing ? 'waiting' : 'succeeded';
+        step.status = section.status;
+        if (!reviewing) {
+          section.outputs = { decision: 'ship', comment: '', decided_by: 'runner:rin_1' };
+        }
+        step.runner = {
+          agent_id: 'agt_1',
+          agent_name: 'release-reviewer',
+          decision_ready_at_ms: 1,
+          ...(reviewing && {
+            decision_lease: { lease_id: 'clm_1', agent_name: 'release-reviewer' },
+          }),
+        };
+        section.approval = {
+          schema_revision: 1,
+          step_run_id: section.step_run_id,
+          status: section.status,
+          prompt: 'Ship 2.4.0?',
+          options: [
+            { id: 'ship', title: 'Ship it', auto: false },
+            { id: 'hold', title: 'Hold the release', auto: false },
+          ],
+          eligible_recipients: [{ kind: 'team', reference: 'oncall' }],
+          escalation_recipients: [],
+          escalated: false,
+          quorum: 1,
+          decisions: reviewing
+            ? []
+            : [
+                {
+                  by: 'agent',
+                  principal: 'runner:rin_1',
+                  agent_name: 'release-reviewer',
+                  model: 'claude-sonnet',
+                  session_id: 'clm_1',
+                  option: 'ship',
+                  comment: 'Canary is healthy [call 1].',
+                  evidence: ['[call 1]'],
+                },
+              ],
+          ...(reviewing && {
+            decision_lease: { lease_id: 'clm_1', agent_name: 'release-reviewer' },
+          }),
+        };
+      });
+    server.use(
+      ...baseHandlers(doc),
+      http.post('*/v1/step-runs/:sr/decisions', async ({ request }) => {
+        decided = (await request.json()) as { option?: string };
+        return HttpResponse.json({
+          by: 'human',
+          user_id: 'usr_1',
+          membership_revision: 1,
+          option: 'hold',
+        });
+      }),
+    );
+    const view = renderDoc();
+    const user = userEvent.setup();
+    const actions = await screen.findByTestId(/actions-/);
+    expect(
+      await within(actions).findByText(/You can still decide; the first decision wins\./),
+    ).toBeInTheDocument();
+    expect(within(actions).getByRole('status')).toHaveTextContent(
+      'Agent release-reviewer is reviewing.',
+    );
+    await vote(user, actions, /hold the release/i);
+    await waitFor(() => expect(decided).toMatchObject({ option: 'hold' }));
+    view.unmount();
+
+    reviewing = false;
+    renderDoc();
+    const decision = await screen.findByText(/Decided by agent/);
+    const card = decision.closest('[data-slot="agent-decision"]') as HTMLElement;
+    // The headline names the agent, not its runner principal.
+    expect(screen.getByText('Decided: Ship it by agent release-reviewer')).toBeInTheDocument();
+    expect(card).toHaveTextContent('Decided by agent release-reviewer (claude-sonnet)');
+    expect(card).toHaveTextContent('Runner-reported evidence: [call 1]');
+    expect(within(card).getByRole('link', { name: 'Runner transcript' })).toHaveAttribute(
+      'href',
+      expect.stringMatching(/^\/p\/prj_1\/agents\/transcripts\/sr_/),
+    );
   });
 
   it('keeps a waiting run live with actions available (R50)', async () => {
@@ -1361,9 +1477,7 @@ describe('pause, resume and cancel follow scope and project role (U4)', () => {
       await screen.findByRole('heading', { name: /health endpoint returns 200/i }),
     ).toBeInTheDocument();
     // The members read has landed once the role-based hint can be decided.
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: /^export$/i })).toBeEnabled(),
-    );
+    await waitFor(() => expect(screen.getByRole('button', { name: /^export$/i })).toBeEnabled());
     await new Promise((r) => setTimeout(r, 50));
     expect(screen.queryByRole('button', { name: /^pause$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^cancel run$/i })).not.toBeInTheDocument();

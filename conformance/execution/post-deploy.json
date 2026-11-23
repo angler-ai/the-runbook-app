@@ -562,7 +562,7 @@
               }
             }
           },
-          "engine_version": 6,
+          "engine_version": 8,
           "type": "ExecutionStarted"
         },
         "execution_id": "exe_00000000000000000000000001",
@@ -2206,7 +2206,7 @@
               }
             }
           },
-          "engine_version": 6,
+          "engine_version": 8,
           "type": "ExecutionStarted"
         },
         "execution_id": "exe_00000000000000000000000001",

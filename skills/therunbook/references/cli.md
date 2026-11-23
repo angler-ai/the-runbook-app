@@ -147,3 +147,52 @@ are read-only; when you run runbooks, use the tools and commands above.
 - `runbook login [--host <h>] --token-stdin`: pipes an existing personal or service token (`trb_pat_...` or `trb_svc_...`) from stdin.
 - `runbook logout`: forgets the stored token for the resolved host.
 
+
+## Setting up runner agents
+
+| MCP tool | CLI command | Notes |
+| --- | --- | --- |
+| `runner_status` | `runbook runner status --json` | Requires `runner:read`. |
+| `list_runner_agents` | `runbook agents list --project <p> --json` | Pass the project ID. |
+| `get_runner_agent` | `runbook agents get <agent> --project <p> --json` | Pass the agent ID and project ID. |
+| `create_runner_agent` | `runbook agents create --project <p> --file <json> --json` | Requires `runner:admin`. Hand a proposal ID to a person for review. |
+| `update_runner_agent` | `runbook agents update <agent> --project <p> --file <json> --json` | Send only changed fields. Widening changes may create proposals. |
+| `pause_runner_agent` | `runbook agents pause <agent> --project <p> --json` | Pauses a runner agent. |
+| `create_runner_credential` | `runbook runner credential create --file <json> --json` | Only public metadata. Hand the person the tool's link and CLI command for secret entry. |
+| `revoke_runner_credential` | `runbook runner credential revoke <credential> --json` | Revokes credential access. |
+| `list_runner_providers` | `runbook runner provider list --json` |  |
+| `get_runner_provider` | `runbook runner provider get <id> --json` |  |
+| `create_runner_provider` | `runbook runner provider create --file <json> --json` | Use a model-provider credential ID. Enter its key with credential set. |
+| `update_runner_provider` | `runbook runner provider update <id> --file <json> --json` | Use a model-provider credential ID. Enter its key with credential set. |
+| `delete_runner_provider` | `runbook runner provider delete <id> --json` |  |
+| `list_runner_profiles` | `runbook runner profile list --json` |  |
+| `get_runner_profile` | `runbook runner profile get <id> --json` |  |
+| `create_runner_profile` | `runbook runner profile create --file <json> --json` | Send only public configuration. |
+| `update_runner_profile` | `runbook runner profile update <id> --file <json> --json` | Send only public configuration. |
+| `delete_runner_profile` | `runbook runner profile delete <id> --json` |  |
+| `list_runner_mcp_servers` | `runbook runner mcp-server list --json` |  |
+| `get_runner_mcp_server` | `runbook runner mcp-server get <id> --json` |  |
+| `create_runner_mcp_server` | `runbook runner mcp-server create --file <json> --json` | Send only public configuration. |
+| `update_runner_mcp_server` | `runbook runner mcp-server update <id> --file <json> --json` | Send only public configuration. |
+| `delete_runner_mcp_server` | `runbook runner mcp-server delete <id> --json` |  |
+| `list_runner_groups` | `runbook runner group list --json` |  |
+| `get_runner_group` | `runbook runner group get <id> --json` |  |
+| `update_runner_group` | `runbook runner group update <id> --file <json> --json` | Send only public configuration. |
+| `get_runner_policy` | `runbook runner policy get --json` |  |
+| `update_runner_policy` | `runbook runner policy update --file <json> --json` | Accepts budgets, limits and other policy fields. |
+| `set_runner_group_projects` | `runbook runner group projects <group> --file <json> --json` | Pass the full project_ids array. |
+| `discover_runner_mcp_tools` | `runbook runner mcp-server discover <server> --json` | Returns a snapshot ID for review. |
+| `pin_runner_mcp_snapshot` | `runbook runner mcp-server pin <server> <snapshot> --json` | Pins the selected snapshot. |
+| `label_runner_mcp_tools` | `runbook runner mcp-server label-tools <server> --file <json> --json` | Pass the complete tool_labels map. |
+| `list_runner_credential_types` | `runbook runner credential types --json` | Lists secret field names. |
+| `get_runner_credential` | `runbook runner credential status <credential> --json` | Shows credential metadata and its OAuth status. |
+| `connect_runner_credential` | `runbook runner credential connect <credential> --binding-pin <hash>` | Opens a browser handoff for a human organization admin. The MCP tool refuses to initiate consent. |
+| `label_runner_credential` | `runbook runner credential label <credential> <label> --json` | Changes the access label through the vault. |
+| `share_runner_credential` | `runbook runner credential share <credential> --file <json> --json` | Pass sharing.projects as all, none, or project IDs. |
+| `set_runner_agent_profiles` | `runbook runner agent-profiles <agent> --project <p> --file <json> --json` | Pass the full profiles array. Widening changes may create proposals. |
+
+People enter secrets with `runbook runner credential set <credential> <field>`.
+The CLI reads a hidden prompt or stdin, seals the value locally and sends only
+the sealed blob. Pass `--pin <fingerprint>` to require a trusted ingest-key
+fingerprint from the vault operator. When metadata creation produced a
+proposal, approve it first and use the resulting credential ID.

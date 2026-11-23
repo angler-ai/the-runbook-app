@@ -11,6 +11,9 @@ pub struct ExecutionDocumentView {
     pub header: ExecutionView,
     /// In execution step-path order, including iteration/attempt paths; not a map.
     pub sections: Vec<StepSection>,
+    /// Google Cloud project used to link this run's traces.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_project: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]

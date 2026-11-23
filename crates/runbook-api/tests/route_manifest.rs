@@ -123,6 +123,7 @@ fn every_module_route_is_in_the_manifest() {
         runbook_model::INBOX_ROUTES,
         runbook_model::ARCHIVE_ROUTES,
         runbook_model::ME_ROUTES,
+        runbook_model::RUNNER_ROUTES,
     ];
     let mut wanted: Vec<(String, String)> = tables
         .iter()

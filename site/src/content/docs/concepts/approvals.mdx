@@ -1,6 +1,6 @@
 ---
 title: Approvals and destructive steps
-description: Decisions by named people, timeouts and escalation, and the gates that keep agents from acting alone.
+description: Human and agent decisions, timeouts and escalation, and human gates for destructive runner steps.
 sidebar:
   order: 4
 ---
@@ -24,6 +24,7 @@ spec:
         options:
           - { id: ship, title: Ship it }
           - { id: hold, title: Hold the release }
+        approves: [ship]
         approvers: { teams: [release-managers] }
         timeout: 2h
         escalate_to: [team:eng-leads]
@@ -48,6 +49,14 @@ runbook me tasks --kind approval          # what's waiting on me
 runbook step decide "$SR" --option ship --comment "Canaries are clean"
 ```
 
+## Independent review
+
+Use [`exclude_completers_of`](/reference/keys/#specstepsapprovalexclude_completers_of)
+to keep contributors to named tasks and their agents from deciding the approval.
+The rule applies to direct and team approvers, including escalations.
+A gate with no independent approver stays open under its usual reminder,
+escalation and expiry policies.
+
 ## Timeouts and escalation
 
 <Flow
@@ -69,24 +78,117 @@ runbook step decide "$SR" --option ship --comment "Canaries are clean"
 - `on_timeout: { decide: <option> }` instead decides automatically at the
   timeout. The option must be marked `auto: true`.
 
+## Destructive runner steps
+
+A destructive step that targets a named runner agent needs a human decision
+from an approval it encounters on every path. Set `approves` to the option
+IDs that grant permission.
+
+```yaml
+approval:
+  prompt: Proceed with the deployment?
+  options: [ship, hold]
+  approves: [ship]
+  approvers:
+    teams: [on-call]
+```
+
+A person choosing `hold` completes the approval without unlocking the
+destructive step. Use a step condition to skip the rollout when a person
+chooses to hold, as in the first example.
+
+New publications need `approves` unless the task's `if` already requires
+the approval's decision to equal a specific option
+(`spec.destructive_approval_options`). An existing published version with
+neither keeps its original behavior: any human decision on the gate can
+unlock the task. Put the approval inside a loop if each iteration needs
+its own sign-off. A gate outside it covers the whole loop and publishing
+warns about it.
+
 ## Agents and approvals
 
-Approvals aren't in an agent's work brief. `allow_agents: true` lets an
-agent decide one; it requires `min: 1`, and an agent's decision is recorded
-apart from human signatures. Agents never cast **human** approvals, whatever
-token they hold.
+`allow_agents: true` permits an agent to decide an approval with `min: 1`.
+Agent decisions are recorded separately from human signatures. A decision
+by an agent never counts toward a human quorum.
+
+### A runner agent decides
+
+Add `agent` to an `allow_agents` approval to have one of the project's
+[runner agents](/runner/agents/) decide it when no person has:
+
+```yaml title="release-gate.yaml"
+metadata: { id: release-gate, owners: [team:release-managers] }
+spec:
+  inputs:
+    version: { type: string, required: true }
+  steps:
+    - id: canary
+      actor: agent
+      title: Measure the canary
+      agent: { name: canary-checker }
+      outputs:
+        error_rate: { type: number, required: true }
+    - id: release_gate
+      approval:
+        prompt: Ship ${{ inputs.version }}? Canary error rate is ${{ steps.canary.outputs.error_rate }}.
+        options:
+          - { id: ship, title: Ship it }
+          - { id: hold, title: Hold the release }
+        approvers: { teams: [release-managers] }   # still required; people can always decide
+        allow_agents: true
+        agent: { name: release-reviewer, after: 15m }  # decides if no person has after 15m
+        timeout: 2h
+```
+
+- **People first.** `agent.after` is how long the approval waits for a
+  person before the agent starts. Without it, the agent starts as soon as
+  the approval opens. Either way people can decide at any time, and the
+  first decision wins: when a person decides while the agent is reviewing,
+  the runner's decision lease is revoked and a late answer is refused
+  (`approval.not_open`). A manual pause also revokes the runner lease.
+  The configured delay applies to external agents as well.
+- **Read-only.** A decision run gets the built-in Runbook tools (this run,
+  earlier runs and memory) and only the agent's tools, credentials and
+  hosts labeled `read`, with no sandbox or memory proposals. Review the
+  labels on the upstream tools and credentials you share with the agent.
+- **One of the listed options.** The agent must pick an option from the
+  approval and cite the tool calls its reason rests on (`[call N]`). If the
+  evidence doesn't support an option, it abstains: its reason shows on the
+  approval and people decide.
+- **Never before a destructive step.** Publishing still refuses an
+  agent-decidable approval that can lead to a destructive task
+  (`spec.agent_approval_destructive`).
+- **Timeouts still apply.** If neither a person nor the agent has decided
+  by `timeout`, `on_timeout` escalates or decides as usual.
+- `agent` without `allow_agents: true` is a publish error
+  (`spec.agent_requires_allow_agents`). `agent.name` must name an agent in
+  the project (`spec.agent_unknown`); `agent.model`, `agent.max_cost_usd`
+  and `agent.max_tokens` must be within what the agent allows
+  (`spec.agent_outside_ceiling`). See the
+  [key reference](/reference/keys/#specstepsapprovalagent).
+
+While the approval is open, its card on the run page says when the agent
+may decide, then "agent `release-reviewer` is reviewing" while it works;
+the inbox marks the approval the same way. Once it decides, the card shows
+"decided by agent `release-reviewer` (model)" with its reason, the evidence
+it cited and a link to the runner transcript. Citations are runner-reported
+references to tool calls. Review the transcript to check the evidence.
+An abstention shows as "agent `release-reviewer` abstained" with the reason. `runbook run get` and
+`runbook run report` show the same, and the agent's page lists its recent
+decisions.
 
 ## Destructive steps
 
 `destructive: true` marks a step that changes something you can't easily
-undo: a rollback, a deletion, a failover. The publication rules keep a
-destructive step out of reach of decisions no person made:
+undo, such as a rollback, deletion or failover. The publication rules
+apply to destructive tasks generally. A named runner agent additionally
+needs the human gate described above.
 
 | A decision made by | May lead to a destructive step? |
 | --- | --- |
 | A person | Yes |
-| An agent (`allow_agents`) | Never (`spec.agent_approval_destructive`) |
-| A timeout (`on_timeout: decide`) | Only if the step sets `allow_auto_decision: true` (`spec.auto_decision_destructive`) |
+| An agent (`allow_agents`, including a runner agent) | Never (`spec.agent_approval_destructive`) |
+| A timeout (`on_timeout: decide`) | For tasks outside the runner, only with `allow_auto_decision: true` (`spec.auto_decision_destructive`) |
 
 ```yaml title="auto-rollback.yaml"
 metadata: { id: auto-rollback }

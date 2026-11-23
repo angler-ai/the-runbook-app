@@ -1,0 +1,174 @@
+[
+  {
+    "type": "api-key",
+    "config": {
+      "hosts": [
+        "B.EXAMPLE",
+        "a.example.",
+        "a.example"
+      ],
+      "header_name": "X-Key",
+      "header_format": "Bearer {}"
+    },
+    "groups": [
+      "rg_b",
+      "rg_a",
+      "rg_a"
+    ],
+    "binding": {
+      "hosts": [
+        "a.example",
+        "b.example"
+      ],
+      "header_name": "x-key",
+      "header_format": "Bearer {}",
+      "test": {
+        "method": "GET",
+        "path": "/"
+      },
+      "groups": [
+        "rg_a",
+        "rg_b"
+      ]
+    },
+    "hash": "FG38H0F6FQslpYrxz8HEsLuRxsNLkBI59XWKZIz5DXM"
+  },
+  {
+    "type": "api-key",
+    "config": {
+      "hosts": [
+        "api.example:8443"
+      ],
+      "header_name": "Authorization",
+      "header_format": "{}",
+      "test": {
+        "method": "HEAD",
+        "path": "/health?check=1"
+      }
+    },
+    "groups": "all",
+    "binding": {
+      "hosts": [
+        "api.example:8443"
+      ],
+      "header_name": "authorization",
+      "header_format": "{}",
+      "test": {
+        "method": "HEAD",
+        "path": "/health?check=1"
+      },
+      "groups": "all"
+    },
+    "hash": "XMvsxxVeqP1Aj9YWuLx2RLW44kFbnG_YpYQxBTyp7rs"
+  },
+  {
+    "type": "model-provider",
+    "config": {
+      "provider": "anthropic",
+      "endpoint": " https://API.EXAMPLE:443/v1/// ",
+      "models": [
+        "ignored"
+      ]
+    },
+    "groups": "all",
+    "binding": {
+      "provider": "anthropic",
+      "endpoint": "https://api.example/v1",
+      "header_name": "x-api-key",
+      "header_format": "{}",
+      "groups": "all"
+    },
+    "hash": "KkS0cyMWcdjWmpSe7Eib0aoyySlihCzhwBjWU6Nqjio"
+  },
+  {
+    "type": "model-provider",
+    "config": {
+      "provider": "openai-compatible",
+      "endpoint": "http://LOCALHOST:80/v1"
+    },
+    "groups": "all",
+    "binding": {
+      "provider": "openai-compatible",
+      "endpoint": "http://localhost/v1",
+      "header_name": "authorization",
+      "header_format": "Bearer {}",
+      "groups": "all"
+    },
+    "hash": "SaQBuRGqXCypcqExVDaz6DLb40QvReBKt2_eKh93itI"
+  },
+  {
+    "type": "mcp-bearer",
+    "config": {
+      "url": "https://tools.example/tenant/é/../mcp/"
+    },
+    "groups": [
+      "rg_mcp"
+    ],
+    "binding": {
+      "url": "https://tools.example/tenant/mcp",
+      "header_name": "authorization",
+      "header_format": "Bearer {}",
+      "groups": [
+        "rg_mcp"
+      ]
+    },
+    "hash": "CVjz8uWJ1xVUQYtszCQOdKDPENtIsYBYnDBLijyeB6Y"
+  },
+  {
+    "type": "mcp-oauth",
+    "config": {
+      "url": "https://mcp.example/team/mcp",
+      "resource": "https://mcp.example/team",
+      "issuer": "https://issuer.example/tenant",
+      "iss_supported": true,
+      "authorization_endpoint": "https://issuer.example/authorize?tenant=team",
+      "token_endpoint": "https://issuer.example/token/",
+      "revocation_endpoint": "https://revoke.example/token",
+      "registration_endpoint": null,
+      "token_endpoint_auth_method": "client_secret_basic",
+      "registration_mode": "pre-registered",
+      "client_id": "public-app-id",
+      "redirect_uri": "https://runbook.example/v1/runner/oauth/callback/cred_1",
+      "scopes": [
+        "files:write",
+        "files:read",
+        "files:write"
+      ],
+      "extra_parameters": {
+        "prompt": "consent",
+        "access_type": "offline"
+      }
+    },
+    "groups": [
+      "rg_b",
+      "rg_a"
+    ],
+    "binding": {
+      "url": "https://mcp.example/team/mcp",
+      "registration_mode": "pre-registered",
+      "client_id": "public-app-id",
+      "token_endpoint_auth_method": "client_secret_basic",
+      "scopes": [
+        "files:read",
+        "files:write"
+      ],
+      "extra_parameters": {
+        "prompt": "consent",
+        "access_type": "offline"
+      },
+      "resource": "https://mcp.example/team",
+      "issuer": "https://issuer.example/tenant",
+      "iss_supported": true,
+      "authorization_endpoint": "https://issuer.example/authorize?tenant=team",
+      "token_endpoint": "https://issuer.example/token/",
+      "revocation_endpoint": "https://revoke.example/token",
+      "registration_endpoint": null,
+      "redirect_uri": "https://runbook.example/v1/runner/oauth/callback/cred_1",
+      "groups": [
+        "rg_a",
+        "rg_b"
+      ]
+    },
+    "hash": "dAHzynxhKn04AhFhR0c-z-5AEnUobj742vyDctsIj4w"
+  }
+]

@@ -42,16 +42,23 @@ fn rejection(code: &'static str, fields: Vec<FieldError>) -> ApiError {
         "auth.forbidden"
         | "auth.scope_missing"
         | "approval.not_eligible"
+        | "approval.excluded_completer"
+        | "approval.unknown_service_contributor"
         | "claim.not_assignee"
         | "amendment.admin_required"
-        | "amendment.human_required" => 403,
+        | "amendment.human_required"
+        | "claim.wrong_runner"
+        | "grant.not_allowed" => 403,
         "resource.not_found" | "execution.not_found" | "step.not_found" | "claim.not_found" => 404,
         "request.idempotency_key_reused"
         | "claim.stale_generation"
         | "claim.conflict"
+        | "approval.review_missing_report"
         | "approval.conflict"
+        | "approval.agent_not_ready"
         | "execution.conflict"
         | "signal.not_waiting"
+        | "runner.decision_unsupported"
         | "execution.paused"
         | "execution.closed"
         | "execution.not_started"
@@ -70,7 +77,13 @@ fn rejection(code: &'static str, fields: Vec<FieldError>) -> ApiError {
         | "signal.duplicate"
         | "signal.id_conflict"
         | "amendment.conflict"
-        | "amendment.step_not_finished" => 409,
+        | "amendment.step_not_finished"
+        | "claim.outside_ceiling"
+        | "claim.agent_paused"
+        | "claim.approval_missing"
+        | "grant.claim_moved"
+        | "grant.lease_expired" => 409,
+        "signing.unavailable" => 503,
         _ => 422,
     };
     ApiError {
@@ -141,6 +154,34 @@ fn json(value: impl serde::Serialize) -> Result<Value, ApiError> {
 }
 
 impl<B: Backends> StoreActorBackend<B> {
+    /// Return the pinned execution ID when this decision can lead to a destructive step.
+    pub(crate) async fn destructive_approval(
+        &self,
+        org: &OrganizationId,
+        step: &StepRunId,
+    ) -> Result<Option<ExecutionId>, ApiError> {
+        let Some((execution, project)) = self.step_run_execution(org, step).await? else {
+            return Ok(None);
+        };
+        let scope = TenantScope {
+            org_id: org.clone(),
+            project_id: project,
+        };
+        let store = self.scoped(scope.clone());
+        let work = begin_actor(&store, &self.backends.directory(), scope, &execution)
+            .await
+            .map_err(actor_error)?;
+        let state = &work.runtime.state;
+        let index = work.step_index(step).map_err(actor_error)?;
+        let destructive = runbook_spec::approval_reaches_destructive(
+            state.compiled().ir(),
+            &state.steps[index].node_id,
+        ) || runbook_core::calls::caller_reaches_destructive(&store, state)
+            .await
+            .map_err(|e| actor_error(e.into()))?;
+        Ok(destructive.then_some(execution))
+    }
+
     fn scoped(&self, scope: TenantScope) -> B::Execution {
         self.backends.execution(scope)
     }
@@ -155,6 +196,7 @@ pub struct Identity {
     pub key: String,
     pub human: Option<UserId>,
     pub credential_ref: String,
+    pub service_attribution: Option<Box<ServiceTokenAttribution>>,
 }
 impl Identity {
     fn from_principal(p: &Principal, credential_ref: String) -> Self {
@@ -165,10 +207,29 @@ impl Identity {
                 _ => None,
             },
             credential_ref,
+            service_attribution: None,
         }
     }
 }
-fn declared_principal(
+pub(crate) async fn service_attribution<B: Backends>(
+    backends: &B,
+    org: &OrganizationId,
+    principal: &Principal,
+) -> Result<Option<Box<ServiceTokenAttribution>>, ApiError> {
+    let Principal::Service { token_id, .. } = principal else {
+        return Ok(None);
+    };
+    let metadata = backends
+        .token_metadata(org, token_id)
+        .await
+        .map_err(|_| ApiError::new(503, "storage.unavailable"))?;
+    Ok(Some(Box::new(ServiceTokenAttribution {
+        creator: metadata.created_by,
+        owner: metadata.owner,
+    })))
+}
+
+pub(crate) fn declared_principal(
     identity: &Identity,
     session_id: Option<&str>,
     declaration: Option<&ActorDeclaration>,
@@ -194,6 +255,7 @@ fn declared_principal(
             session_id: session.into(),
             name: name.into(),
             model: declaration.model.clone(),
+            service_attribution: identity.service_attribution.clone(),
         }
     };
     Ok(ActorPrincipal {
@@ -383,16 +445,10 @@ impl<B: Backends> ActorBackend for StoreActorBackend<B> {
                 return Ok(saved);
             }
         }
-        execute_ready::<B>(
-            &store,
-            work,
-            Identity::from_principal(&verified, current.id.to_string()),
-            target,
-            request,
-            new_id,
-            replay,
-        )
-        .await
+        let mut identity = Identity::from_principal(&verified, current.id.to_string());
+        identity.service_attribution =
+            service_attribution(&self.backends, &target.scope.org_id, &verified).await?;
+        execute_ready::<B>(&store, work, identity, target, request, new_id, replay).await
     }
 }
 #[allow(clippy::too_many_arguments)]
@@ -454,7 +510,14 @@ pub async fn execute_ready<B: Backends>(
             if &request.step_run_id != step(&target)? {
                 return Err(ApiError::new(422, "request.step_mismatch"));
             }
-            let actor = claim_principal(&work, &identity, step(&target)?)?;
+            let mut actor = claim_principal(&work, &identity, step(&target)?)?;
+            if let ActorRef::Agent {
+                service_attribution,
+                ..
+            } = &mut actor.actor
+            {
+                *service_attribution = identity.service_attribution.clone();
+            }
             // UP1: `evd_` evidence entries name finalized uploads (D49).
             runbook_core::uploads::report_with_uploads(
                 store,
@@ -468,7 +531,14 @@ pub async fn execute_ready<B: Backends>(
             Ok(Value::Null)
         }
         ActorRequest::Checklist(request) => {
-            let actor = claim_principal(&work, &identity, step(&target)?)?;
+            let mut actor = claim_principal(&work, &identity, step(&target)?)?;
+            if let ActorRef::Agent {
+                service_attribution,
+                ..
+            } = &mut actor.actor
+            {
+                *service_attribution = identity.service_attribution.clone();
+            }
             claims::update_checklist(work, &actor, step(&target)?, &request, replay.as_ref())
                 .await
                 .map_err(actor_error)?;
@@ -510,6 +580,7 @@ pub async fn execute_ready<B: Backends>(
                     .as_deref()
                     .ok_or_else(|| ApiError::new(422, "request.invalid"))?;
                 decisions::agent_decide(
+                    store,
                     work,
                     &actor,
                     step(&target)?,
@@ -576,6 +647,7 @@ pub fn control_principal(identity: &Identity) -> ActorPrincipal {
             session_id: identity.credential_ref.clone(),
             name: identity.key.clone(),
             model: None,
+            service_attribution: identity.service_attribution.clone(),
         }
     };
     ActorPrincipal {

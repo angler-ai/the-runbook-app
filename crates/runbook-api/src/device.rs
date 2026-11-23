@@ -279,6 +279,8 @@ async fn token<B: Backends>(backends: &B, r: &Request) -> Response {
             .collect(),
         created_at: Some(now),
         created_by: Some(grant.user_id.clone()),
+        owner: None,
+        fresh_mfa_at_issue: grant.fresh_mfa_at_issue,
     };
     if backends
         .token_insert_issued(&record, &metadata)
@@ -495,6 +497,7 @@ async fn approve<B: Backends>(backends: &B, r: &Request) -> Response {
             projects,
             token_expires_at_ms: expires,
             decided_at_ms: now,
+            fresh_mfa_at_issue: crate::mfa::fresh_at_issue(r, snapshot.security, now),
         })
     } else {
         DeviceDecision::Deny

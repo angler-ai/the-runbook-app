@@ -442,3 +442,64 @@ fn apps_list_and_revoke() {
     );
     assert_eq!(o.status.code(), Some(2));
 }
+
+#[test]
+fn token_create_needing_a_fresh_second_factor_points_to_the_web_app() {
+    let home = tempfile::tempdir().unwrap();
+    let (host, server) = serve(vec![Reply::json(
+        403,
+        json!({"code":"auth.mfa_step_up","detail":"auth.mfa_step_up","fresh_minutes":10}),
+    )]);
+    let o = cli(
+        &host,
+        home.path(),
+        &["token", "create", "--name", "ci"],
+        &token(),
+        None,
+    );
+    assert_eq!(o.status.code(), Some(1));
+    let stderr = err(&o);
+    assert!(stderr.contains("auth.mfa_step_up"), "{stderr}");
+    assert!(
+        stderr.contains("hint: this action needs a recent second-factor check"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("web app"), "{stderr}");
+    server.join().unwrap();
+}
+
+#[test]
+fn a_partial_session_refusal_says_how_to_enroll() {
+    let home = tempfile::tempdir().unwrap();
+    let (host, server) = serve(vec![Reply::json(
+        403,
+        json!({"code":"auth.mfa_required","detail":"auth.mfa_required"}),
+    )]);
+    let o = cli(&host, home.path(), &["token", "list"], &token(), None);
+    assert_eq!(o.status.code(), Some(1));
+    let stderr = err(&o);
+    assert!(stderr.contains("requires a second factor"), "{stderr}");
+    assert!(stderr.contains("Account > Security"), "{stderr}");
+    server.join().unwrap();
+}
+
+/// Release gate 2026-11-21: a token made before its owner had a fresh second
+/// factor is refused for sensitive actions once the policy covers them, and
+/// the CLI printed only the code.
+#[test]
+fn a_token_needing_replacement_says_how_to_replace_it() {
+    let home = tempfile::tempdir().unwrap();
+    let (host, server) = serve(vec![Reply::json(
+        403,
+        json!({"code":"auth.mfa_token_replacement_required","detail":"auth.mfa_token_replacement_required"}),
+    )]);
+    let o = cli(&host, home.path(), &["token", "list"], &token(), None);
+    assert_eq!(o.status.code(), Some(1));
+    let stderr = err(&o);
+    assert!(
+        stderr.contains("auth.mfa_token_replacement_required"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("runbook login"), "{stderr}");
+    server.join().unwrap();
+}

@@ -20,7 +20,18 @@ import { useInbox } from '../inbox/hooks';
 import { PaletteHost } from '../palette/PaletteHost';
 import { CreateProjectDialog } from '../admin/CreateProjectDialog';
 import { StartRunDialog } from '../start/StartRunDialog';
-import { BookOpen, Brain, House, Inbox, Play, Settings, Sparkles, Webhook } from 'lucide-react';
+import {
+  BookOpen,
+  Bot,
+  Brain,
+  House,
+  Inbox,
+  Play,
+  Settings,
+  Server,
+  Sparkles,
+  Webhook,
+} from 'lucide-react';
 import {
   AppShell,
   BrandLockup,
@@ -39,8 +50,13 @@ import type { ProjectView } from '../../api/hooks';
 import { ProjectSwitcher, UserMenu } from './ShellMenus';
 import { WelcomeDialog } from '../profile/WelcomeDialog';
 import { signOut, validateMeForSignIn } from '../auth/session';
+import { isPartialMe } from '../mfa/hooks';
+import { MfaGate } from '../mfa/MfaGate';
 import { OrgProvider, useOrgContext } from './OrgContext';
 import { pickProject, rememberProject, useLastProject } from './currentProject';
+
+import { useRunnerStatus } from '../runner/api';
+import { projectAllowed } from '../runner/presentation';
 
 function ShellChrome({ children }: { children?: ReactNode }) {
   const me = useMe();
@@ -59,6 +75,7 @@ function ShellChrome({ children }: { children?: ReactNode }) {
     execution: params.exe ? executionDocument.data?.header.project_id : undefined,
     remembered,
   });
+  const runner = useRunnerStatus(orgId);
   const fromPage =
     projects.length > 0 &&
     (Boolean(params.project && current && [current.id, current.slug].includes(params.project)) ||
@@ -130,6 +147,20 @@ function ShellChrome({ children }: { children?: ReactNode }) {
       </main>
     );
   }
+  // J-3: a partial session (the org requires MFA and this one has none yet)
+  // reaches nothing else; verify or enroll here, or sign out.
+  if (isPartialMe(me.data)) {
+    const { search } = router.state.location as { search: { return_to?: unknown } };
+    return (
+      <MfaGate
+        security={me.data.security}
+        returnTo={typeof search.return_to === 'string' ? search.return_to : null}
+        signingOut={signingOut}
+        onSignOut={() => void onSignOut()}
+        onDone={() => void me.refetch()}
+      />
+    );
+  }
   if (me.isError) {
     const error = me.error instanceof ApiError ? me.error : null;
     return (
@@ -182,6 +213,17 @@ function ShellChrome({ children }: { children?: ReactNode }) {
             active:
               pathname.startsWith(`/p/${current.slug}/executions`) || pathname.startsWith('/x/'),
           },
+          ...(projectAllowed(runner.data, current.id)
+            ? [
+                {
+                  id: 'agents',
+                  label: 'Agents',
+                  href: `/p/${current.slug}/agents`,
+                  icon: Bot,
+                  active: pathname.startsWith(`/p/${current.slug}/agents`),
+                },
+              ]
+            : []),
           {
             id: 'skills',
             label: 'Skills',
@@ -220,6 +262,17 @@ function ShellChrome({ children }: { children?: ReactNode }) {
       icon: Settings,
       active: pathname === '/settings' || pathname.startsWith('/settings/'),
     },
+    ...(runner.data?.install_id && me.data?.credential.scopes?.includes('runner:read')
+      ? [
+          {
+            id: 'runner',
+            label: 'Runner',
+            href: '/runner/overview',
+            icon: Server,
+            active: pathname.startsWith('/runner'),
+          },
+        ]
+      : []),
   ];
 
   const renderNavLink = ({ item, className, children }: RenderLinkProps) => {
@@ -230,6 +283,16 @@ function ShellChrome({ children }: { children?: ReactNode }) {
         </Link>
       );
     }
+    if (item.id === 'runner')
+      return (
+        <Link
+          to="/runner/overview"
+          className={className}
+          aria-current={item.active ? 'page' : undefined}
+        >
+          {children}
+        </Link>
+      );
     if (item.id === 'settings') {
       return (
         <Link to="/settings" className={className} aria-current={item.active ? 'page' : undefined}>
@@ -391,6 +454,7 @@ export function switchTarget(
   const base = from ? `/p/${from}` : null;
   if (base && pathname.startsWith(`${base}/runbooks`)) return `/p/${to}/runbooks`;
   if (base && pathname.startsWith(`${base}/executions`)) return `/p/${to}/executions`;
+  if (base && pathname.startsWith(`${base}/agents`)) return `/p/${to}/agents`;
   if (base && pathname.startsWith(`${base}/skills`)) return `/p/${to}/skills`;
   if (base && pathname.startsWith(`${base}/webhooks`)) return `/p/${to}/webhooks`;
   if (base && pathname.startsWith(`${base}/settings`)) return `/p/${to}/settings`;
@@ -430,8 +494,12 @@ export function shellBreadcrumbs(
       ? [{ label: project.title, href: `/p/${project.slug}` }, { label: 'Search' }]
       : [{ label: 'Search' }];
   }
+  if (pathname.startsWith('/runner')) return [{ label: 'Runner', href: '/runner/overview' }];
   if (pathname.startsWith('/settings/organization')) {
     return [{ label: 'Settings' }, { label: 'Organization' }];
+  }
+  if (pathname === '/settings/security') {
+    return [{ label: 'Account settings', href: '/settings' }, { label: 'Security' }];
   }
   if (pathname === '/settings' || pathname.startsWith('/settings/')) {
     return [{ label: 'Account settings' }];
@@ -521,6 +589,7 @@ const PROJECT_ROUTES = {
   home: '/p/$project',
   runbooks: '/p/$project/runbooks',
   executions: '/p/$project/executions',
+  agents: '/p/$project/agents',
   skills: '/p/$project/skills',
   webhooks: '/p/$project/webhooks',
   memory: '/p/$project/memory',

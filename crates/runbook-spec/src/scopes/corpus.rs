@@ -185,7 +185,7 @@ pub(crate) fn corpus() -> Value {
             79,
             5,
             53_088,
-            259_748,
+            259_906,
             "/spec/steps/78/foreach",
         ),
         (
@@ -194,7 +194,7 @@ pub(crate) fn corpus() -> Value {
             97,
             1,
             65_184,
-            151_704,
+            151_898,
             "/spec/steps/96/foreach",
         ),
     ] {

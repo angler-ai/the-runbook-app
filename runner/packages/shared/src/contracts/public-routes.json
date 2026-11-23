@@ -1,0 +1,498 @@
+{
+  "version": 1,
+  "prefix": "/runner/v1",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/runner/v1/groups",
+      "scope": "runner:read",
+      "sensitive": false,
+      "mfa_reason": "Read under runner authorization"
+    },
+    {
+      "method": "GET",
+      "path": "/runner/v1/groups/{group_id}",
+      "scope": "runner:read",
+      "sensitive": false,
+      "mfa_reason": "Read under runner authorization"
+    },
+    {
+      "method": "POST",
+      "path": "/runner/v1/groups",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Changes runner group configuration"
+    },
+    {
+      "method": "PATCH",
+      "path": "/runner/v1/groups/{group_id}",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Changes runner group configuration"
+    },
+    {
+      "method": "DELETE",
+      "path": "/runner/v1/groups/{group_id}",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Changes runner group configuration"
+    },
+    {
+      "method": "GET",
+      "path": "/runner/v1/providers",
+      "scope": "runner:read",
+      "sensitive": false,
+      "mfa_reason": "Read under runner authorization"
+    },
+    {
+      "method": "GET",
+      "path": "/runner/v1/providers/{provider_id}",
+      "scope": "runner:read",
+      "sensitive": false,
+      "mfa_reason": "Read under runner authorization"
+    },
+    {
+      "method": "POST",
+      "path": "/runner/v1/providers",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Changes model provider configuration"
+    },
+    {
+      "method": "PATCH",
+      "path": "/runner/v1/providers/{provider_id}",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Changes model provider configuration"
+    },
+    {
+      "method": "DELETE",
+      "path": "/runner/v1/providers/{provider_id}",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Changes model provider configuration"
+    },
+    {
+      "method": "GET",
+      "path": "/runner/v1/profiles",
+      "scope": "runner:read",
+      "sensitive": false,
+      "mfa_reason": "Read under runner authorization"
+    },
+    {
+      "method": "GET",
+      "path": "/runner/v1/profiles/{profile_id}",
+      "scope": "runner:read",
+      "sensitive": false,
+      "mfa_reason": "Read under runner authorization"
+    },
+    {
+      "method": "POST",
+      "path": "/runner/v1/profiles",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Changes runner profile configuration"
+    },
+    {
+      "method": "PATCH",
+      "path": "/runner/v1/profiles/{profile_id}",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Changes runner profile configuration"
+    },
+    {
+      "method": "DELETE",
+      "path": "/runner/v1/profiles/{profile_id}",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Changes runner profile configuration"
+    },
+    {
+      "method": "GET",
+      "path": "/runner/v1/mcp-servers",
+      "scope": "runner:read",
+      "sensitive": false,
+      "mfa_reason": "Read under runner authorization"
+    },
+    {
+      "method": "GET",
+      "path": "/runner/v1/mcp-servers/{server_id}",
+      "scope": "runner:read",
+      "sensitive": false,
+      "mfa_reason": "Read under runner authorization"
+    },
+    {
+      "method": "POST",
+      "path": "/runner/v1/mcp-servers",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Changes upstream MCP configuration"
+    },
+    {
+      "method": "PATCH",
+      "path": "/runner/v1/mcp-servers/{server_id}",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Changes upstream MCP configuration"
+    },
+    {
+      "method": "DELETE",
+      "path": "/runner/v1/mcp-servers/{server_id}",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Changes upstream MCP configuration"
+    },
+    {
+      "method": "POST",
+      "path": "/runner/v1/mcp-servers/{server_id}/discover",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Contacts the configured upstream MCP server"
+    },
+    {
+      "method": "POST",
+      "path": "/runner/v1/mcp-servers/{server_id}/pin",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Changes the trusted upstream tool snapshot"
+    },
+    {
+      "method": "GET",
+      "path": "/runner/v1/mcp-servers/{server_id}/tools",
+      "scope": "runner:read",
+      "sensitive": false,
+      "mfa_reason": "Read under runner authorization"
+    },
+    {
+      "method": "GET",
+      "path": "/runner/v1/mcp-servers/{server_id}/drift",
+      "scope": "runner:read",
+      "sensitive": false,
+      "mfa_reason": "Read under runner authorization"
+    },
+    {
+      "method": "GET",
+      "path": "/runner/v1/credentials",
+      "scope": "runner:read",
+      "sensitive": false,
+      "mfa_reason": "Read under runner authorization"
+    },
+    {
+      "method": "GET",
+      "path": "/runner/v1/credentials/{credential_id}",
+      "scope": "runner:read",
+      "sensitive": false,
+      "mfa_reason": "Read under runner authorization"
+    },
+    {
+      "method": "POST",
+      "path": "/runner/v1/credentials",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Changes runner credentials"
+    },
+    {
+      "method": "PATCH",
+      "path": "/runner/v1/credentials/{credential_id}",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Changes runner credentials"
+    },
+    {
+      "method": "DELETE",
+      "path": "/runner/v1/credentials/{credential_id}",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Changes runner credentials"
+    },
+    {
+      "method": "POST",
+      "path": "/runner/v1/credentials/{credential_id}/secrets/{field}",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Changes a runner secret"
+    },
+    {
+      "method": "POST",
+      "path": "/runner/v1/credentials/{credential_id}/test",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Exercises a runner credential"
+    },
+    {
+      "method": "POST",
+      "path": "/runner/v1/credentials/{credential_id}/revoke",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Revokes a runner credential"
+    },
+    {
+      "method": "POST",
+      "path": "/runner/v1/credentials/{credential_id}/oauth-discover",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Discovers the OAuth issuer and endpoints"
+    },
+    {
+      "method": "POST",
+      "path": "/runner/v1/credentials/{credential_id}/oauth-confirm",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Confirms the OAuth endpoints and registers a client"
+    },
+    {
+      "method": "POST",
+      "path": "/runner/v1/credentials/{credential_id}/connect",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Starts an OAuth authorization under a full human session"
+    },
+    {
+      "method": "POST",
+      "path": "/runner/v1/credentials/{credential_id}/disconnect",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Disconnects an OAuth credential"
+    },
+    {
+      "method": "POST",
+      "path": "/runner/v1/oauth/callback/{credential_id}",
+      "scope": "runner:admin",
+      "sensitive": false,
+      "mfa_reason": "Completes a browser authorization after step-up at connect",
+      "core_only": true
+    },
+    {
+      "method": "GET",
+      "path": "/runner/v1/ingest-key",
+      "scope": "runner:read",
+      "sensitive": false,
+      "mfa_reason": "Read under runner authorization"
+    },
+    {
+      "method": "GET",
+      "path": "/runner/v1/policy",
+      "scope": "runner:read",
+      "sensitive": false,
+      "mfa_reason": "Read under runner authorization"
+    },
+    {
+      "method": "PUT",
+      "path": "/runner/v1/policy",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Changes runner policy"
+    },
+    {
+      "method": "GET",
+      "path": "/runner/v1/projects/{project_id}/agents",
+      "scope": "runner:read",
+      "sensitive": false,
+      "mfa_reason": "Read under runner authorization"
+    },
+    {
+      "method": "GET",
+      "path": "/runner/v1/projects/{project_id}/agents/{agent_id}",
+      "scope": "runner:read",
+      "sensitive": false,
+      "mfa_reason": "Read under runner authorization"
+    },
+    {
+      "method": "POST",
+      "path": "/runner/v1/projects/{project_id}/agents",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Changes registered agent configuration"
+    },
+    {
+      "method": "PATCH",
+      "path": "/runner/v1/projects/{project_id}/agents/{agent_id}",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Changes registered agent configuration"
+    },
+    {
+      "method": "DELETE",
+      "path": "/runner/v1/projects/{project_id}/agents/{agent_id}",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Changes registered agent configuration"
+    },
+    {
+      "method": "GET",
+      "path": "/runner/v1/projects/{project_id}/agents/{agent_id}/versions",
+      "scope": "runner:read",
+      "sensitive": false,
+      "mfa_reason": "Read under runner authorization"
+    },
+    {
+      "method": "GET",
+      "path": "/runner/v1/projects/{project_id}/agents/{agent_id}/audit",
+      "scope": "runner:read",
+      "sensitive": false,
+      "mfa_reason": "Read under runner authorization"
+    },
+    {
+      "method": "POST",
+      "path": "/runner/v1/projects/{project_id}/agents/{agent_id}/pause",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Changes registered agent availability"
+    },
+    {
+      "method": "GET",
+      "path": "/runner/v1/projects/{project_id}/agents/{agent_id}/activity",
+      "scope": "runner:read",
+      "sensitive": false,
+      "mfa_reason": "Read under runner authorization"
+    },
+    {
+      "method": "GET",
+      "path": "/runner/v1/projects/{project_id}/agents/{agent_id}/tool-calls",
+      "scope": "runner:read",
+      "sensitive": false,
+      "mfa_reason": "Read under runner authorization"
+    },
+    {
+      "method": "GET",
+      "path": "/runner/v1/proposals",
+      "scope": "runner:read",
+      "sensitive": false,
+      "mfa_reason": "Read under runner authorization"
+    },
+    {
+      "method": "GET",
+      "path": "/runner/v1/proposals/{proposal_id}",
+      "scope": "runner:read",
+      "sensitive": false,
+      "mfa_reason": "Read under runner authorization"
+    },
+    {
+      "method": "POST",
+      "path": "/runner/v1/proposals",
+      "scope": "runner:admin",
+      "sensitive": false,
+      "mfa_reason": "Edits a proposal without applying it"
+    },
+    {
+      "method": "PATCH",
+      "path": "/runner/v1/proposals/{proposal_id}",
+      "scope": "runner:admin",
+      "sensitive": false,
+      "mfa_reason": "Edits a proposal without applying it"
+    },
+    {
+      "method": "DELETE",
+      "path": "/runner/v1/proposals/{proposal_id}",
+      "scope": "runner:admin",
+      "sensitive": false,
+      "mfa_reason": "Edits a proposal without applying it"
+    },
+    {
+      "method": "POST",
+      "path": "/runner/v1/proposals/{proposal_id}/approve",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Authorizes a proposed change"
+    },
+    {
+      "method": "POST",
+      "path": "/runner/v1/proposals/{proposal_id}/reject",
+      "scope": "runner:admin",
+      "sensitive": false,
+      "mfa_reason": "Edits a proposal without applying it"
+    },
+    {
+      "method": "GET",
+      "path": "/runner/v1/environments",
+      "scope": "runner:read",
+      "sensitive": false,
+      "mfa_reason": "Read under runner authorization"
+    },
+    {
+      "method": "GET",
+      "path": "/runner/v1/environments/{environment_id}",
+      "scope": "runner:read",
+      "sensitive": false,
+      "mfa_reason": "Read under runner authorization"
+    },
+    {
+      "method": "POST",
+      "path": "/runner/v1/environments",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Changes sandbox environment configuration"
+    },
+    {
+      "method": "PATCH",
+      "path": "/runner/v1/environments/{environment_id}",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Changes sandbox environment configuration"
+    },
+    {
+      "method": "DELETE",
+      "path": "/runner/v1/environments/{environment_id}",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Changes sandbox environment configuration"
+    },
+    {
+      "method": "POST",
+      "path": "/runner/v1/environments/{environment_id}/resolve-digest",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Resolves and pins a sandbox image digest"
+    },
+    {
+      "method": "GET",
+      "path": "/runner/v1/environment-registries",
+      "scope": "runner:read",
+      "sensitive": false,
+      "mfa_reason": "Read under runner authorization"
+    },
+    {
+      "method": "PUT",
+      "path": "/runner/v1/environment-registries",
+      "scope": "runner:admin",
+      "sensitive": true,
+      "mfa_reason": "Changes allowed sandbox image registries"
+    },
+    {
+      "method": "GET",
+      "path": "/runner/v1/projects/{project_id}/mcp-tools",
+      "scope": "runner:read",
+      "sensitive": false,
+      "mfa_reason": "Read under runner authorization"
+    },
+    {
+      "method": "GET",
+      "path": "/runner/v1/budgets",
+      "scope": "runner:read",
+      "sensitive": false,
+      "mfa_reason": "Read under runner authorization"
+    },
+    {
+      "method": "GET",
+      "path": "/runner/v1/usage",
+      "scope": "runner:read",
+      "sensitive": false,
+      "mfa_reason": "Read under runner authorization"
+    },
+    {
+      "method": "GET",
+      "path": "/runner/v1/transcripts/{step_run_id}",
+      "scope": "runner:read",
+      "sensitive": false,
+      "mfa_reason": "Read under runner authorization",
+      "sse": true
+    },
+    {
+      "method": "GET",
+      "path": "/runner/v1/audit",
+      "scope": "runner:read",
+      "sensitive": false,
+      "mfa_reason": "Read under runner authorization"
+    }
+  ]
+}

@@ -155,6 +155,9 @@ impl DatabaseConfig {
     pub fn pool_size(&self) -> usize {
         self.pool.size()
     }
+    pub fn pool_stats(&self) -> crate::PoolStats {
+        self.pool.stats()
+    }
     pub(crate) fn pool(&self) -> &Shared {
         &self.pool
     }

@@ -46,6 +46,26 @@ pub struct StepProjection {
     #[serde(with = "runbook_spec::stored_data")]
     pub outputs: Data,
     pub summary: Option<String>,
+    /// R0-4: a runner agent step's agent, for the runner's ready listing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runner: Option<StepRunnerProjection>,
+}
+/// R0-4: what the runner's ready listing needs about a step.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct StepRunnerProjection {
+    pub agent_id: String,
+    /// When the step last became open (epoch ms).
+    pub ready_at_ms: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_cost_usd: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision: Option<runbook_model::ReadyDecision>,
+}
+impl StepRunnerProjection {
+    pub fn indexed_at(&self, status: StepStatus) -> Option<i64> {
+        (status == StepStatus::Ready || (status == StepStatus::Waiting && self.decision.is_some()))
+            .then_some(self.ready_at_ms)
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TimerRecord {

@@ -22,7 +22,7 @@ sql_deletion_protection       = true
 create_private_service_access = true
 
 # Application Workload
-image             = "us-central1-docker.pkg.dev/my-gcp-project/runbook/server:0.1.0"
+image             = "us-central1-docker.pkg.dev/my-gcp-project/runbook/server:0.1.1"
 replicas          = 2
 app_domain        = "runbooks.example.com"
 usercontent_domain = "files.example-usercontent.com" # Leave empty ("") if uploads are not enabled
@@ -53,3 +53,9 @@ blob_store                              = "postgres"
 # gcs_noncurrent_version_retention_days = 30
 # blob_prefix                           = "runbook/"
 
+
+# Optional runner deployment. See https://docs.therunbook.app/runner/gke/
+# runner_enabled = true
+# retention_live_days                = "30"  # Core RUNBOOK_RETENTION_LIVE_DAYS
+# runner_retention_live_days         = "30"  # Default
+# runner_retention_archive_days      = "off" # Default, or days >= runner_retention_live_days

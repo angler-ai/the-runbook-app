@@ -42,10 +42,13 @@ pub struct ApprovalState {
     /// Why an `on_timeout: decide` gate expired without its automatic decision.
     pub automatic_withheld: Option<String>,
     pub agent_decision: Option<crate::AgentDecision>,
+    pub decision_lease: Option<runbook_model::DecisionLeaseView>,
+    pub agent_notes: Vec<runbook_model::ApprovalAgentNote>,
     pub notices: Vec<crate::ApprovalNotice>,
     pub queued_notices: BTreeSet<crate::ApprovalNoticeKind>,
+    pub escalation_notice_recipients: Option<Vec<RecipientRef>>,
 }
-fn definition<'a>(
+pub(crate) fn definition<'a>(
     state: &'a ExecutionState,
     step: &StepState,
 ) -> Result<&'a Approval, EngineError> {
@@ -57,6 +60,155 @@ fn definition<'a>(
     };
     Ok(approval)
 }
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Contributors {
+    users: BTreeSet<UserId>,
+    agents: BTreeSet<String>,
+    managed_agents: BTreeSet<String>,
+    unknown_service: bool,
+}
+
+fn sponsor(principal: &str) -> Option<UserId> {
+    principal.strip_prefix("agent:")?.parse().ok()
+}
+
+pub(crate) fn note_contributor(step: &mut StepState, actor: &ActorRef) {
+    match actor {
+        ActorRef::Human { user_id } => {
+            Rc::make_mut(&mut step.contributors)
+                .users
+                .insert(user_id.clone());
+        }
+        ActorRef::Agent {
+            principal_id,
+            service_attribution,
+            ..
+        } => {
+            let contributions = Rc::make_mut(&mut step.contributors);
+            if principal_id.starts_with("runner:")
+                && let Some(crate::AgentTargetRef::Runner { agent_id }) = &step.runner.target
+            {
+                contributions.managed_agents.insert(agent_id.clone());
+            } else {
+                contributions.agents.insert(principal_id.clone());
+            }
+            contributions.users.extend(sponsor(principal_id));
+            if let Some(attribution) = service_attribution {
+                contributions.users.extend(attribution.users().cloned());
+                contributions.unknown_service |= attribution.creator.is_none();
+            } else if principal_id.starts_with("service:") {
+                contributions.unknown_service = true;
+            }
+        }
+        ActorRef::System => {}
+    }
+}
+
+fn reviewed_tasks<'a>(
+    state: &'a ExecutionState,
+    gate: &'a StepState,
+    referenced: &'a [String],
+) -> impl Iterator<Item = &'a StepState> {
+    state.steps.iter().filter(move |task| {
+        referenced.contains(&task.node_id)
+            && (state.engine_version < crate::version::SCOPED_INDEPENDENT_APPROVALS
+                || !gate.scope.iter().zip(&task.scope).any(|(gate, task)| {
+                    gate.parent == task.parent
+                        && gate.index != task.index
+                        && state
+                            .node(&gate.parent)
+                            .is_some_and(|parent| matches!(parent.kind, NodeKind::Foreach(_)))
+                }))
+    })
+}
+
+/// People who contributed directly or through agents to the task instances
+/// reviewed by this approval.
+pub fn excluded_completers(state: &ExecutionState, step: &StepState) -> BTreeSet<UserId> {
+    let Ok(approval) = definition(state, step) else {
+        return BTreeSet::new();
+    };
+    if approval.exclude_completers_of.is_empty() {
+        return BTreeSet::new();
+    }
+    reviewed_tasks(state, step, &approval.exclude_completers_of)
+        .flat_map(|task| task.contributors.users.iter().cloned())
+        .collect()
+}
+
+/// A named task that timed out without a report cannot be independently reviewed.
+pub fn independent_review_missing_report(state: &ExecutionState, step: &StepState) -> bool {
+    let Ok(approval) = definition(state, step) else {
+        return false;
+    };
+    reviewed_tasks(state, step, &approval.exclude_completers_of).any(|task| {
+        crate::tree::terminal(task.status)
+            && (state.engine_version < crate::version::SCOPED_INDEPENDENT_APPROVALS
+                || !task.amended
+                || task.outputs.is_empty())
+            && task
+                .attempt_history
+                .last()
+                .is_some_and(|attempt| attempt.timed_out)
+    })
+}
+
+/// Unattributed service work requires an explicitly named non-admin human.
+pub fn independent_review_unknown_service(state: &ExecutionState, step: &StepState) -> bool {
+    state.engine_version >= crate::version::SCOPED_INDEPENDENT_APPROVALS
+        && definition(state, step).is_ok_and(|approval| {
+            reviewed_tasks(state, step, &approval.exclude_completers_of)
+                .any(|task| task.contributors.unknown_service)
+        })
+}
+
+fn is_named_approver(state: &ExecutionState, approval: &Approval, user: &UserId) -> bool {
+    approval.approvers.iter().any(|recipient| {
+        matches!(recipient, Recipient::User(name) if state.compiled().users().get(name) == Some(user))
+    })
+}
+
+pub(crate) fn check_independent_agent(
+    state: &ExecutionState,
+    step: &StepState,
+    principal: &str,
+) -> Result<(), EngineError> {
+    let approval = definition(state, step)?;
+    if independent_review_missing_report(state, step) {
+        return Err(EngineError::new("approval.review_missing_report"));
+    }
+    if independent_review_unknown_service(state, step) {
+        return Err(EngineError::new("approval.unknown_service_contributor"));
+    }
+    let sponsored_by = sponsor(principal);
+    let managed_agent = if principal.starts_with("runner:") {
+        match &step.runner.target {
+            Some(crate::AgentTargetRef::Runner { agent_id }) => Some(agent_id.as_str()),
+            _ => match &approval.agent_target {
+                Some(runbook_spec::ir::AgentTarget::Runner { agent_id, .. }) => {
+                    Some(agent_id.as_str())
+                }
+                _ => None,
+            },
+        }
+    } else {
+        None
+    };
+    if !approval.exclude_completers_of.is_empty()
+        && reviewed_tasks(state, step, &approval.exclude_completers_of).any(|task| {
+            let contributors = &task.contributors;
+            contributors.agents.contains(principal)
+                || managed_agent.is_some_and(|id| contributors.managed_agents.contains(id))
+                || sponsored_by
+                    .as_ref()
+                    .is_some_and(|user| contributors.users.contains(user))
+        })
+    {
+        return Err(EngineError::new("approval.excluded_completer"));
+    }
+    Ok(())
+}
+
 fn voter(vote: &ResolvedVote) -> Result<&UserId, EngineError> {
     match &vote.actor {
         ActorRef::Human { user_id } => Ok(user_id),
@@ -185,7 +337,9 @@ fn duplicate(record: &ApprovalState, vote: &ResolvedVote) -> bool {
 /// One user/option is one immutable signature regardless of credential or team count.
 pub fn apply_vote(state: &ExecutionState, vote: &ResolvedVote) -> Result<Vec<Event>, EngineError> {
     let (index, record) = check(state, vote)?;
-    admit(state, &state.steps[index], vote.at_ms)?;
+    let step = &state.steps[index];
+    check_independent_vote(state, step, voter(vote)?)?;
+    admit(state, step, vote.at_ms)?;
     if duplicate(record, vote) {
         return Ok(vec![]);
     }
@@ -193,6 +347,25 @@ pub fn apply_vote(state: &ExecutionState, vote: &ResolvedVote) -> Result<Vec<Eve
         vote: Box::new(vote.clone()),
     }])
 }
+fn check_independent_vote(
+    state: &ExecutionState,
+    step: &StepState,
+    user: &UserId,
+) -> Result<(), EngineError> {
+    if independent_review_missing_report(state, step) {
+        return Err(EngineError::new("approval.review_missing_report"));
+    }
+    if independent_review_unknown_service(state, step)
+        && !is_named_approver(state, definition(state, step)?, user)
+    {
+        return Err(EngineError::new("approval.unknown_service_contributor"));
+    }
+    if excluded_completers(state, step).contains(user) {
+        return Err(EngineError::new("approval.excluded_completer"));
+    }
+    Ok(())
+}
+
 pub(crate) fn record_vote(
     state: &mut ExecutionState,
     vote: &ResolvedVote,
@@ -202,6 +375,9 @@ pub(crate) fn record_vote(
         return Err(EngineError::new("approval.time_mismatch"));
     }
     let (index, record) = check(state, vote)?;
+    if state.engine_version >= crate::version::INDEPENDENT_APPROVALS {
+        check_independent_vote(state, &state.steps[index], voter(vote)?)?;
+    }
     if duplicate(record, vote) {
         return Err(EngineError::new("approval.duplicate_vote"));
     }
@@ -234,11 +410,23 @@ pub(crate) fn decision(
     state: &ExecutionState,
     step: &StepState,
 ) -> Result<Option<ApprovalDecision>, EngineError> {
+    if independent_review_missing_report(state, step) {
+        return Ok(None);
+    }
+    count_decision(state, step, &excluded_completers(state, step))
+}
+
+fn count_decision(
+    state: &ExecutionState,
+    step: &StepState,
+    excluded: &BTreeSet<UserId>,
+) -> Result<Option<ApprovalDecision>, EngineError> {
     let approval = definition(state, step)?;
     let record = step
         .approval
         .as_ref()
         .ok_or(EngineError::invariant("approval state is absent"))?;
+    let unknown_service = independent_review_unknown_service(state, step);
     let mut options: std::collections::BTreeMap<&str, BTreeSet<&UserId>> = Default::default();
     for signature in &record.votes {
         let vote = &signature.vote;
@@ -246,6 +434,10 @@ pub(crate) fn decision(
             return Err(EngineError::new("approval.automatic_pending"));
         }
         let user = voter(vote)?;
+        if excluded.contains(user) || (unknown_service && !is_named_approver(state, approval, user))
+        {
+            continue;
+        }
         let signers = options.entry(&vote.option).or_default();
         signers.insert(user);
         if signers.len() >= approval.min as usize {
@@ -285,7 +477,9 @@ pub(crate) fn record_decision(
     let index = state.step_index(&fact.step_run_id)?;
     let step = &state.steps[index];
     if !matches!(step.status, StepStatus::Waiting | StepStatus::Expired)
-        || decision(state, step)?.as_ref() != Some(fact)
+        || (decision(state, step)?.as_ref() != Some(fact)
+            && (state.engine_version >= crate::version::INDEPENDENT_APPROVALS
+                || count_decision(state, step, &BTreeSet::new())?.as_ref() != Some(fact)))
     {
         return Err(EngineError::new("approval.invalid_decision"));
     }

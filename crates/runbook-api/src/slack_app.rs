@@ -147,6 +147,24 @@ async fn decide<B: Backends>(
         return Err("Your Runbook account is not an active member of this organization.".into());
     }
 
+    let step = button
+        .sr
+        .parse()
+        .map_err(|_| "This button is not one The Runbook sent.")?;
+    let actor = crate::actor_store::StoreActorBackend {
+        backends: backends.clone(),
+    };
+    if let Some(execution) = actor
+        .destructive_approval(&org, &step)
+        .await
+        .map_err(|_| "The Runbook is unavailable. Decide in the app.")?
+    {
+        return Err(format!(
+            "This approval requires verification in The Runbook. <{}/x/{execution}|Open the run>.",
+            backends.origin(),
+        ));
+    }
+
     // A one-minute token of the person's own, used for this one call.
     let mut random = [0u8; 32];
     let mut id_random = [0u8; 10];
@@ -205,6 +223,9 @@ async fn decide<B: Backends>(
         (200..=299, _) => Ok(format!("Your vote ({option}) is recorded.")),
         (_, code) if code.starts_with("approval.not_open") || code == "step.not_waiting" => {
             Err("This approval is already decided.".into())
+        }
+        (_, "approval.excluded_completer") => {
+            Err("You completed a step this approval must review independently.".into())
         }
         (_, "approval.not_eligible") | (403, _) => {
             Err("You are not an approver for this step.".into())

@@ -1,0 +1,27 @@
+{
+  "name": "@runbook/runner-vault",
+  "version": "0.1.1",
+  "license": "AGPL-3.0-only",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "exports": {
+    "./*": {
+      "development": "./src/*.ts",
+      "types": "./dist/*.d.ts",
+      "default": "./dist/*.js"
+    }
+  },
+  "dependencies": {
+    "@google-cloud/kms": "6.3.0",
+    "@hpke/core": "1.10.1",
+    "@hpke/dhkem-x25519": "1.8.1",
+    "@runbook/runner-shared": "0.1.1",
+    "canonicalize": "5.1.0",
+    "google-auth-library": "11.3.4",
+    "pg": "8.23.1",
+    "undici": "7.30.2"
+  }
+}

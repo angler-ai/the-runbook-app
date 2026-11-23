@@ -5,6 +5,7 @@
 //   - the trusted-origin check on every unsafe /api/auth method (Shelf);
 //   - sanitized bodies for the routes that take one;
 //   - the domain restriction and the send-code limits before a code is sent.
+import { safeReturnTo } from './return-to';
 import { betterAuth } from 'better-auth';
 import { emailOTP } from 'better-auth/plugins';
 import { APIError } from 'better-auth/api';
@@ -18,9 +19,13 @@ import { mountInternal, NONCE_HEADER, PROOF_HEADER, proofFor } from './internal'
 import { type AuthStore, clientKey, LIMITS, sha256Hex } from './limits';
 import { BROWSER_ROUTES, CLIENT_ENDPOINTS, METADATA_PATHS, RESOURCE_METADATA_PATHS, type GatewayDeps, type OAuthAuth, authServerMetadata, authorize, browserPage, clientEndpoint, oauthPlugins, resourceMetadata } from './oauth';
 
+import { guardedAuthAdapter } from './mfa-generation';
+import { MFA_ROUTES, PASSKEY_ASSERTION, allowedProofTime, deliverMfaNotifications, mfaEnrolled, mfaPlugins, prepareMfaRequest, requirePasskeyUv, securityPolicy } from './mfa';
+
 export const BASE_PATH = '/api/auth';
 export const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
 const SESSION_UPDATE_AGE_SECONDS = 24 * 60 * 60;
+const SESSION_FRESH_AGE_SECONDS = 24 * 60 * 60;
 const MAX_BODY_BYTES = 16 * 1024;
 
 export interface AppDeps {
@@ -54,11 +59,15 @@ export function createAuth(deps: AppDeps) {
     baseURL: config.origin,
     basePath: BASE_PATH,
     secret: config.secret,
-    database: deps.database,
+    database: typeof deps.database === 'function' ? guardedAuthAdapter(deps.database) : deps.database,
     trustedOrigins: [config.origin],
     telemetry: { enabled: false },
     emailAndPassword: { enabled: false },
-    session: { expiresIn: SESSION_TTL_SECONDS, updateAge: SESSION_UPDATE_AGE_SECONDS },
+    session: { expiresIn: SESSION_TTL_SECONDS, updateAge: SESSION_UPDATE_AGE_SECONDS, freshAge: SESSION_FRESH_AGE_SECONDS, additionalFields: {
+      mfaVerifiedAt: { type: 'date', required: false, input: false },
+      mfaMethod: { type: 'string', required: false, input: false },
+      mfaGeneration: { type: 'number', required: false, input: false },
+    } },
     advanced: {
       // Better Auth only knows the __Secure- prefix, so it is off and the name
       // carries __Host- itself; Secure comes from the attributes (gate fix 7).
@@ -69,8 +78,12 @@ export function createAuth(deps: AppDeps) {
     },
     // OAuth failures land on the web app's sign-in page with ?error=<code>.
     onAPIError: { errorURL: `${config.origin}/sign-in` },
-    rateLimit: { enabled: true, storage: 'database', window: 60, max: 100 },
-    databaseHooks: databaseHooks(config, deps.fetch),
+    rateLimit: {
+      enabled: true, storage: 'database', window: 60, max: 100,
+      // The auth gateway reserves these attempts by account, factor and address.
+      customRules: { '/two-factor/verify-totp': false, '/two-factor/verify-backup-code': false },
+    },
+    databaseHooks: databaseHooks(config, deps.fetch, store),
     socialProviders: google
       ? {
           google: {
@@ -100,6 +113,7 @@ export function createAuth(deps: AppDeps) {
     plugins: [
       // MCP2: the OAuth 2.1 authorization server for remote MCP clients.
       ...oauthPlugins(config.origin),
+      ...mfaPlugins(deps),
       ...(transport && config.email
       ? [
           emailOTP({
@@ -145,7 +159,7 @@ function allowedRoute(config: AuthConfig, method: string, path: string): boolean
   if (config.methods.includes('email')) routes.push('POST /email-otp/send-verification-otp', 'POST /sign-in/email-otp');
   if (config.methods.includes('google')) routes.push('POST /sign-in/social', 'GET /callback/google');
   const m = method === 'HEAD' ? 'GET' : method;
-  return routes.includes(`${m} ${path}`) || CLIENT_ENDPOINTS.has(`${m} ${path}`) || BROWSER_ROUTES.has(`${m} ${path}`);
+  return routes.includes(`${m} ${path}`) || MFA_ROUTES.has(`${m} ${path}`) || CLIENT_ENDPOINTS.has(`${m} ${path}`) || BROWSER_ROUTES.has(`${m} ${path}`);
 }
 
 async function readJson(request: Request): Promise<Json | null> {
@@ -205,6 +219,7 @@ export function createApp(deps: AppDeps, auth: Auth | null): App {
     app,
     config,
     auth,
+    deps,
     transport && config.email ? { transport, from: config.email.from } : null,
   );
   const gateway: GatewayDeps | null = auth
@@ -260,6 +275,21 @@ export function createApp(deps: AppDeps, auth: Auth | null): App {
         const headers = new Headers(raw.headers);
         headers.set('cookie', legacy);
         browser = new Request(raw.url, { method: raw.method, headers, body: raw.method === 'GET' ? undefined : await raw.arrayBuffer() });
+      }
+      if (route === 'GET /oauth2/authorize' || path === '/oauth/consent') {
+        const session = await auth.api.getSession({ headers: browser.headers, query: { disableRefresh: true } });
+        if (session) {
+          const policy = await securityPolicy(auth, deps, session);
+          if (!policy) return problem(503, 'auth.unavailable', 'The organization security policy could not be checked.');
+          if (policy.mfa_partial) {
+            // The consent form can be posted after a policy change. Return
+            // through the same GET consent URL to retry with a fresh session.
+            const query = raw.method === 'POST' ? new URLSearchParams(await browser.clone().text()).get('oauth_query') : url.search.slice(1);
+            const resume = safeReturnTo(`${url.pathname}${query ? `?${query}` : ''}`, config.origin!);
+            if (!resume) return problem(400, 'auth.invalid_request', 'Invalid authorization continuation.');
+            return new Response(null, { status: 303, headers: { location: `/settings/security?return_to=${encodeURIComponent(resume)}` } });
+          }
+        }
       }
       return route === 'GET /oauth2/authorize' ? authorize(gateway, browser) : browserPage(gateway, browser, path);
     }
@@ -329,7 +359,57 @@ export function createApp(deps: AppDeps, auth: Auth | null): App {
       const body = ['GET', 'HEAD'].includes(request.method) ? undefined : await request.arrayBuffer();
       request = new Request(request.url, { method: request.method, headers, body });
     }
-    let response = await auth.handler(request);
+    if (['/list-sessions', '/revoke-session', '/revoke-sessions', '/revoke-other-sessions'].includes(path)) {
+      const current = await auth.api.getSession({ headers: request.headers, query: { disableRefresh: true } });
+      if (current) {
+        const policy = await securityPolicy(auth, deps, current);
+        if (!policy) return problem(503, 'auth.unavailable', 'The organization security policy could not be checked.');
+        if (policy.mfa_partial || await mfaEnrolled(auth, current.user) && allowedProofTime(current.session, policy) === null) {
+          return problem(403, 'auth.mfa_required', 'Verify a second factor first.');
+        }
+        if (path === '/revoke-session') {
+          const { session_id: id } = await request.json() as { session_id?: unknown };
+          if (typeof id !== 'string' || id.length === 0 || id.length > 256) {
+            return problem(400, 'auth.invalid_request', 'A session ID is required.');
+          }
+          const { adapter } = await auth.$context;
+          const target = await adapter.findOne<{ token: string }>({
+            model: 'session', where: [{ field: 'id', value: id }, { field: 'userId', value: current.user.id }],
+          });
+          if (!target) return Response.json({ status: true });
+          request = withBody(request, { token: target.token });
+        }
+      }
+    }
+    if (MFA_ROUTES.has(route)) {
+      const prepared = await prepareMfaRequest(auth, deps, path, request);
+      if (prepared instanceof Response) return prepared;
+      request = prepared;
+    }
+    let response = await requirePasskeyUv(path, await auth.handler(request));
+    if (path === '/two-factor/generate-backup-codes' && response.ok) {
+      const current = await auth.api.getSession({ headers: request.headers, query: { disableRefresh: true } });
+      if (current) await deliverMfaNotifications(deps, current.user.id);
+    }
+    if (path === PASSKEY_ASSERTION && (response.status === 400 || response.status === 401)) {
+      const error = await response.clone().json().catch(() => null) as { code?: string } | null;
+      if (error?.code === 'PASSKEY_NOT_FOUND' || error?.code === 'AUTHENTICATION_FAILED') {
+        return problem(401, 'auth.passkey_assertion_failed', 'Could not verify this passkey.');
+      }
+    }
+    if (response.status === 403 && (path === '/passkey/generate-register-options' || path === '/passkey/verify-registration')) {
+      const error = await response.clone().json().catch(() => null) as { code?: string } | null;
+      if (error?.code === 'SESSION_NOT_FRESH') {
+        return problem(403, 'auth.sign_in_again', 'Sign in again to add a passkey.');
+      }
+    }
+    if (path === '/list-sessions' && response.ok) {
+      const sessions = await response.json() as Json[];
+      for (const session of sessions) delete session.token;
+      const headers = new Headers(response.headers);
+      headers.delete('content-length');
+      response = Response.json(sessions, { status: response.status, headers });
+    }
     if (failedDeliveries.has(request)) {
       return problem(503, 'auth.email_unavailable', 'We could not send your code. Please try again in a minute.');
     }

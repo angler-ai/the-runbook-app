@@ -1134,7 +1134,7 @@ async fn invitations_are_managed_by_owners_and_admins() {
         assert_eq!((r.status, &r.body["role"]), (201, &json!("member")));
 
         // The invited admin signs in; as admin they invite members, not owners.
-        f.files.put_session("tok-admin", "ba_admin", "admin@example.test");
+        f.files.put_current_session("tok-admin", "ba_admin", "admin@example.test");
         assert_eq!(f.me("tok-admin").await.body["org"]["role"], "admin");
         let admin = ("cookie", &*cookie("tok-admin"));
         let admin = (admin.0, admin.1);
@@ -1144,10 +1144,13 @@ async fn invitations_are_managed_by_owners_and_admins() {
         assert_eq!(r.status, 201, "{}", r.body);
         let helper = r.body["id"].as_str().unwrap().to_owned();
         // A member can neither list nor invite.
-        f.files.put_session("tok-m", "ba_m", "m@example.test");
+        f.files.put_current_session("tok-m", "ba_m", "m@example.test");
         assert_eq!(f.me("tok-m").await.body["org"]["role"], "member");
         let member = ("cookie", &*cookie("tok-m"));
         let member = (member.0, member.1);
+        let inbox = send(&f.app, request("GET", "/v1/me/tasks", member, None, None)).await;
+        assert_eq!(inbox.status, 200, "{}", inbox.body);
+        assert_eq!(inbox.body, json!({"items": [], "next_cursor": null}));
         assert_eq!(send(&f.app, request("GET", &path, member, None, None)).await.status, 403);
         assert_eq!(send(&f.app, request("POST", &path, member, Some(invite("z@example.test", "member")), Some("i"))).await.status, 403);
 
@@ -1255,7 +1258,7 @@ async fn the_approval_page_sees_who_asked() {
             assert_eq!(r.status, 200, "{}", r.body);
             let user_code = r.body["user_code"].as_str().unwrap().to_owned();
             f.files
-                .put_session("tok-owner", "ba_owner", "owner@example.test");
+                .put_current_session("tok-owner", "ba_owner", "owner@example.test");
             let r = send(&f.app, lookup("tok-owner", &user_code.to_lowercase())).await;
             assert_eq!(r.status, 200, "{}", r.body);
             assert_eq!(r.body["user_code"], user_code.as_str());
@@ -1325,7 +1328,7 @@ async fn device_login_issues_a_narrowed_personal_token() {
         assert_eq!((r.body["code"].as_str(), r.body["interval"].as_u64()), (Some("device.slow_down"), Some(10)));
 
         // Only a browser session with CSRF approves.
-        f.files.put_session("tok-owner", "ba_owner", "owner@example.test");
+        f.files.put_current_session("tok-owner", "ba_owner", "owner@example.test");
         let by_bearer = Request::builder()
             .method("POST")
             .uri("/v1/device/approve")
@@ -1403,7 +1406,7 @@ async fn device_codes_deny_expire_and_are_rate_limited() {
             let code =
                 |peer: Option<&str>| send(&f.app, device_post("/v1/device/code", json!({}), peer));
             f.files
-                .put_session("tok-owner", "ba_owner", "owner@example.test");
+                .put_current_session("tok-owner", "ba_owner", "owner@example.test");
 
             // Denied.
             let r = code(None).await;
@@ -1509,7 +1512,7 @@ async fn device_codes_deny_expire_and_are_rate_limited() {
                 .await
                 .unwrap();
             f.files
-                .put_session("tok-viewer", "ba_viewer", "viewer@example.test");
+                .put_current_session("tok-viewer", "ba_viewer", "viewer@example.test");
             let r = send(
                 &f.app,
                 device_post(

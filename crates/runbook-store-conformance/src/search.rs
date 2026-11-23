@@ -280,6 +280,7 @@ pub async fn inbox_tracks_current_access_and_completion<F: CatalogFactory>(
         DirectorySnapshot {
             org_id: scope(1).org_id,
             revision: 1,
+            security: Default::default(),
             organization: OrganizationRecord {
                 id: scope(1).org_id.clone(),
                 title: "Org".into(),

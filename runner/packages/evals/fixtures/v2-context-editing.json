@@ -1,0 +1,2625 @@
+[
+  {
+    "requestHash": "0c9ff5215a61899d4c68d8ef58b4bf78ee12a2e2b86fd88d4ab09f8df3749325",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "view-0",
+        "toolName": "view"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "view-0",
+        "delta": "{\"path\":\"manifest.txt\"}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "view-0"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "view-0",
+        "toolName": "view",
+        "input": "{\"path\":\"manifest.txt\"}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "3634173c8e6d9a9ac56bf2b31fee861909cacf50abade17534b357d272f7f5c3",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-0",
+        "toolName": "page_1"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-0",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-0"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-0",
+        "toolName": "page_1",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "6edfdf116831c22f3426b35c41c4373bc419a5399dc48bc33eef9b00c5154609",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-1",
+        "toolName": "page_2"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-1",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-1"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-1",
+        "toolName": "page_2",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "abfb0e4eef390b231b296a4e9e6ca6f264090c594444dc25768aa01ccc21f4c4",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-2",
+        "toolName": "page_3"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-2",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-2"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-2",
+        "toolName": "page_3",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "c6335284e0d8007c9fe0c22f2458941c783fc5182d931aea66247607f547a171",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-3",
+        "toolName": "page_4"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-3",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-3"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-3",
+        "toolName": "page_4",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "8e47e31ae4839d2963a009edd7f9a1e17f5031f1098ee87f9bc2a74a62383d0f",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-4",
+        "toolName": "page_5"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-4",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-4"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-4",
+        "toolName": "page_5",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "952f4154a5c7fcae81bfaee409d0de72aa8c413bf53ef29159d83e32d5fed0f1",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-5",
+        "toolName": "page_6"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-5",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-5"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-5",
+        "toolName": "page_6",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "454ac3b5b12a8d12a41fdefcef9708d6a7589aa10f5b7826ddbe41c121dd0a60",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-6",
+        "toolName": "page_7"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-6",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-6"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-6",
+        "toolName": "page_7",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "da8e2ab63b98657c85c40eadcf3b8fa4f8e61b46151c420e5a66582255bd3d92",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-7",
+        "toolName": "page_8"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-7",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-7"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-7",
+        "toolName": "page_8",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "c26c5d45e0727bd000c6231835d7440b2843ac5b5e992358da98b2c92ff35795",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-8",
+        "toolName": "page_9"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-8",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-8"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-8",
+        "toolName": "page_9",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "450a735b235d7c61a5bd4ebff62488f0c6ac871178777996f491e729155329a0",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-9",
+        "toolName": "page_10"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-9",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-9"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-9",
+        "toolName": "page_10",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "3ba00e711d06299a48ef5ecf24b6a489109ef4fd60608b7ae1ae67c8d5029ac7",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-10",
+        "toolName": "page_11"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-10",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-10"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-10",
+        "toolName": "page_11",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "a6d0c2ec6ecdcfb03a1b4f8b30c4425e45160172d11a9a7342e423f912b5c6df",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-11",
+        "toolName": "page_12"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-11",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-11"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-11",
+        "toolName": "page_12",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "a349ab4674dba8d6535b2c050530d186f80590a2f35a66ad8eba2cb10f560700",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-12",
+        "toolName": "page_13"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-12",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-12"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-12",
+        "toolName": "page_13",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "4dc7ca8291eaf84abd5bd6209e8a7f230fab4ac77e377394f6b2cfab2402f590",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-13",
+        "toolName": "page_14"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-13",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-13"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-13",
+        "toolName": "page_14",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "7eb34646b6ce91b76b8b91cb3b3d1397fe1c25bbfafc6cd32c3e782b2995c9bf",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-14",
+        "toolName": "page_15"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-14",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-14"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-14",
+        "toolName": "page_15",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 101000,
+            "noCache": 1000,
+            "cacheRead": 100000,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        },
+        "providerMetadata": {
+          "anthropic": {
+            "contextManagement": {
+              "appliedEdits": [
+                {
+                  "type": "clear_tool_uses_20250919",
+                  "clearedToolUses": 8,
+                  "clearedInputTokens": 24000
+                }
+              ]
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "78be7a2df97059411cd69e78bdf0a43775b86a6fbea5aefb029cbf4ac9c1edae",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-15",
+        "toolName": "page_16"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-15",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-15"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-15",
+        "toolName": "page_16",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "6a4b3d2fd99281cb49169f300cc3790ccb1db60d661d9b6034dbf2c6ae027700",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-16",
+        "toolName": "page_17"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-16",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-16"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-16",
+        "toolName": "page_17",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "929b7348c410f0095f86feca310f3a8dc80e7af9c72ff22e1c9d859ff0e5fd1c",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-17",
+        "toolName": "page_18"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-17",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-17"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-17",
+        "toolName": "page_18",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "6794de4bf1a72d5f10e38703456d6e60600c276f9252ed0efd62ad1871802fd1",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-18",
+        "toolName": "page_19"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-18",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-18"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-18",
+        "toolName": "page_19",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "3a848bbf6fb61fa48891acb587637db53018b9bdad95ca1c85e41410202ea453",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-19",
+        "toolName": "page_20"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-19",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-19"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-19",
+        "toolName": "page_20",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "4e4b12f5e2cdc96bd0990293864565dacef79c25c0fba8bff72e62eee7857508",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-20",
+        "toolName": "page_21"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-20",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-20"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-20",
+        "toolName": "page_21",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "127b780e9c6c282d78ed57f7f82e482e11c560ef24de95c7db627160f9e6ce1d",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-21",
+        "toolName": "page_22"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-21",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-21"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-21",
+        "toolName": "page_22",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "8f7ac37842efde1b89654655cf72220b2fcf4eb3a3ca96d269a01078866baed6",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-22",
+        "toolName": "page_23"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-22",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-22"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-22",
+        "toolName": "page_23",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "d3d480b7d404fc0a401f1db497a82e910caf1aa01ed8c0c6ba285aaf5791bbfc",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-23",
+        "toolName": "page_24"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-23",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-23"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-23",
+        "toolName": "page_24",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "837f4048851c02d93ee0ff4d1ee13d25a0e9168fd67dce2f2e7659185068c832",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-24",
+        "toolName": "page_25"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-24",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-24"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-24",
+        "toolName": "page_25",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "1317fb6ad223dc7e949becd144693c5d8c77ac0ad378e678d00e97ae77804766",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-25",
+        "toolName": "page_26"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-25",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-25"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-25",
+        "toolName": "page_26",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "60d44960acd6f5f4e9d265999906b6f0c5ad3b379a4e6f3d7651a493f5b7ea3f",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-26",
+        "toolName": "page_27"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-26",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-26"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-26",
+        "toolName": "page_27",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "55d826df8b4bd05120719a00c54c4c2240e6a3eb82d51c2597ec5fc10ed280ea",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-27",
+        "toolName": "page_28"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-27",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-27"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-27",
+        "toolName": "page_28",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "44edb51abd76023ccbde59fe392a0236bcd564d48a61d258eebe59eeafe13af0",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-28",
+        "toolName": "page_29"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-28",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-28"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-28",
+        "toolName": "page_29",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "4877c6fed78fb77897274179be2284e8b918421d4d0c71cd182f919a268ec1da",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-29",
+        "toolName": "page_30"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-29",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-29"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-29",
+        "toolName": "page_30",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "6c4dde83c41ea08e5c2667215fce73003f1246c096fc695eed3ced248c62c240",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-30",
+        "toolName": "page_31"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-30",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-30"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-30",
+        "toolName": "page_31",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "33934bbfb04b3c3b3eebbfb6f00a6ec1afaabfa1efabc18b5b44ed125ae8fd2a",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-31",
+        "toolName": "page_32"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-31",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-31"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-31",
+        "toolName": "page_32",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "256da8bb1bdeacf253cfa748792a8ee88628aa50e9334fba6b58d5dd54bd2c67",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-32",
+        "toolName": "page_33"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-32",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-32"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-32",
+        "toolName": "page_33",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "580dde5ccae3f5a309ffa2c5e3422dcdf106bc838ab193e707893085a9613982",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-33",
+        "toolName": "page_34"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-33",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-33"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-33",
+        "toolName": "page_34",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "631ce05172ab4c9e18605fd9f788f3464f583ad9893e5dd1d4af902db3c2236e",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-34",
+        "toolName": "page_35"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-34",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-34"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-34",
+        "toolName": "page_35",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "1b5d86436be18a701b2d406a6b94c137d1796157b9cddfdbca7bf2e7c90e2ecd",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-35",
+        "toolName": "page_36"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-35",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-35"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-35",
+        "toolName": "page_36",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "5ec11d11ddd4c64c311334a868f66ec7ef41bc77178fde422bdc009a8ca37434",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-36",
+        "toolName": "page_37"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-36",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-36"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-36",
+        "toolName": "page_37",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "9dc661b8c2ac87bdd03e297fafacba4c32ba3622842ece47e1bb4cdbb47c9d42",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-37",
+        "toolName": "page_38"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-37",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-37"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-37",
+        "toolName": "page_38",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "4e1e8c2ac2f7c570e5dae19875131dd1a9201dbe8f77c1b577aa88f0e89717ec",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-38",
+        "toolName": "page_39"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-38",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-38"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-38",
+        "toolName": "page_39",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "12928d77e009319004d8e3636e6aac633f21f33b314eb8ce015cf20046856be4",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-39",
+        "toolName": "page_40"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-39",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-39"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-39",
+        "toolName": "page_40",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "0c415ce3078325f03a87af207c234ced0c6ef0f160fabf82063c0cf54956a737",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-40",
+        "toolName": "page_41"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-40",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-40"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-40",
+        "toolName": "page_41",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "8235075e47c8cb2a72bc0737f9dd5720586cabb40906604ac623fcd5270cb2fe",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-41",
+        "toolName": "page_42"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-41",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-41"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-41",
+        "toolName": "page_42",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "a7a4949826c099e40fee09c5cfdc734c1d7bebc04afc4f5f9ea4479cea0f1bcd",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-42",
+        "toolName": "page_43"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-42",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-42"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-42",
+        "toolName": "page_43",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "b5ab1f2fa245f26abf6c5f37ab829dee79f2aae5b19cefedfbab01b890cbbbb3",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-43",
+        "toolName": "page_44"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-43",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-43"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-43",
+        "toolName": "page_44",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "7fb8c3fe240482ea3187bd88a086e656ce56ad378725556d129d4af2054f90cb",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-44",
+        "toolName": "page_45"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-44",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-44"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-44",
+        "toolName": "page_45",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "00f5f175a8cd572c0f8e2da7584a96990336c9b480b1a2ee90707d08f8f029af",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-45",
+        "toolName": "page_46"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-45",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-45"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-45",
+        "toolName": "page_46",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "cbd23097ca3cc8c5339f388e7d7b8a1e53942ac6b10ed55731b3e54bdc8bdc8d",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-46",
+        "toolName": "page_47"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-46",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-46"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-46",
+        "toolName": "page_47",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "45f6399fe00f823db21eb63b8349ea83734f2227274d08a12121224fbb80173d",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-47",
+        "toolName": "page_48"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-47",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-47"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-47",
+        "toolName": "page_48",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "5a33df028e96c8ef0470cc8811ba3014af2b5e0d041b55de10547f27a0ddf519",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-48",
+        "toolName": "page_49"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-48",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-48"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-48",
+        "toolName": "page_49",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "260cf7c9036eb07eb388e943d457584db01f5d5458dec3cc7a4d712a247284b1",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-49",
+        "toolName": "page_50"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-49",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-49"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-49",
+        "toolName": "page_50",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "756d2c42e51535c58609df1f658c2c91f43e1c280b1af1f99bc30d11a27a69f5",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-50",
+        "toolName": "page_51"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-50",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-50"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-50",
+        "toolName": "page_51",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "10940971c74002e93ac2f18ef08c6670d08fe75d2173a1d3712b2166845c8632",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-51",
+        "toolName": "page_52"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-51",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-51"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-51",
+        "toolName": "page_52",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "9716a9daf7e64961886155ed82c25d7e862ba7dc1a5875cbfb9b295f0550bbdc",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-52",
+        "toolName": "page_53"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-52",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-52"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-52",
+        "toolName": "page_53",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "8b5c8f632307a4444012fbf1e401a61f49827c0dcb7cf4e2b213d9f00361860e",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-53",
+        "toolName": "page_54"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-53",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-53"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-53",
+        "toolName": "page_54",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "d74f6d507b560dccf81b18ff9681fed914aed1cc64c0b8e2f55b83871b8ecf9e",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "mcp-54",
+        "toolName": "page_55"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "mcp-54",
+        "delta": "{}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "mcp-54"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "mcp-54",
+        "toolName": "page_55",
+        "input": "{}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "10114aec0a62e00469f4c7aa7b1854c26e0b0671a1294312f757a0c4d68fce20",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "archive-read",
+        "toolName": "view"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "archive-read",
+        "delta": "{\"path\":\"/runbook-results/call-2.txt\"}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "archive-read"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "archive-read",
+        "toolName": "view",
+        "input": "{\"path\":\"/runbook-results/call-2.txt\"}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "05f0d6d43edeb8cc6bd50000420a1b5c0bcacdd1299149502cfdb043e07126d0",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "finish",
+        "toolName": "submit_result"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "finish",
+        "delta": "{\"outputs\":\"{\\\"pages\\\":55,\\\"total\\\":162}\",\"summary\":\"Verified the fixture result.\",\"unverified\":[],\"evidence\":[{\"claim\":\"Read the supplied evidence\",\"tool_call_ids\":[\"view-0\"]}],\"checklist\":[\"Inspect the relevant evidence\"]}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "finish"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "finish",
+        "toolName": "submit_result",
+        "input": "{\"outputs\":\"{\\\"pages\\\":55,\\\"total\\\":162}\",\"summary\":\"Verified the fixture result.\",\"unverified\":[],\"evidence\":[{\"claim\":\"Read the supplied evidence\",\"tool_call_ids\":[\"view-0\"]}],\"checklist\":[\"Inspect the relevant evidence\"]}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  }
+]

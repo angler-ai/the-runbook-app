@@ -172,10 +172,12 @@ fn draft_agent_gate_cannot_reach_destructive_work() {
         )
     };
     let decision = |trace: &Trace| AgentDecision {
+        audit_only_comment: false,
         at_ms: trace.state.at_ms,
         base_sequence: trace.state.sequence,
         step_run_id: trace.step("gate").id.clone().unwrap(),
         option: "go".into(),
+        evidence: vec![],
         comment: None,
         principal: "agt_ops".into(),
         agent_name: "ops".into(),

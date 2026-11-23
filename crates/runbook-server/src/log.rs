@@ -75,8 +75,7 @@ pub fn emit(severity: Severity, component: &str, message: &str) {
 }
 
 /// A line another process wrote (the auth child's stdout or stderr):
-/// passed through as is in text mode, wrapped in json mode. A line that is
-/// already a JSON object is kept whole under `child`.
+/// passed through as is in text mode, wrapped and redacted in JSON mode.
 pub fn passthrough(component: &str, line: &str, stderr: bool) {
     match format() {
         Format::Text if stderr => eprintln!("{line}"),
@@ -87,27 +86,25 @@ pub fn passthrough(component: &str, line: &str, stderr: bool) {
             } else {
                 Severity::Info
             };
-            let mut value: serde_json::Value =
-                serde_json::from_str(&json_line(severity, component, line, now_ms()))
-                    .unwrap_or_default();
-            if let Ok(child @ serde_json::Value::Object(_)) =
-                serde_json::from_str::<serde_json::Value>(line)
-            {
-                value["child"] = child;
-            }
-            println!("{value}");
+            println!("{}", json_line(severity, component, line, now_ms()));
         }
     }
 }
 
 pub fn json_line(severity: Severity, component: &str, message: &str, at_ms: i64) -> String {
-    serde_json::json!({
+    let message = runbook_core::redact::redact_lines(vec![message.to_owned()]);
+    let mut value = serde_json::json!({
         "severity": severity.name(),
-        "message": message,
+        "message": message.first().map(String::as_str).unwrap_or_default(),
         "time": rfc3339(at_ms),
         "component": component,
-    })
-    .to_string()
+    });
+    crate::telemetry::log_fields(
+        &mut value,
+        &opentelemetry::Context::current(),
+        crate::telemetry::project(),
+    );
+    value.to_string()
 }
 
 fn now_ms() -> i64 {
@@ -158,6 +155,44 @@ mod tests {
         assert_eq!(v["component"], "drain");
         assert!(!line.contains('\n'));
     }
+    #[test]
+    fn json_logs_link_the_active_span_and_redact_tokens() {
+        use opentelemetry::trace::{TraceContextExt, Tracer, TracerProvider};
+        let provider = opentelemetry_sdk::trace::SdkTracerProvider::default();
+        let span = provider.tracer("test").start("test");
+        let cx = opentelemetry::Context::current().with_span(span);
+        let span = cx.span().span_context().clone();
+        let _guard = cx.attach();
+        // A made-up token, assembled so secret scanners do not flag the literal.
+        let token = &format!("trb_pat_{}", "0123456789abcdefghijklmnopqrstuv");
+        let line = json_line(
+            Severity::Info,
+            "server",
+            &format!("Authorization: Bearer {token}"),
+            0,
+        );
+        assert!(!line.contains(token));
+        let mut value: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(
+            value["logging.googleapis.com/labels"]["runner_process"],
+            "core"
+        );
+        assert_eq!(
+            value["logging.googleapis.com/spanId"],
+            span.span_id().to_string()
+        );
+        assert_eq!(value["logging.googleapis.com/trace_sampled"], true);
+        crate::telemetry::log_fields(
+            &mut value,
+            &opentelemetry::Context::current(),
+            Some("runbook-test"),
+        );
+        assert_eq!(
+            value["logging.googleapis.com/trace"],
+            format!("projects/runbook-test/traces/{}", span.trace_id())
+        );
+    }
+
     #[test]
     fn times_are_utc_rfc3339() {
         assert_eq!(rfc3339(1_763_000_000_123), "2025-11-13T02:13:20.123Z");

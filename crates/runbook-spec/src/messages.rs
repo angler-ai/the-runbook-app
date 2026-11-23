@@ -99,6 +99,56 @@ pub fn message_for(code: &str, path: &str) -> String {
                 "Agent approvals require min to be set to 1.".into()
             }
         }
+        "spec.agent_unknown" => {
+            if at_path {
+                format!("No runner agent with the name at {path} exists in this project.")
+            } else {
+                "No runner agent with this name exists in this project.".into()
+            }
+        }
+        "spec.agent_outside_ceiling" => {
+            if at_path {
+                format!("The value at {path} is outside what the runner agent allows.")
+            } else {
+                "This step asks for more than its runner agent allows.".into()
+            }
+        }
+        "spec.agent_requires_allow_agents" => {
+            "A runner target requires allow_agents: true on this approval.".into()
+        }
+        "spec.agent_requires_agent_actor" => {
+            if at_path {
+                format!("The agent named at {path} needs a step with actor: agent.")
+            } else {
+                "Naming a runner agent needs a step with actor: agent.".into()
+            }
+        }
+        "spec.destructive_reach" => {
+            if at_path {
+                format!(
+                    "The step at {path} can use destructive tools or credentials: mark it destructive or narrow its tools."
+                )
+            } else {
+                "This step can use destructive tools or credentials: mark it destructive or narrow its tools.".into()
+            }
+        }
+        "spec.destructive_needs_approval" => {
+            if at_path {
+                format!(
+                    "The destructive runner step at {path} must come after a person's approval on every path to it."
+                )
+            } else {
+                "A destructive runner step must come after a person's approval on every path to it."
+                    .into()
+            }
+        }
+        "spec.retired_key" => {
+            if at_path {
+                format!("The key at {path} is retired; use agent.name to name a runner agent.")
+            } else {
+                "This key is retired; use agent.name to name a runner agent.".into()
+            }
+        }
         "spec.agents_dispatch_removed" => {
             if at_path {
                 format!(
@@ -189,6 +239,9 @@ pub fn message_for(code: &str, path: &str) -> String {
             } else {
                 "catch_on needs a catch block on the same group.".into()
             }
+        }
+        "spec.invalid_excluded_completer" => {
+            "Name a distinct human-capable task that precedes this approval on every path.".into()
         }
         "spec.followup_invalid" => {
             if at_path {

@@ -247,6 +247,15 @@ export function runState(section: Pick<Section, 'status' | 'kind'>): RunState {
   return section.status;
 }
 
+/** The actor shown for a step in the live graph and its details panel. */
+export function stepActor(record: RunRecord | undefined): Section['actor'] {
+  const actor = record?.section.actor;
+  const runner = record?.step?.runner;
+  // The runner target also appears on the view before a runner works the step.
+  if (actor?.kind !== 'agent' || !actor.principal_id.startsWith('runner:') || !runner) return actor;
+  return { ...actor, name: runner.agent_name, model: actor.model ?? runner.model ?? null };
+}
+
 export function actorOf(actor: Section['actor'], nameOf: NameOf): NodeOverlay['actor'] | undefined {
   if (!actor) return undefined;
   if (actor.kind === 'agent')
@@ -413,7 +422,7 @@ function nodeOverlay(
   };
   if (section?.title) overlay.title = section.title;
   if (section?.verdict) overlay.verdict = section.verdict;
-  const actor = actorOf(section?.actor, names.nameOf);
+  const actor = actorOf(stepActor(record), names.nameOf);
   if (actor) overlay.actor = actor;
   const taken = takenOverBy(section, names.nameOf);
   if (taken) overlay.takenOverBy = taken;

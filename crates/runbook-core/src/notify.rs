@@ -53,7 +53,11 @@ pub fn emailable(kind: &str) -> bool {
     APPROVAL_KINDS.contains(&kind)
         || matches!(
             kind,
-            "step.blocked" | "step.reminder" | "step.escalated" | "execution.completed"
+            "step.blocked"
+                | "step.reminder"
+                | "step.overdue"
+                | "step.escalated"
+                | "execution.completed"
         )
 }
 
@@ -202,6 +206,16 @@ pub fn render(intent: &NotificationIntent, to: &str, facts: &EmailFacts) -> Opti
             ),
             &format!("“{step}” in {run} is still open and waiting."),
             None,
+        ),
+        "step.overdue" => frame(
+            facts,
+            format!("{}Step overdue: {step} in {run}", place_prefix(facts)),
+            &format!("“{step}” in {run} has passed its deadline."),
+            if intent.reason.as_deref() == Some("not_open") {
+                Some("The step has yet to open. Check the run for work that is holding it up.")
+            } else {
+                Some("The step is open and still needs attention.")
+            },
         ),
         "step.escalated" => frame(
             facts,

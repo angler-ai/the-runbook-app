@@ -117,3 +117,12 @@ test('the PILOT_PSQL shim seeds a first token into the running stack\'s D1', asy
   assert.equal(again.status, 0, again.stderr);
   assert.equal(again.stdout.trim(), '', 'no seed for a user who is not a member');
 });
+
+test('a browser opening a refused API address gets sign-in, programs keep the problem', async () => {
+  const navigate = await get(`${stack.origin}/v1/me`, { headers: { 'sec-fetch-dest': 'document', accept: 'text/html' } });
+  assert.equal(navigate.status, 302);
+  assert.equal(navigate.headers.get('location'), '/sign-in');
+  const program = await get(`${stack.origin}/v1/me`, { headers: { accept: 'application/json' } });
+  assert.equal(program.status, 401);
+  assert.equal((await program.json()).code, 'auth.required');
+});

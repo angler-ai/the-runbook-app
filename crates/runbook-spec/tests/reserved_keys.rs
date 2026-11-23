@@ -115,7 +115,8 @@ fn the_probe_runbook_compiles() {
 fn every_rejected_pilot_key_fails_compilation_at_its_source_location() {
     let rejected = rules("rejected");
     // LANG1–LANG5 moved rules to supported (plan §2.9); LANG9b, triggers.
-    assert!(rejected.len() >= 12, "the profile lists the reserved keys");
+    // R0-3 moved the agent caps to supported and retired `agent.runner`.
+    assert!(rejected.len() >= 9, "the profile lists the reserved keys");
     for (path, value) in rejected {
         let mut source: Value = serde_json::from_str(BASE).unwrap();
         let pointer = place(&mut source, &path, value.clone());
@@ -177,7 +178,7 @@ fn a_parent_diagnostic_counts_only_when_the_parent_is_rejected() {
     assert!(is_rejection_of(
         &source,
         &pointer,
-        &diagnostic("/spec/steps/0/agent/runner", "spec.unsupported_feature")
+        &diagnostic("/spec/steps/0/agent/runner", "spec.retired_key")
     ));
     // A deliberate break: an unrelated error on the supported step above
     // the key (or on the document) must not stand in for its rejection.

@@ -51,6 +51,9 @@ fn escalate(step: &mut StepState) {
 
 fn header(state: &ExecutionState) -> ExecutionView {
     ExecutionView {
+        overdue_steps: vec![],
+        url: String::new(),
+        web_url: String::new(),
         schema_revision: NonZeroU32::MIN,
         id: state.id.clone(),
         runbook_id: None,
@@ -83,6 +86,7 @@ fn header(state: &ExecutionState) -> ExecutionView {
         superseded_by: None,
         parent: None,
         progress: None,
+        cost: None,
     }
 }
 

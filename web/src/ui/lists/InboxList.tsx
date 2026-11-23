@@ -1,9 +1,10 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { components } from '../../api/schema';
 import { cn } from '../primitives/cn';
 import { EmptyState } from '../layout/EmptyState';
 import { Button } from '../primitives/button';
-import { Inbox, CheckCircle2, ShieldAlert, ChevronRight, Loader2 } from 'lucide-react';
+import { Inbox, CheckCircle2, ShieldAlert, ChevronRight, Loader2, Bot } from 'lucide-react';
+import { formatRelativeTime } from '../../lib/format';
 
 export type InboxTaskView = components['schemas']['InboxTaskView'];
 
@@ -31,6 +32,29 @@ export interface InboxRunInfo {
   summary?: string;
   startedAtMs?: number;
   assigned?: string;
+  /** R1-D2: the runner agent that may decide this approval, and its state. */
+  agentDecides?: {
+    name: string;
+    readyAtMs?: number;
+    reviewing: boolean;
+    abstained: boolean;
+  };
+}
+
+/**
+ * R1-D2: an approval a runner agent may decide, in a few words: the agent
+ * is reviewing, abstained, or may decide (now, or after `agent.after`).
+ */
+export function inboxAgentText(
+  agent: NonNullable<InboxRunInfo['agentDecides']>,
+  now: number,
+): string {
+  if (agent.reviewing) return `Agent ${agent.name} is reviewing`;
+  if (agent.abstained) return `Agent ${agent.name} abstained`;
+  if (agent.readyAtMs != null && agent.readyAtMs > now) {
+    return `Agent ${agent.name} may decide ${formatRelativeTime(agent.readyAtMs, now)}`;
+  }
+  return `Agent ${agent.name} may decide now`;
 }
 
 export interface InboxListProps {
@@ -58,6 +82,8 @@ export function InboxList({
   emptyState,
   className,
 }: InboxListProps) {
+  const [mountedAt] = useState(() => Date.now());
+  const clock = now ?? mountedAt;
   if (items.length === 0) {
     if (emptyState) return <>{emptyState}</>;
     return (
@@ -98,6 +124,15 @@ export function InboxList({
             ) : null}
             {info?.assigned ? <span>{info.assigned}</span> : null}
           </div>
+          {task.kind === 'approval' && info?.agentDecides ? (
+            <div
+              data-slot="inbox-agent-decides"
+              className="flex items-center gap-1 text-2xs text-fg-muted"
+            >
+              <Bot className="size-3 shrink-0" aria-hidden="true" />
+              <span>{inboxAgentText(info.agentDecides, clock)}</span>
+            </div>
+          ) : null}
         </div>
 
         <div className="flex items-center gap-2 shrink-0">

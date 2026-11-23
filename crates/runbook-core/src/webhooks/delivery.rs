@@ -98,9 +98,17 @@ pub fn envelope(scope: &TenantScope, intent: &NotificationIntent, meta: &Executi
     let data = match intent.kind.as_str() {
         "agent.work_available" => json!({
             "reason": intent.reason,
-            "ready_steps": intent.ready_steps.iter().map(|s| json!({
-                "step_run_id": s.step_run_id, "path": s.path, "title": s.title,
-            })).collect::<Vec<_>>(),
+            "ready_steps": intent.ready_steps.iter().map(|s| {
+                let mut step = json!({
+                    "step_run_id": s.step_run_id, "path": s.path, "title": s.title,
+                });
+                // R0-4: runner agent steps name their agent and group.
+                if let (Some(agent), Some(group)) = (&s.agent_id, &s.group_id) {
+                    step["agent_id"] = json!(agent);
+                    step["group_id"] = json!(group);
+                }
+                step
+            }).collect::<Vec<_>>(),
             "params": intent.params.clone().unwrap_or(Value::Null),
         }),
         "approval.requested" => json!({
@@ -134,6 +142,17 @@ pub fn envelope(scope: &TenantScope, intent: &NotificationIntent, meta: &Executi
             "recipients": recipients(&intent.recipients),
             "link": intent.link,
         }),
+        "step.overdue" => json!({
+            "step_run_id": step,
+            "path": intent.detail.as_ref().and_then(|d| d.get("path")),
+            "due_at_ms": intent.detail.as_ref().and_then(|d| d.get("due_at_ms")),
+            "recipients": recipients(&intent.recipients),
+            "reason": intent.reason,
+            "link": intent.link,
+        }),
+        "execution.started" => json!({
+            "status": intent.detail.as_ref().and_then(|detail| detail.get("status")),
+        }),
         "step.blocked" => json!({
             "step_run_id": step,
             "recipients": recipients(&intent.recipients),
@@ -162,6 +181,7 @@ pub fn envelope(scope: &TenantScope, intent: &NotificationIntent, meta: &Executi
             "runbook_version_id": meta.version_id,
             "runbook_version": meta.version,
             "url": meta.url,
+            "web_url": runbook_model::execution_web_url(&meta.url, &meta.id),
         },
         "sequence": intent.sequence,
         "data": data,

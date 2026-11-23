@@ -6,7 +6,7 @@ use axum::{
 };
 use runbook_server::{
     config::{HostMatch, ServerConfig, TransportLimits},
-    http::{Worker, main_router, serve_until, shared_router},
+    http::{Worker, main_router, serve_until, shared_router, usercontent_router},
 };
 use runbook_store_postgres::DatabaseConfig;
 use std::time::{Duration, Instant};
@@ -125,6 +125,40 @@ async fn one_port_routes_user_content_by_host_and_keeps_the_origins_apart() {
             .await
             .status(),
         200
+    );
+}
+
+#[tokio::test]
+async fn hsts_uses_the_configured_origin_on_app_and_files_routes() {
+    let mut config = shared_config(absent_database());
+    let expected = "max-age=31536000; includeSubDomains";
+    let secure = Worker::start(config.clone()).unwrap();
+    let app = main_router(secure.client(), &config);
+    for host in ["runbooks.example.test", "files.example.test"] {
+        let response = get(&app, host, "/v1/not-found").await;
+        assert_eq!(
+            response
+                .headers()
+                .get("strict-transport-security")
+                .and_then(|value| value.to_str().ok()),
+            Some(expected)
+        );
+    }
+    let files = usercontent_router(secure.client());
+    assert_eq!(
+        get(&files, "files.example.test", "/v1/not-found")
+            .await
+            .headers()["strict-transport-security"],
+        expected
+    );
+    config.origin = "http://runbooks.example.test".into();
+    let local = Worker::start(config.clone()).unwrap();
+    let app = main_router(local.client(), &config);
+    assert!(
+        !get(&app, "runbooks.example.test", "/health/live")
+            .await
+            .headers()
+            .contains_key("strict-transport-security")
     );
 }
 

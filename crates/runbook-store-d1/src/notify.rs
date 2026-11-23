@@ -4,7 +4,10 @@
 use crate::sql::{Columns, D1, Statement, prepare};
 use runbook_core::{
     StoreError,
-    notify::{EmailCompletion, EmailLease, EmailPreference, EmailRecord, EmailState, NotifyStore},
+    notify::{
+        EmailCompletion, EmailLease, EmailPreference, EmailRecord, EmailState, NotifyStore,
+        ProjectSlackSettings,
+    },
 };
 use runbook_model::UserId;
 
@@ -20,6 +23,13 @@ impl<D: D1> D1Notify<D> {
 
 fn err(error: crate::sql::D1Error) -> StoreError {
     crate::store_error(error)
+}
+
+fn slack_settings(row: &crate::sql::Row) -> Result<ProjectSlackSettings, StoreError> {
+    Ok(ProjectSlackSettings {
+        target: row.string(0).map_err(err)?,
+        notify_run_started: row.integer(1).map_err(err)? != 0,
+    })
 }
 
 fn preference_name(preference: EmailPreference) -> &'static str {
@@ -285,54 +295,65 @@ impl<D: D1> NotifyStore for D1Notify<D> {
         self.claim_state(EmailState::Digest, limit, lease_ms, Some(before_ms))
             .await
     }
-    async fn slack_url(
+    async fn slack_settings(
         &self,
         scope: &runbook_core::catalog::TenantScope,
-    ) -> Result<Option<String>, StoreError> {
+    ) -> Result<Option<ProjectSlackSettings>, StoreError> {
         let rows = self
             .db
             .all(
-                prepare("SELECT url FROM project_slack WHERE org_id = ? AND project_id = ?")
+                prepare("SELECT url, COALESCE(notify_run_started, 0) FROM project_slack WHERE org_id = ? AND project_id = ?")
                     .bind(scope.org_id.as_str())
                     .bind(scope.project_id.as_str()),
             )
             .await
             .map_err(err)?;
-        rows.first()
-            .map(|row| row.string(0).map_err(err))
-            .transpose()
+        rows.first().map(slack_settings).transpose()
     }
-    async fn set_slack_url(
+    async fn save_slack_settings(
         &self,
         scope: &runbook_core::catalog::TenantScope,
-        url: Option<String>,
+        target: Option<String>,
+        notify_run_started: Option<bool>,
+    ) -> Result<Option<ProjectSlackSettings>, StoreError> {
+        use crate::sql::Value;
+        let flag = notify_run_started.map_or(Value::Null, |flag| Value::Integer(i64::from(flag)));
+        let org = scope.org_id.as_str();
+        let project = scope.project_id.as_str();
+        let query =
+            if let Some(target) = target {
+                prepare(
+                    "INSERT INTO project_slack (org_id, project_id, url, notify_run_started)
+                 VALUES (?1, ?2, ?3, COALESCE(?4, 0))
+                 ON CONFLICT(org_id, project_id) DO UPDATE SET url = excluded.url,
+                     notify_run_started = COALESCE(?4, project_slack.notify_run_started, 0)
+                 RETURNING url, notify_run_started",
+                )
+                .bind(org)
+                .bind(project)
+                .bind(target)
+                .bind(flag)
+            } else {
+                prepare(
+                "UPDATE project_slack SET notify_run_started = COALESCE(?3, notify_run_started, 0)
+                 WHERE org_id = ?1 AND project_id = ?2 RETURNING url, notify_run_started",
+            ).bind(org).bind(project).bind(flag)
+            };
+        let rows = self.db.all(query).await.map_err(err)?;
+        rows.first().map(slack_settings).transpose()
+    }
+    async fn remove_slack_settings(
+        &self,
+        scope: &runbook_core::catalog::TenantScope,
     ) -> Result<(), StoreError> {
-        match &url {
-            Some(url) => {
-                self.db
-                    .run(
-                        prepare(
-                            "INSERT INTO project_slack (org_id, project_id, url) VALUES (?, ?, ?) \
-                             ON CONFLICT(org_id, project_id) DO UPDATE SET url = excluded.url",
-                        )
-                        .bind(scope.org_id.as_str())
-                        .bind(scope.project_id.as_str())
-                        .bind(url.clone()),
-                    )
-                    .await
-                    .map_err(err)?;
-            }
-            None => {
-                self.db
-                    .run(
-                        prepare("DELETE FROM project_slack WHERE org_id = ? AND project_id = ?")
-                            .bind(scope.org_id.as_str())
-                            .bind(scope.project_id.as_str()),
-                    )
-                    .await
-                    .map_err(err)?;
-            }
-        }
+        self.db
+            .run(
+                prepare("DELETE FROM project_slack WHERE org_id = ? AND project_id = ?")
+                    .bind(scope.org_id.as_str())
+                    .bind(scope.project_id.as_str()),
+            )
+            .await
+            .map_err(err)?;
         Ok(())
     }
     async fn mark_digested(&self, ids: Vec<(String, u64)>, at_ms: i64) -> Result<(), StoreError> {

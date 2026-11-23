@@ -1,4 +1,6 @@
-use runbook_server::{Command, Error, bootstrap, config::ServerConfig, parse_command};
+use runbook_server::{
+    Command, Error, bootstrap, config::ServerConfig, parse_admin_command, parse_command,
+};
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     if let Err(error) = run().await {
@@ -11,11 +13,18 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .skip(1)
         .map(|arg| {
             arg.into_string().map_err(|_| {
-                Error("usage: runbook-server <bootstrap|doctor|migrate|copy-blobs|serve|assign-owner|export|import|--version>")
+                Error("usage: runbook-server <bootstrap|doctor|migrate|copy-blobs|serve|admin|assign-owner|export|import|--version>")
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let command = parse_command(args)?;
+    let command = if args.first().is_some_and(|arg| arg == "admin") {
+        match parse_admin_command(args.into_iter().skip(1)) {
+            Ok(command) => command,
+            Err(error) => error.exit(),
+        }
+    } else {
+        parse_command(args)?
+    };
     if command == Command::Version {
         println!("{}", runbook_server::version_line());
         return Ok(());
@@ -29,8 +38,37 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         println!("Postgres schema {version} is current.");
         return Ok(());
     }
+    if let Command::ResetMfa(email) = &command {
+        let configured = std::env::var("RUNBOOK_AUTH_COMMAND").ok();
+        let mut argv = configured
+            .as_deref()
+            .map_or_else(
+                || runbook_server::auth_child::DEFAULT_COMMAND.to_vec(),
+                |value| value.split_whitespace().collect(),
+            )
+            .into_iter();
+        let executable = argv.next().ok_or(Error("config.invalid_auth_command"))?;
+        let status = std::process::Command::new(executable)
+            .args(argv)
+            .args(["mfa-reset", email])
+            .env_clear()
+            .envs(runbook_server::auth_child::inherited_env(std::env::vars()))
+            .envs(
+                std::env::var("RUNBOOK_ORIGIN")
+                    .ok()
+                    .map(|origin| ("RUNBOOK_ORIGIN", origin)),
+            )
+            .status()
+            .map_err(|_| Error("mfa.reset_command_unavailable"))?;
+        return if status.success() {
+            Ok(())
+        } else {
+            Err(Error("mfa.reset_failed").into())
+        };
+    }
     let config = ServerConfig::from_env()?;
     match command {
+        Command::ResetMfa(_) => unreachable!(),
         Command::AssignOwner { org, user } => {
             let result = runbook_server::owner_recovery::run(&config, &org, &user).await?;
             println!(

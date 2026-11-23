@@ -15,9 +15,14 @@ import {
   type RouterHistory,
 } from '@tanstack/react-router';
 import { registerUnauthorizedHandler } from '../api/client';
-import { signedIn } from '../api/hooks';
+import { signedIn, useMe } from '../api/hooks';
+import { useState } from 'react';
+import { signOut } from '../features/auth/session';
+import { isPartialMe } from '../features/mfa/hooks';
+import { MfaGate } from '../features/mfa/MfaGate';
 import { DeviceApprovalPage } from '../features/auth/DeviceApprovalPage';
 import { AccountSettingsPage } from '../features/settings/AccountSettingsPage';
+import { AccountSecurityPage } from '../features/mfa/AccountSecurityPage';
 import { AuthenticatedShell } from '../features/context/AuthenticatedShell';
 import { validateExecutionSearch } from '../features/executions/filters';
 import { validateRunSearch } from '../features/execution/views';
@@ -125,8 +130,35 @@ const deviceRoute = createRoute({
       });
     }
   },
-  component: DeviceApprovalPage,
+  component: DeviceRoutePage,
 });
+
+/**
+ * J-3: device approval is outside the app shell, so it gates a partial
+ * session itself: verify or enroll first, then approve (the approval is a
+ * sensitive action, so the step-up prompt may ask again when stale).
+ */
+function DeviceRoutePage() {
+  const me = useMe();
+  const navigate = useNavigate();
+  const [signingOut, setSigningOut] = useState(false);
+  if (isPartialMe(me.data)) {
+    return (
+      <MfaGate
+        security={me.data.security}
+        signingOut={signingOut}
+        onDone={() => void me.refetch()}
+        onSignOut={() => {
+          setSigningOut(true);
+          void signOut().then(() =>
+            navigate({ to: '/sign-in', search: { reason: 'mfa-signed-out' } }),
+          );
+        }}
+      />
+    );
+  }
+  return <DeviceApprovalPage />;
+}
 
 const authenticatedRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -250,16 +282,151 @@ const settingsRoute = createRoute({
   component: AccountSettingsPage,
 });
 
+// J-3: Account › Security. The auth service also sends a partial session
+// here with `return_to` to resume an OAuth authorization after the check.
+const securitySettingsRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: '/settings/security',
+  validateSearch: (search: Record<string, unknown>): { return_to?: string } =>
+    typeof search.return_to === 'string' ? { return_to: search.return_to } : {},
+  component: SecurityRoutePage,
+});
+
+function SecurityRoutePage() {
+  const search = useSearch({ strict: false }) as { return_to?: string };
+  return <AccountSecurityPage returnTo={search.return_to ?? null} />;
+}
+
 const organizationSettingsRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: '/settings/organization',
   component: OrganizationAdminPage,
 });
 
+const runnerSettingsRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: '/settings/organization/runner',
+  validateSearch: (search: Record<string, unknown>): { tab?: string } =>
+    typeof search.tab === 'string' ? { tab: search.tab } : {},
+  beforeLoad: ({ search, location }) => {
+    const oauth =
+      /^oauth-result=([A-Za-z0-9_-]{1,128})\.(connected|confirm-account|test-failed|failed)$/.exec(
+        location.hash,
+      );
+    if (oauth) {
+      let connection: string | null = null;
+      try {
+        connection = sessionStorage.getItem(`runner-connect:${oauth[1]}`);
+      } catch {
+        /* storage can be unavailable */
+      }
+      if (connection && /^[A-Za-z0-9_.:-]+$/.test(connection)) {
+        throw redirect({
+          to: '/runner/connections/$connection',
+          params: { connection },
+          search: { tab: oauth[2] === 'connected' ? 'tools' : 'connect' },
+          hash: location.hash,
+          replace: true,
+        });
+      }
+    }
+    const pages = {
+      overview: 'overview',
+      providers: 'models',
+      mcp: 'connections',
+      credentials: 'credentials',
+      policy: 'policy',
+      audit: 'audit',
+      proposals: 'proposals',
+    } as const;
+    const page =
+      (search.tab && Object.hasOwn(pages, search.tab)
+        ? pages[search.tab as keyof typeof pages]
+        : undefined) ?? (location.hash.startsWith('oauth-') ? 'credentials' : 'overview');
+    throw redirect({ to: `/runner/${page}`, hash: location.hash, replace: true });
+  },
+});
+
+const runnerIndexRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: '/runner',
+  beforeLoad: () => {
+    throw redirect({ to: '/runner/overview', replace: true });
+  },
+});
+
+const runnerPages = [
+  'overview',
+  'connections',
+  'models',
+  'environments',
+  'budgets',
+  'policy',
+  'agents',
+  'credentials',
+  'audit',
+  'proposals',
+] as const;
+const runnerPage = lazyRouteComponent(
+  () => import('../features/runner/RunnerSettingsPage'),
+  'RunnerSettingsPage',
+);
+function runnerRoute<const Path extends string>(path: Path) {
+  return createRoute({
+    getParentRoute: () => authenticatedRoute,
+    path,
+    component: runnerPage,
+    validateSearch: (
+      search: Record<string, unknown>,
+    ): { project?: string; agent?: string; connection?: string } => ({
+      project: typeof search.project === 'string' ? search.project : undefined,
+      agent: typeof search.agent === 'string' ? search.agent : undefined,
+      connection: typeof search.connection === 'string' ? search.connection : undefined,
+    }),
+  });
+}
+const runnerConnectionsDetailRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: '/runner/connections/$connection',
+  validateSearch: (search: Record<string, unknown>): { tab?: string } =>
+    typeof search.tab === 'string' ? { tab: search.tab } : {},
+  component: runnerPage,
+});
+const runnerEnvironmentRoute = runnerRoute('/runner/environments/$environment');
+const runnerSectionRoutes = runnerPages.map((page) => runnerRoute(`/runner/${page}` as const));
+
 const projectSettingsRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: '/p/$project/settings',
   component: ProjectSettingsPage,
+});
+
+const agentsSearch = (search: Record<string, unknown>): { tab?: string; connection?: string } => ({
+  ...(typeof search.tab === 'string' && { tab: search.tab }),
+  ...(typeof search.connection === 'string' && { connection: search.connection }),
+});
+const projectAgentsRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: '/p/$project/agents',
+  validateSearch: agentsSearch,
+  component: lazyRouteComponent(() => import('../features/agents/AgentsPage'), 'AgentsPage'),
+});
+const projectAgentRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: '/p/$project/agents/$agent',
+  validateSearch: agentsSearch,
+  component: lazyRouteComponent(() => import('../features/agents/AgentsPage'), 'AgentsPage'),
+});
+const runnerTranscriptRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: '/p/$project/agents/transcripts/$step',
+  validateSearch: (search: Record<string, unknown>) => ({
+    claim_id: typeof search.claim_id === 'string' ? search.claim_id : undefined,
+  }),
+  component: lazyRouteComponent(
+    () => import('../features/agents/TranscriptPage'),
+    'TranscriptPage',
+  ),
 });
 
 const projectSkillsRoute = createRoute({
@@ -314,8 +481,17 @@ const routeTree = rootRoute.addChildren([
     projectExecutionsRoute,
     executionRoute,
     settingsRoute,
+    securitySettingsRoute,
     organizationSettingsRoute,
+    runnerSettingsRoute,
+    runnerIndexRoute,
+    ...runnerSectionRoutes,
+    runnerConnectionsDetailRoute,
+    runnerEnvironmentRoute,
     projectSettingsRoute,
+    projectAgentsRoute,
+    projectAgentRoute,
+    runnerTranscriptRoute,
     projectSkillsRoute,
     projectWebhooksRoute,
     projectMemoryRoute,

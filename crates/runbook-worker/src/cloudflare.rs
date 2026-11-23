@@ -70,6 +70,15 @@ pub trait CfHost: Clone + 'static {
     /// The host clock (request nonces; the stores keep their own).
     fn now_ms(&self) -> i64;
     fn fill_random(&self, bytes: &mut [u8]) -> Result<(), NoEntropy>;
+    fn runner_fetch(
+        &self,
+        request: runbook_api::runner_proxy::RunnerHttpRequest,
+    ) -> impl std::future::Future<
+        Output = Result<runbook_api::runner_proxy::RunnerHttpResponse, &'static str>,
+    > {
+        let _ = request;
+        std::future::ready(Err("runner.unsupported"))
+    }
     /// AUTH2: the sign-in methods discovery lists (none without CF7).
     fn auth_methods(&self) -> Vec<String> {
         vec![]
@@ -79,7 +88,7 @@ pub trait CfHost: Clone + 'static {
         String::new()
     }
     /// MCP2: the auth Worker's connected-app routes (none without CF7).
-    fn oauth_apps(
+    fn auth_internal(
         &self,
         route: &'static str,
         body: serde_json::Value,
@@ -149,6 +158,23 @@ impl<H: CfHost> CfBackends<H> {
     }
     pub fn host(&self) -> &H {
         &self.host
+    }
+    /// Retire the active signing key for this purpose. The old public key
+    /// remains in the JWKS for the grant verification grace period.
+    pub async fn rotate_signing_key(
+        &self,
+        purpose: runbook_core::signing::KeyPurpose,
+    ) -> Result<(), runbook_core::signing::SigningError> {
+        use runbook_api::webhooks::WebhookHost;
+        let host = self.host.webhook_host();
+        let sealer = host
+            .sealer()
+            .ok_or(runbook_core::signing::SigningError::Unavailable)?;
+        let keys = runbook_store_d1::signing::D1SigningKeys::new(self.control());
+        crate::signing::rotate(&keys, sealer, purpose, self.host.now_ms(), |bytes| {
+            self.host.fill_random(bytes)
+        })
+        .await
     }
     fn catalog(&self, scope: TenantScope) -> D1Catalog<H::D1> {
         D1Catalog::new(self.host.shards().for_org(&scope.org_id), scope)
@@ -262,6 +288,7 @@ impl<H: CfHost> Backends for CfBackends<H> {
     type Executions = CfExecutions<H>;
     type Authoring = CfAuthoring<H>;
     type Archives = crate::archives::CfArchives<H>;
+    type Runners = runbook_store_d1::runners::D1Runners<H::D1>;
     type Notify = runbook_store_d1::D1Notify<H::D1>;
 
     fn directory(&self) -> Self::Directory {
@@ -301,6 +328,43 @@ impl<H: CfHost> Backends for CfBackends<H> {
             backends: self.clone(),
         }
     }
+    fn runners(&self) -> Self::Runners {
+        runbook_store_d1::runners::D1Runners::new(self.control())
+    }
+    async fn signing_keys(
+        &self,
+    ) -> Result<runbook_core::signing::KeyRing, runbook_core::signing::SigningError> {
+        use runbook_api::webhooks::WebhookHost;
+        let host = self.host.webhook_host();
+        let sealer = host
+            .sealer()
+            .ok_or(runbook_core::signing::SigningError::Unavailable)?;
+        let keys = runbook_store_d1::signing::D1SigningKeys::new(self.control());
+        crate::signing::ring(&keys, sealer, self.host.now_ms(), |bytes| {
+            self.host.fill_random(bytes)
+        })
+        .await
+    }
+    async fn jwks(
+        &self,
+    ) -> Result<runbook_core::signing::Jwks, runbook_core::signing::SigningError> {
+        use runbook_api::webhooks::WebhookHost;
+        let host = self.host.webhook_host();
+        let Some(sealer) = host.sealer() else {
+            return Ok(runbook_core::signing::Jwks { keys: Vec::new() });
+        };
+        let keys = runbook_store_d1::signing::D1SigningKeys::new(self.control());
+        crate::signing::jwks(&keys, sealer, self.host.now_ms(), |bytes| {
+            self.host.fill_random(bytes)
+        })
+        .await
+    }
+    async fn runner_fetch(
+        &self,
+        request: runbook_api::runner_proxy::RunnerHttpRequest,
+    ) -> Result<runbook_api::runner_proxy::RunnerHttpResponse, &'static str> {
+        self.host.runner_fetch(request).await
+    }
     fn archives(&self) -> Self::Archives {
         crate::archives::CfArchives::new(self.clone())
     }
@@ -312,14 +376,14 @@ impl<H: CfHost> Backends for CfBackends<H> {
     fn auth_methods(&self) -> Vec<String> {
         self.host.auth_methods()
     }
-    fn oauth_apps(
+    fn auth_internal(
         &self,
         route: &'static str,
         body: serde_json::Value,
     ) -> impl std::future::Future<
         Output = Result<Option<serde_json::Value>, runbook_api::session::Unavailable>,
     > {
-        self.host.oauth_apps(route, body)
+        self.host.auth_internal(route, body)
     }
     fn webhook_host(&self) -> Self::WebhookHost {
         self.host.webhook_host()
@@ -419,6 +483,13 @@ impl<H: CfHost> Backends for CfBackends<H> {
         metadata: &TokenMetadata,
     ) -> Result<(), CredentialError> {
         self.credentials().insert_issued(record, metadata).await
+    }
+    async fn token_metadata(
+        &self,
+        org: &OrganizationId,
+        id: &runbook_model::TokenId,
+    ) -> Result<TokenMetadata, CredentialError> {
+        self.credentials().metadata(org, id).await
     }
     async fn tokens_of_org(
         &self,
@@ -548,6 +619,25 @@ impl<H: CfHost> AuthoringStore for CfAuthoringStore<H> {
     type Catalog = CfExecution<H>;
     fn catalog(&self) -> &Self::Catalog {
         &self.store
+    }
+    async fn runner_agents(&self) -> Result<runbook_core::authoring::RunnerAgents, StoreError> {
+        use runbook_core::{agent_directory::AgentDirectory, runners::RunnerError};
+        let scope = self.store.scope();
+        let store = self.backends.runners();
+        let error = |error| match error {
+            RunnerError::Store(error) => error,
+            _ => StoreError::Backend("d1.authoring"),
+        };
+        Ok(runbook_core::authoring::RunnerAgents {
+            agents: store
+                .project_agents(&scope.org_id, &scope.project_id)
+                .await
+                .map_err(error)?,
+            default_agent: store
+                .default_agent(&scope.org_id, &scope.project_id)
+                .await
+                .map_err(error)?,
+        })
     }
     async fn catalog_runbooks(&self) -> Result<Vec<RunbookRecord>, StoreError> {
         let scope = self.store.scope();
@@ -983,8 +1073,9 @@ impl<H: CfHost> ExecutionBackend for CfExecutions<H> {
         &self,
         scope: &TenantScope,
         query: runbook_api::search::SearchQuery,
+        origin: &str,
     ) -> Result<serde_json::Value, Error> {
-        crate::run_search::search(&self.backends, scope, query).await
+        crate::run_search::search(&self.backends, scope, query, origin).await
     }
     async fn execution_project(
         &self,
@@ -1398,8 +1489,11 @@ fn initial_view(
     admission: Option<Admission>,
 ) -> ExecutionView {
     ExecutionView {
+        overdue_steps: vec![],
         schema_revision: NonZeroU32::MIN,
         id: id.clone(),
+        url: record.context.url.clone(),
+        web_url: execution_web_url(&record.context.url, id),
         runbook_id: Some(record.runbook_id.clone()),
         runbook_slug: None,
         project_id: None,
@@ -1435,6 +1529,7 @@ fn initial_view(
             .as_ref()
             .map(runbook_core::execution_document::parent_view),
         progress: None,
+        cost: None,
     }
 }
 
@@ -1556,6 +1651,8 @@ fn current_view(
             iterations: None,
             skip_reason: None,
             followup: None,
+            runner: None,
+            cost: None,
         });
     }
     runbook_core::execution_document::apply_amendment_facts(state, &mut view);
@@ -1611,6 +1708,7 @@ pub fn router_config(origin: &str, max_request_bytes: u64) -> runbook_api::route
             version: runbook_api::VERSION.into(),
             schema: schema_heads(),
             theme: None,
+            trace_sample_ratio: None,
             step_runs: None,
         },
         authoring: runbook_api::authoring::AuthoringLimits::default(),

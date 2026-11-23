@@ -1138,22 +1138,51 @@
     {
       "path": "spec.steps.*.agent.runner",
       "value": true,
-      "class": "rejected"
+      "class": "rejected",
+      "code": "spec.retired_key",
+      "guidance": "Name the runner agent with agent.name."
+    },
+    {
+      "path": "spec.steps.*.agent.name",
+      "value": "deploy-checker",
+      "class": "supported",
+      "owner": "R0"
     },
     {
       "path": "spec.steps.*.agent.model",
-      "value": true,
-      "class": "rejected"
+      "value": "fast",
+      "class": "supported",
+      "owner": "R0"
     },
     {
       "path": "spec.steps.*.agent.max_cost_usd",
-      "value": true,
-      "class": "rejected"
+      "value": 0.5,
+      "class": "supported",
+      "owner": "R0"
     },
     {
       "path": "spec.steps.*.agent.max_tokens",
-      "value": true,
-      "class": "rejected"
+      "value": 1000,
+      "class": "supported",
+      "owner": "R0"
+    },
+    {
+      "path": "spec.steps.*.agent.network",
+      "value": ["api.example.com"],
+      "class": "supported",
+      "owner": "R0"
+    },
+    {
+      "path": "spec.steps.*.connections",
+      "value": ["datadog-readonly"],
+      "class": "supported",
+      "owner": "R0"
+    },
+    {
+      "path": "spec.defaults.agent.name",
+      "value": "deploy-checker",
+      "class": "supported",
+      "owner": "R0"
     },
     {
       "path": "spec.steps.*.steps",

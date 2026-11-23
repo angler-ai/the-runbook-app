@@ -30,6 +30,8 @@ pub struct DeviceGrant {
     pub projects: Option<BTreeSet<ProjectId>>,
     pub token_expires_at_ms: i64,
     pub decided_at_ms: i64,
+    #[serde(default)]
+    pub fresh_mfa_at_issue: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

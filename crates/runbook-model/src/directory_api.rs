@@ -10,6 +10,10 @@ pub struct DiscoveryView {
     /// discovery documents still decode.
     #[serde(default)]
     pub auth: AuthDiscovery,
+    /// R0-1: where the server publishes its Ed25519 signing keys (runner
+    /// grants and user assertions); defaulted so older documents decode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jwks_uri: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ApiLimits {
@@ -33,6 +37,9 @@ pub struct MetaView {
     /// Defaulted so older meta documents still decode.
     #[serde(default)]
     pub version: String,
+    /// Runner API compatibility advertised by this core.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runner_contract_version: Option<u32>,
     /// UPD1: the storage schema it runs on, by store: on the native server
     /// `postgres` (the applied migration number), on Workers the heads of
     /// `d1`, `execution_do`, `org_do` and `webhook_do` its code applies.
@@ -45,6 +52,9 @@ pub struct MetaView {
     /// absent when no theme variable is set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub theme: Option<ThemeView>,
+    /// Root trace sampling ratio for browser API calls (decimal from 0 to 1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_sample_ratio: Option<String>,
 }
 /// UI-1: accent colours per theme, from the server's configuration.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

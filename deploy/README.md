@@ -320,3 +320,335 @@ SQL
 `POSTGRES_DB`.) Then `dc up -d --wait` as usual.
 - **No graceful drain on SIGTERM:** correctness never depends on an orderly
   shutdown (the crash test proves SIGKILL is safe), so stopping is immediate.
+
+## Optional Docker runner
+
+Start the core with its normal Compose file and signing key. Configure an
+HTTPS reverse proxy from the runner's public base URL to port 8090 on the
+Compose host. Publish only `/runner/v1/` to the core and, if using webhook
+wakes, `/runner/v1/webhooks/core`. The core must resolve and reach that URL.
+If it resolves to a private address, enable
+`RUNBOOK_RUNNER_PRIVATE_NETWORKS=true` on the core.
+
+With Node.js 22.18 or newer, run setup from the repository checkout. Build the sandbox image on the same Docker
+daemon and run the one-time registration as an org admin. The
+bootstrap URL and the registration URL must match (use the origin with no
+trailing slash). Use the same Compose project name for setup and startup.
+
+Before you register, check these:
+
+- **A token with `runner:admin`.** No token gets the runner scopes unless
+  they are asked for, including the owner token from `bootstrap --with-token`
+  and a plain `runbook login`. `runbook runner bootstrap` then fails with
+  `auth.scope_missing`. Sign in as an org owner or admin with
+  `runbook login --scope runner:read --scope runner:admin` (add the other
+  scopes you need with more `--scope` flags) and approve it in the browser.
+- **`CORE_URL` is the core's public origin.** Use `RUNBOOK_ORIGIN` for
+  Docker or `ORIGIN` for the Cloudflare API Worker. The runner checks that the core's
+  signed grants come from `CORE_URL`, so use the core's public origin. Setup
+  calls it from this host, and the runner containers call it from the
+  `runner-egress` network. A core on plain http also needs
+  `RUNNER_INSECURE_CORE_HTTP=true` (above).
+- **A trusted certificate on the runner URL.** The core checks the runner's
+  certificate against the public web roots, and setup accepts only an https
+  `RUNNER_HTTPS_URL`. A private CA is not trusted. On a machine with no
+  public host name, a tunnel that gives you a public https name works,
+  for example a Cloudflare Tunnel to `http://127.0.0.1:8090`.
+- **`RUNNER_VERSION`** is the runner release you run, the `version` in
+  `runner/package.json` for a local build (for example `0.1.1`).
+
+```sh
+export COMPOSE_PROJECT_NAME=runbook
+export RUNNER_VERSION=0.1.1
+export RUNNER_IMAGE="runbook-runner:$RUNNER_VERSION"
+export RUNNER_SANDBOX_IMAGE="runbook-sandbox:$RUNNER_VERSION"
+docker build -f runner/Dockerfile -t "$RUNNER_IMAGE" .
+docker build -f runner/sandbox.Dockerfile -t "$RUNNER_SANDBOX_IMAGE" .
+runbook runner bootstrap --org "$ORG_ID" --url "$RUNNER_HTTPS_URL" |
+  node deploy/runner-install/setup.mjs "$CORE_URL" "$RUNNER_HTTPS_URL" "$ORG_ID" "$RUNNER_VERSION"
+
+export RUNNER_KEK_UID="$(id -u)" RUNNER_KEK_GID="$(id -g)"
+# Linux: set RUNNER_DOCKER_GID to the group that owns the daemon socket.
+# Docker Desktop ordinarily uses group 0 inside the VM.
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env --profile runner up -d
+runbook runner status --org "$ORG_ID" --json
+```
+
+On a single machine with the core on `http://localhost` or a `*.localhost`
+name, the runner containers can't reach that origin. Add a Compose override
+that gives the server that name on the runner network, and use the same
+port inside and outside the container (for example
+`RUNBOOK_ORIGIN=http://runbook.localhost:8080`):
+
+```yaml
+services:
+  server:
+    networks:
+      internal: {}
+      edge: {}
+      runner-egress:
+        aliases: [runbook.localhost]
+```
+
+The commands above build both images from the release checkout. To use a
+registry image instead, set `RUNNER_IMAGE` to the corresponding versioned
+image. The external-database Compose variant includes the same runner profile
+and gives the runner its own database.
+
+Bootstrap writes the registration and separate process credentials to
+`deploy/runner-config/` with owner-only permissions. Store that directory
+and the database volume backups securely together. Only the vault mounts
+the local KEK file, and only sandbox-ctl mounts the Docker socket. Docker
+is one trust domain. The internal service calls use plain HTTP on the
+Compose network. Core HTTPS is required by default. For a local core over
+HTTP, set `RUNNER_INSECURE_CORE_HTTP=true` before registration.
+
+Port 8090 binds to loopback by default. If the TLS proxy cannot reach
+loopback, set `RUNNER_API_BIND` to the proxy-facing interface address.
+Use `RUNNER_GATEWAY_CONTROL_IP` and `RUNNER_INTERNAL_SUBNET` together to
+avoid a local subnet conflict. If configuring signed core webhook wakes,
+set `RUNNER_CORE_WEBHOOK_SECRET` in `deploy/runner-config/api.env` to the
+signing secret from the core subscription. The scheduler also sweeps
+every 60 seconds.
+
+Model profiles can set `options.max_response_bytes` to cap successful streaming
+provider responses. The default is 16 MiB plus 1 KiB per allowed output
+token, which accounts for per-token stream framing. Individual stream events
+remain capped at 1 MiB. Error bodies and non-streaming responses have a
+16 MiB ceiling.
+
+### Upgrade to 0.1.1
+
+1. Back up and update the core and sign-in service first. Check
+   `curl -fsS "$CORE_URL/v1/meta"` for `runner_contract_version` **4** or higher.
+2. Back up the runner database and configuration. Stop all old runner
+   services and let their writes finish before migrating the database.
+   Migration `0018` removes permissions used by the old credential writer.
+   Migration `0027_task_claim_ledger.sql` links reservations to task claims
+   so the core can record settled charges after an interrupted claim.
+   Refresh the environments and start the new runner components together.
+   Compose waits for the runner migrations before starting the API.
+3. Check runner status and the vault identity, then verify sign-in before
+   enabling [MFA](https://docs.therunbook.app/security/multi-factor/).
+   An owner should enroll a factor and preview policy lockouts first. If a
+   CLI token needs replacement, approve a new login with the required scopes
+   in the browser after a fresh MFA check.
+
+Services that verify core JWTs refresh the JWKS every five minutes on demand.
+During a core outage they can use a previously fetched key for up to one hour
+after the last successful fetch. Set `RUNNER_JWKS_MAX_AGE_SECONDS` on verifier
+services to change this deadline, up to 24 hours. A shorter deadline limits how long a removed
+key can remain trusted during an outage and can interrupt valid traffic sooner.
+Unknown keys and known keys past the deadline fail closed.
+
+With the runner stopped, update the generated Compose environments using
+`node deploy/runner-install/setup.mjs --upgrade "$CORE_URL" "$RUNNER_HTTPS_URL" "$ORG_ID" "$RUNNER_VERSION"`.
+Setup checks the environment for each runner process before saving it. The
+upgrade preserves the existing database passwords, process tokens, and KEK.
+Set `RUNNER_IMAGE` when starting Compose if using a locally built runner.
+Set `RUNNER_SANDBOX_IMAGE` during `--upgrade` to adopt the new sandbox image
+in the worker and sandbox-controller configurations.
+Runner peers use port 8094 on the Compose network. The reverse proxy continues
+to use the published port 8090.
+
+### Vault identity enrollment and rotation
+
+Fresh setup registers the vault's Ed25519 public key using the one-time
+bootstrap token and prints its SHA-256 fingerprint. Keep the installer
+trusted during initial enrollment. The vault derives its initial identity
+from the first local KEK with a separate HKDF context, then stores it
+KEK-wrapped in the runner database. Compare the installer fingerprint with
+`vault_identity_fingerprint` from `runbook runner status --org "$ORG_ID" --json`
+or with the fingerprint in the web overview before entering credentials.
+
+For a previously installed runner, read its public key directly on the
+trusted vault host. Have an organization owner register that key with the
+core before anyone enters credentials.
+
+```sh
+VAULT_PUBLIC_KEY="$(docker compose -f deploy/docker-compose.yml --env-file deploy/.env --profile runner \
+  exec -T runner-vault node /app/bin/runner.mjs vault-identity)"
+printf '%s' "$VAULT_PUBLIC_KEY" |
+  node -e 'let key = require("node:fs").readFileSync(0, "utf8").trim(); console.log(require("node:crypto").createHash("sha256").update(Buffer.from(key, "base64url")).digest("hex"))'
+runbook runner vault-identity --org "$ORG_ID" --public-key "$VAULT_PUBLIC_KEY"
+runbook runner status --org "$ORG_ID" --json
+```
+
+Compare the fingerprint computed from the public key with runner status.
+Resolve any mismatch on the trusted vault host before entering credentials.
+
+To rotate, stop every vault replica and pause credential entry. Use
+`docker compose ... run --rm --no-deps runner-vault vault-identity --rotate`
+with the same Compose options and database. This replaces the stored signing
+key and prints the replacement public key. Register that key as an
+organization owner, then restart the vault. If owner registration fails, run
+`vault-identity` again without `--rotate` to recover the current public key.
+Update any independent client pins before resuming credential entry.
+
+Open reservations created before migration 0019 can settle through the
+authenticated gateway or sandbox controller for their reservation kind.
+Reservations created by the new API require the original opening capability.
+
+### Credential creation
+
+Upgrade runner-api and the vault before using the updated browser or CLI to
+create credentials. The vault signs a creation receipt with its identity key.
+The browser and CLI verify it against the key registered with the core before
+using the returned credential ID. When the CLI submits a change for approval,
+it returns a `proposal_id`.
+
+Use `runbook runner credential types` to list config and secret fields.
+`runbook runner credential set CREDENTIAL FIELD` takes `key` for `api-key`,
+`api_key` for `model-provider`, and `token` for `mcp-bearer`. Keep secret
+values out of metadata files. See [sealed entry](#credential-rotation-from-the-cli)
+for the prompt and standard input options.
+
+### Configure a runner with the CLI
+
+Use the runner-scoped CLI login from setup. For each JSON file, use
+configuration metadata without secret values.
+
+```sh
+runbook runner group list
+runbook runner group projects "$GROUP_ID" --file projects.json
+runbook runner policy update --file policy.json
+runbook runner credential create --file credential.json --json
+runbook runner credential set "$CREDENTIAL_ID" api_key
+runbook runner credential test "$CREDENTIAL_ID"
+runbook runner credential label "$CREDENTIAL_ID" read
+runbook runner credential share "$CREDENTIAL_ID" --file sharing.json
+runbook runner provider create --file provider.json
+runbook runner profile create --file profile.json
+runbook agents create --project "$PROJECT_ID" --file agent.json
+runbook runner agent-profiles "$AGENT_ID" --project "$PROJECT_ID" --file profiles.json
+```
+
+In the example, the credential type is `model-provider`. Use its ID in
+provider metadata and the returned provider ID in the profile. Share all
+three with the project. For `group projects`, provide the complete
+`project_ids` array. For `credential share`, provide `sharing.projects`.
+For `agent-profiles`, supply the complete `profiles` array of profile IDs.
+Check the policy with `runbook runner policy get` and choose
+[a small initial step budget with headroom for the model](https://docs.therunbook.app/runner/limits/).
+
+For an upstream MCP server, use `runbook runner mcp-server create --file mcp.json`
+and `runbook runner mcp-server discover "$SERVER_ID" --json`. Review the tools,
+pin the returned snapshot with `runbook runner mcp-server pin "$SERVER_ID" "$SNAPSHOT_ID"`,
+and set their labels with `runbook runner mcp-server label-tools "$SERVER_ID" --file labels.json`.
+The labels file contains a `tool_labels` map. Use `never_allowed` on the server
+to exclude tools and grant the agent only the tools it needs.
+
+The [runner setup guide](https://docs.therunbook.app/runner/setup/#configure-the-runner)
+has provider and profile examples and a first-run checklist. Sign in
+separately to use the web app, which refuses CLI tokens with runner scopes
+or `project:admin`.
+
+### A second runner stack on one Docker daemon
+
+Each core permits one runner installation per organization. Register the
+second stack to a different organization or a separate core instance.
+Each stack needs its own copy of the Compose file and `runner-install/`
+(setup writes `../runner-config/` next to `setup.mjs` and imports
+`../../runner/`, so keep that layout), and its own `COMPOSE_PROJECT_NAME`,
+`RUNNER_API_PORT` and HTTPS origin, `RUNNER_INTERNAL_SUBNET` with `RUNNER_GATEWAY_CONTROL_IP`,
+and `RUNNER_SANDBOX_SUBNET_POOL` (add it to `runner-config/sandbox-ctl.env`;
+setup doesn't write it). For example, if the first stack uses the default
+subnets, the second can use port `8091`, internal subnet `172.31.90.0/24`,
+gateway IP `172.31.90.10`, and sandbox pool `10.204.0.0/16` if those ranges
+are free on your host. If both stacks run a core, use separate core listen
+ports and public origins. Every sandbox controller removes all containers
+labeled `runbook.sandbox` when it starts, so starting one stack ends the
+other stack's running sandboxes. Restart a stack only while the other is idle.
+
+### Credential rotation from the CLI
+
+For unattended `runbook runner credential set`, redirect standard input
+from a protected secret file and pass either
+`--binding-pin` with the verified destination hash or `--expected-config`
+with a local JSON document containing the expected `type`, `config`, and
+`groups`. Interactive rotation displays the normalized destination and
+asks for confirmation before it reads the secret from a hidden prompt.
+
+```sh
+runbook runner credential set "$CREDENTIAL_ID" "$FIELD" \
+  --expected-config credential.json < "$SECRET_FILE"
+# Or use the independently verified destination hash.
+runbook runner credential set "$CREDENTIAL_ID" "$FIELD" \
+  --binding-pin "$BINDING_HASH" < "$SECRET_FILE"
+```
+
+The CLI uses the registered vault identity to authenticate the ingest key.
+An independently verified ingest-key fingerprint can be supplied with
+`--pin`. It differs from the enrolled vault-identity fingerprint.
+
+For a draft credential created before the atomic policy upgrade, open the
+credential and save its intended label and sharing before sealing a secret.
+New direct creates apply the policy in the vault transaction that creates
+the credential. A credential created by an approved agent proposal also
+needs an administrator to confirm its label before first activation.
+
+### Reconcile model usage from the Compose host
+
+The runner API exports `runbook_runner_pending_reservations` on its metrics endpoint.
+A host operator with access to the runner API container can reconcile
+pending charges using the container's scheduler database credentials.
+Replace the IDs and measured usage in the example with the record returned
+by `list` and the provider's billing evidence.
+
+```sh
+dc exec -T runner-api node /app/bin/runner.mjs ledger-reconcile list
+dc exec -T runner-api node /app/bin/runner.mjs ledger-reconcile apply <<'JSON'
+{"reservation_id":"RESERVATION","step_run_id":"STEP_RUN","runner_id":"RUNNER","actual_usd":0.01,"usage":{"input_tokens":300,"output_tokens":50,"cached_tokens":0,"cache_write_tokens":0}}
+JSON
+```
+
+The local command matches the reservation, step run and runner, and works
+with pre-0019 reservations if the charge was provisionally settled and its
+usage event is linked. It audits corrections and accepts an identical retry.
+If the measured charge exceeds the original hold, pass `apply --override-hold`.
+The audit row records that the operator used an override.
+
+If `list` shows `usage_event_linked: false`, no usage event can be attributed
+to that reservation automatically. Identical historical settlements can
+produce this result. The provisional charge remains pending. A database
+operator must use provider billing evidence to identify the correct usage
+event, verify any sibling links, and set its `reservation_id` before running
+`apply`. Leave the charge pending if the evidence cannot distinguish the events.
+
+### Recover an interrupted Compose registration
+
+If setup reports an invalid runner join reply, repeat setup with the original
+arguments. It uses the private `deploy/runner-config/registration.json` to
+retry the same join without a bootstrap token.
+
+If setup reports an invalid registration reply before that file was saved,
+run `runbook runner status --org "$ORG_ID"`. If no install appears, generate a
+new bootstrap token for the same URL and repeat setup. If the install appears,
+send the organization and install IDs to the core operator. The registration
+tokens are stored as hashes on the core and cannot be recovered from status.
+
+For a confirmed orphan with no joined runners, the core database operator
+should back up the database, then run the following in `psql` with `org_id` and
+`install_id` set to the confirmed IDs. Roll back if the first query fails to
+find the expected install or if the final DELETE affects anything other than
+one row.
+
+```sql
+BEGIN;
+SELECT id, org_id, url FROM runbook.runner_installs
+  WHERE org_id = :'org_id' AND id = :'install_id' FOR UPDATE;
+DELETE FROM runbook.runner_vault_identity_history
+  WHERE install_id = :'install_id' AND EXISTS (
+    SELECT 1 FROM runbook.runner_installs WHERE org_id = :'org_id' AND id = :'install_id'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM runbook.runner_runners WHERE install_id = :'install_id'
+  );
+DELETE FROM runbook.runner_installs
+  WHERE org_id = :'org_id' AND id = :'install_id' AND NOT EXISTS (
+    SELECT 1 FROM runbook.runner_runners WHERE install_id = :'install_id'
+  );
+-- COMMIT only after verifying the results.
+```
+
+After the operator clears the orphan, generate a fresh bootstrap token with
+`runbook runner bootstrap` for the original runner URL and repeat setup.

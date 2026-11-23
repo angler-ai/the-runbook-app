@@ -164,7 +164,7 @@ export function oauthSuite(h) {
       assert.deepEqual(await r.json(), {
         resource: RESOURCE,
         authorization_servers: [ISSUER],
-        scopes_supported: ['runbooks:read', 'runbooks:write', 'runbooks:publish', 'executions:read', 'executions:start', 'executions:act', 'skills:read', 'offline_access'],
+        scopes_supported: ['runbooks:read', 'runbooks:write', 'runbooks:publish', 'executions:read', 'executions:start', 'executions:act', 'skills:read', 'runner:read', 'runner:admin', 'offline_access'],
         bearer_methods_supported: ['header'],
         resource_name: 'The Runbook',
       });
@@ -205,7 +205,7 @@ export function oauthSuite(h) {
     assert.equal(tokens.expires_in, 3600);
     const seen = await introspect(h, tokens.access_token);
     assert.equal(seen.status, 200);
-    assert.deepEqual(Object.keys(seen.body).sort(), ['auth_user_id', 'client_id', 'email', 'email_verified', 'expires_at', 'scope', 'session_id']);
+    assert.deepEqual(Object.keys(seen.body).sort(), ['auth_user_id', 'client_id', 'email', 'email_verified', 'expires_at', 'mfa_enrolled', 'mfa_method', 'mfa_verified_at', 'scope', 'session_id']);
     assert.equal(seen.body.email, email);
     assert.equal(seen.body.email_verified, true);
     assert.equal(seen.body.client_id, flow.client.client_id);

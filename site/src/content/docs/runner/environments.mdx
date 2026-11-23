@@ -1,0 +1,26 @@
+---
+title: Environments
+description: Configure versioned runner sandboxes, CLI setup, and credential placeholders.
+---
+
+Open **Runner → Environments** to manage the sandboxes agents use. The organization starts with a **Default** environment based on the installation image. An agent can select a different environment in its project configuration. Publishing an agent pins an environment version. Publish the agent again to adopt a new image, setup script, or variable configuration. Lower budget ceilings take effect at the next admission. Use a human browser session with `runner:admin` to edit an environment.
+
+## Images and registry approval
+
+An organization owner adds exact registry hostnames to **Allowed registries**. The list starts empty. Custom images must provide the Runbook sandbox user and executable paths. Isolation probes run from the installation image or its trusted helper mounted read-only into the custom sandbox. Start with the installation sandbox image and extend it with the CLIs you need.
+
+Use a full reference like `ghcr.io/example/sandbox:stable` or `ghcr.io/example/sandbox@sha256:…`. A save resolves a new tag to a digest. **Update to latest** explicitly resolves the saved reference and creates an audited environment version. For private registry images, provide a digest and arrange registry access through your installation or Docker host provisioning. Sandbox images cannot declare Docker volumes.
+
+On GKE, a custom image also needs its full digest reference in Terraform's `runner_sandbox_images`. Apply that configuration before publishing agents that use the image. Until then the app shows **Not yet approved for this cluster**. Keep any older digests required by published agents in that list. For tag resolution on GKE, set `runner_registry_https_cidrs` to the public IPv4 ranges of the registry and any anonymous token endpoint. You can also supply a digest resolved by your image build.
+
+Docker uses the local image ID for the installation sandbox. Load each approved custom image by its full digest on the sandbox host using your registry and mirror controls. The runner requires that exact digest locally before starting a sandbox. If you upgrade the installation image, use **Update to latest** on the default environment, then publish agents that should adopt it.
+
+## Setup and variables
+
+The setup script runs once per sandbox as the sandbox user before the agent can execute commands. It can prepare files under `/workspace` and uses the step's egress rules. Its stdout and stderr are redacted and recorded in the step transcript. The default setup limit is 120 seconds and the maximum is 600 seconds, within the step's overall deadline. After setup finishes, the supervisor terminates any remaining setup processes and verifies they have exited. A nonzero exit, timeout, or cleanup failure ends the attempt with `environment_setup_failed`.
+
+Use **Environment variables** for non-secret settings. Names use uppercase letters, digits, and underscores, with a letter or underscore first. Runbook and runtime variables such as `PATH`, `HOME`, and `HTTPS_PROXY` are reserved. Values that resemble secrets are refused.
+
+Use **Credential placeholders** when a CLI needs a token variable to run. Select a host-bound proxy credential in the environment and give the agent access to it with proxy delivery. The CLI receives a random placeholder. The gateway replaces the credential header at the bound host when the step has access. Configure the host in egress and use a CLI that honors the sandbox proxy.
+
+Agents can choose a smaller sandbox, a shorter timeout, narrower egress, or lower default step and run budgets. See [Budgets](/runner/budgets/).

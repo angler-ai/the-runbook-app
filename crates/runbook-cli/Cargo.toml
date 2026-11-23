@@ -23,8 +23,16 @@ runbook-model = { path = "../runbook-model" }
 runbook-mcp = { path = "../runbook-mcp" }
 yaml-rust2 = { version = "0.10", default-features = false }
 ureq = { version = "2", features = ["json"] }
+url = "2"
 getrandom = "0.3"
 base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+ed25519-dalek = { version = "2", default-features = false, features = ["alloc"] }
+hpke = { version = "0.12", default-features = false, features = ["alloc", "x25519"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
+rpassword = "7"
+sha2 = "0.10"
+zeroize = "1"
 runbook-core = { path = "../runbook-core" }
 imagesize = { version = "=0.15.0", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }

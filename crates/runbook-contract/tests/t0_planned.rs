@@ -103,8 +103,15 @@ fn cookie_scheme_sits_beside_bearer_on_human_routes() {
             let bearer = op["security"]
                 .as_array()
                 .is_some_and(|s| s.iter().any(|r| r.get("bearerAuth").is_some()));
-            // Session-only: the device approval page (D47, gate fix 3).
-            if cookie && !matches!(path.as_str(), "/v1/device/approve" | "/v1/device/lookup") {
+            // Device approval, personal security and MFA writes need a browser session.
+            let session_only = matches!(
+                path.as_str(),
+                "/v1/device/approve"
+                    | "/v1/device/lookup"
+                    | "/v1/me/security"
+                    | "/v1/orgs/{org}/users/{user}/mfa/reset"
+            ) || (path == "/v1/orgs/{org}/security" && method == "put");
+            if cookie && !session_only {
                 assert!(bearer, "{method} {path}");
             }
             let refused = path.starts_with("/v1/executions/{exe}/tokens")

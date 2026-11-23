@@ -55,6 +55,8 @@ fn visit(nodes: &[Node], diagnostics: &mut Vec<Diagnostic>) {
 #[cfg(test)]
 mod tests;
 
+#[path = "policy/destructive_reach.rs"]
+pub(crate) mod destructive_reach;
 #[path = "policy/region.rs"]
 mod region;
 fn collect<'a>(body: &'a [Node], nodes: &mut Vec<&'a Node>) {
@@ -132,6 +134,24 @@ pub fn validate_policy(compiled: &crate::CompiledRunbook) -> Vec<Diagnostic> {
                 column: 0,
             });
         }
+        if let NodeKind::Call(call) = &node.kind
+            && call
+                .target
+                .as_ref()
+                .is_some_and(|target| target.agent_decidable.unwrap_or(true))
+            && let Some(task) = region::analyze(ir, &node.id, false, true).agent
+        {
+            errors.push(Diagnostic {
+                code: "spec.agent_approval_destructive".into(),
+                message: Some(format!(
+                    "An approval in the called runbook can reach destructive task '{}' at {}.",
+                    task.id, task.source_path
+                )),
+                path: format!("{}/call", node.source_path),
+                line: 0,
+                column: 0,
+            });
+        }
         let NodeKind::Approval(approval) = &node.kind else {
             continue;
         };
@@ -201,4 +221,9 @@ pub fn validate_policy(compiled: &crate::CompiledRunbook) -> Vec<Diagnostic> {
         }
     }
     errors
+}
+
+/// Whether an approval decision can lead to a destructive task or child call.
+pub fn approval_reaches_destructive(ir: &crate::ir::NormalizedRunbook, node_id: &str) -> bool {
+    region::analyze(ir, node_id, false, true).agent.is_some()
 }

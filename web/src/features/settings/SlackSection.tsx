@@ -4,16 +4,10 @@
 // write-only: the API never returns it, so the field starts empty.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { api } from '../../api/client';
+import { api, type Schemas } from '../../api/client';
 import { Button } from '../../ui/primitives/button';
 import { Input } from '../../ui/primitives/input';
 import { Label } from '../../ui/primitives/label';
-
-interface SlackView {
-  configured: boolean;
-  channel?: string | null;
-  app?: boolean;
-}
 
 export function SlackSection({ projectRef }: { projectRef: string }) {
   const queryClient = useQueryClient();
@@ -21,42 +15,64 @@ export function SlackSection({ projectRef }: { projectRef: string }) {
   const query = useQuery({
     queryKey: key,
     queryFn: async () => {
-      const { data } = await api.GET('/v1/projects/{p}/slack', {
+      const { data, error } = await api.GET('/v1/projects/{p}/slack', {
         params: { path: { p: projectRef } },
       });
-      return data as SlackView;
+      if (!data) throw error;
+      return data;
     },
   });
   const app = query.data?.app === true;
   const [value, setValue] = useState('');
+  const [notifyRunStarted, setNotifyRunStarted] = useState<boolean | null>(null);
+  const preferenceChanged =
+    notifyRunStarted !== null && notifyRunStarted !== (query.data?.notify_run_started ?? false);
+  const canSave =
+    value.trim().length > 0 || (query.data?.configured === true && preferenceChanged);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const save = useMutation({
     mutationFn: async () => {
-      const body = app ? { channel: value.trim() } : { url: value.trim() };
-      const { data } = await api.PUT('/v1/projects/{p}/slack', {
+      const target = value.trim();
+      const body: Schemas['ProjectSlackRequest'] = target
+        ? app
+          ? { channel: target }
+          : { url: target }
+        : {};
+      if (notifyRunStarted !== null) body.notify_run_started = notifyRunStarted;
+      const { data, error } = await api.PUT('/v1/projects/{p}/slack', {
         params: { path: { p: projectRef } },
         body,
       });
-      return data as SlackView;
+      if (!data) throw error;
+      return data;
     },
     onSuccess: (data) => {
       queryClient.setQueryData(key, data);
       setValue('');
+      setNotifyRunStarted(null);
       setSaved(true);
     },
     onError: () =>
       setError(
-        app
+        value.trim().length === 0
+          ? 'Could not save run-start notifications. Try again.'
+          : app
           ? 'That channel ID was not accepted. Copy it from the channel’s details in Slack (it starts with C or G).'
           : 'That URL was not accepted. Paste a full https://hooks.slack.com/ URL.',
       ),
   });
   const remove = useMutation({
     mutationFn: async () => {
-      await api.DELETE('/v1/projects/{p}/slack', { params: { path: { p: projectRef } } });
+      const { error } = await api.DELETE('/v1/projects/{p}/slack', {
+        params: { path: { p: projectRef } },
+      });
+      if (error) throw error;
     },
-    onSuccess: () => queryClient.setQueryData(key, { configured: false, app }),
+    onSuccess: () => {
+      setNotifyRunStarted(null);
+      queryClient.setQueryData(key, { configured: false, app, notify_run_started: false });
+    },
     onError: () => setError('The Slack setting could not be removed. Try again.'),
   });
 
@@ -102,7 +118,7 @@ export function SlackSection({ projectRef }: { projectRef: string }) {
           event.preventDefault();
           setError(null);
           setSaved(false);
-          save.mutate();
+          if (canSave) save.mutate();
         }}
       >
         <Label htmlFor="slack-target">
@@ -122,9 +138,17 @@ export function SlackSection({ projectRef }: { projectRef: string }) {
           value={value}
           onChange={(event) => setValue(event.target.value)}
         />
+        <Label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={notifyRunStarted ?? query.data?.notify_run_started ?? false}
+            onChange={(event) => setNotifyRunStarted(event.target.checked)}
+          />
+          Notify when a run starts
+        </Label>
         <div>
-          <Button type="submit" disabled={save.isPending || value.trim().length === 0}>
-            {save.isPending ? 'Saving…' : app ? 'Save channel' : 'Save webhook URL'}
+          <Button type="submit" disabled={save.isPending || !canSave}>
+            {save.isPending ? 'Saving…' : 'Save Slack settings'}
           </Button>
         </div>
       </form>

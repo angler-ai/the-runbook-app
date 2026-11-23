@@ -16,7 +16,8 @@
 //   node scripts/release/release.mjs cloudflare-bundle OUTDIR [IMAGE_DIGEST]
 //       runbook-cloudflare-X.Y.Z.tar.gz: the built api Worker (deploy
 //       build), the sign-in Worker, the web UI with its _headers, every
-//       migration, the config templates and update.mjs (README §0a)
+//       migration, the config templates, update.mjs (README §0a) and
+//       mfa-reset.mjs (README §7)
 //   node scripts/release/release.mjs notes vX.Y.Z > NOTES.md
 //       release notes: schema, upgrade notes (new migrations per store,
 //       contract migrations, this release's section of docs/release-notes.md), changes
@@ -198,6 +199,8 @@ export function cloudflareBundle(outDir, { root = REPO, version = workspaceVersi
       copy(`cloudflare/${file}`);
     }
     copy('cloudflare/scripts/update.mjs');
+    // The operator MFA reset (README §7, `npm run mfa:reset`).
+    copy('cloudflare/scripts/mfa-reset.mjs');
     copy('auth/dist/worker.mjs');
     copy('auth/drizzle/sqlite');
     writeFileSync(

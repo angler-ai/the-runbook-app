@@ -15,6 +15,8 @@ export const user = sqliteTable('auth_user', {
   email: text('email').notNull().unique(),
   emailVerified: integer('email_verified', { mode: 'boolean' }).default(false).notNull(),
   image: text('image'),
+  twoFactorEnabled: integer('two_factor_enabled', { mode: 'boolean' }).default(false).notNull(),
+  mfaGeneration: integer('mfa_generation').default(0).notNull(),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).default(now).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).default(now).$onUpdate(() => new Date()).notNull(),
 });
@@ -29,6 +31,9 @@ export const session = sqliteTable(
     updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).$onUpdate(() => new Date()).notNull(),
     ipAddress: text('ip_address'),
     userAgent: text('user_agent'),
+    mfaVerifiedAt: integer('mfa_verified_at', { mode: 'timestamp_ms' }),
+    mfaMethod: text('mfa_method'),
+    mfaGeneration: integer('mfa_generation').default(-1).notNull(),
     userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
   },
   (table) => [index('auth_session_user_id_idx').on(table.userId)],
@@ -170,6 +175,8 @@ export const oauthRefreshToken = sqliteTable(
   'auth_oauth_refresh_token',
   {
     id: text('id').primaryKey(),
+    mfaVerifiedAt: integer('mfa_verified_at', { mode: 'timestamp_ms' }),
+    mfaMethod: text('mfa_method'),
     token: text('token').notNull().unique(),
     clientId: text('client_id').notNull().references(() => oauthClient.clientId, { onDelete: 'cascade' }),
     sessionId: text('session_id').references(() => session.id, { onDelete: 'set null' }),
@@ -200,6 +207,8 @@ export const oauthAccessToken = sqliteTable(
   'auth_oauth_access_token',
   {
     id: text('id').primaryKey(),
+    mfaVerifiedAt: integer('mfa_verified_at', { mode: 'timestamp_ms' }),
+    mfaMethod: text('mfa_method'),
     token: text('token').unique(),
     clientId: text('client_id').notNull().references(() => oauthClient.clientId, { onDelete: 'cascade' }),
     sessionId: text('session_id').references(() => session.id, { onDelete: 'set null' }),
@@ -248,3 +257,40 @@ export const oauthClientAssertion = sqliteTable('auth_oauth_client_assertion', {
 export const userRelations = relations(user, ({ many }) => ({ sessions: many(session), accounts: many(account) }));
 export const sessionRelations = relations(session, ({ one }) => ({ user: one(user, { fields: [session.userId], references: [user.id] }) }));
 export const accountRelations = relations(account, ({ one }) => ({ user: one(user, { fields: [account.userId], references: [user.id] }) }));
+
+export const twoFactor = sqliteTable('auth_two_factor', {
+  id: text('id').primaryKey(),
+  secret: text('secret').notNull(),
+  backupCodes: text('backup_codes').notNull(),
+  userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
+  verified: integer('verified', { mode: 'boolean' }).default(true),
+  failedVerificationCount: integer('failed_verification_count').default(0),
+  lockedUntil: integer('locked_until', { mode: 'timestamp_ms' }),
+});
+
+export const passkey = sqliteTable('auth_passkey', {
+  id: text('id').primaryKey(),
+  name: text('name'),
+  publicKey: text('public_key').notNull(),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  credentialID: text('credential_id').notNull().unique(),
+  counter: integer('counter').notNull(),
+  deviceType: text('device_type').notNull(),
+  backedUp: integer('backed_up', { mode: 'boolean' }).notNull(),
+  transports: text('transports'),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }),
+  lastUsedAt: integer('last_used_at', { mode: 'timestamp_ms' }),
+  mfaGeneration: integer('mfa_generation').default(-1).notNull(),
+  aaguid: text('aaguid'),
+}, (table) => [index('auth_passkey_user_id_idx').on(table.userId)]);
+
+export const mfaAudit = sqliteTable('auth_mfa_audit', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  action: text('action').notNull(),
+  actor: text('actor').notNull(),
+  occurredAt: integer('occurred_at', { mode: 'timestamp_ms' }).notNull(),
+  notification: text('notification'),
+  notifyAttemptedAt: integer('notify_attempted_at', { mode: 'timestamp_ms' }),
+  notifiedAt: integer('notified_at', { mode: 'timestamp_ms' }),
+}, (table) => [index('auth_mfa_audit_user_idx').on(table.userId, table.occurredAt)]);

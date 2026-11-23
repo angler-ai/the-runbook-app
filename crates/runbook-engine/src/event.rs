@@ -83,6 +83,11 @@ pub enum Event {
     ApprovalEscalated {
         snapshot: crate::EscalationSnapshot,
     },
+    /// An unfinished step reached its deadline relative to the run's start.
+    StepOverdue {
+        step_id: String,
+        due_at_ms: i64,
+    },
     /// LANG9: a reminder for a step left open, due at `due_at_ms`.
     StepReminded {
         step_run_id: StepRunId,
@@ -234,6 +239,70 @@ pub enum Event {
     /// An actor claimed a ready step run; claim fencing belongs to core.
     StepClaimed {
         step_run_id: StepRunId,
+        /// R0-4: the runner agent version pinned by a runner's claim.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        agent_version_id: Option<String>,
+        /// Stable claim ID for runner ledger reconciliation.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        claim_id: Option<runbook_model::ClaimId>,
+    },
+    /// R0-4: the agent a ready task targets, as its version resolved it.
+    AgentTargetResolved {
+        step_id: String,
+        step_run_id: StepRunId,
+        target: crate::AgentTargetRef,
+    },
+    /// R0-4: why a ready runner step is not being worked.
+    StepWaiting {
+        step_run_id: StepRunId,
+        reason: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        detail: Option<String>,
+    },
+    /// R0-4: the core granted a credential's release to the step's claim
+    /// (server-observed, with its delivery mode). Never a secret value.
+    CredentialReleased {
+        step_run_id: StepRunId,
+        credential_id: String,
+        credential_version: u64,
+        delivery: String,
+        runner_id: String,
+        /// The claim the release was granted to (review L11: one release
+        /// per claim, credential, version and delivery; renewals add
+        /// none). Absent on releases recorded before it existed.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        claim_id: Option<runbook_model::ClaimId>,
+    },
+    /// R0-4: a released credential was revoked.
+    CredentialRevoked {
+        step_run_id: StepRunId,
+        credential_id: String,
+        reason: String,
+    },
+    /// R0-6: what a step's report said it cost, recorded with the report.
+    DecisionLeaseClaimed {
+        step_run_id: StepRunId,
+        lease: runbook_model::DecisionLeaseView,
+        agent_version_id: String,
+    },
+    DecisionLeaseEnded {
+        step_run_id: StepRunId,
+        lease_id: runbook_model::ClaimId,
+        reason: String,
+    },
+    ApprovalAgentAbstained {
+        step_run_id: StepRunId,
+        note: runbook_model::ApprovalAgentNote,
+    },
+    RunnerTraceRecorded {
+        step_run_id: StepRunId,
+        trace_id: String,
+    },
+    StepCostReported {
+        step_run_id: StepRunId,
+        cost: crate::RecordedCost,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        claim_id: Option<runbook_model::ClaimId>,
     },
     /// The claim owner released the step run back to ready.
     StepClaimReleased {
@@ -304,6 +373,7 @@ impl Event {
             Self::ExecutionDeadlineElapsed { .. } => "ExecutionDeadlineElapsed",
             Self::TaskDeadlineElapsed { .. } => "TaskDeadlineElapsed",
             Self::ApprovalEscalated { .. } => "ApprovalEscalated",
+            Self::StepOverdue { .. } => "StepOverdue",
             Self::StepReminded { .. } => "StepReminded",
             Self::StepEscalated { .. } => "StepEscalated",
             Self::ApprovalExpired { .. } => "ApprovalExpired",
@@ -341,6 +411,9 @@ impl Event {
             Self::ExecutionCompleted { .. } => "ExecutionCompleted",
             Self::StepClaimed { .. } => "StepClaimed",
             Self::StepClaimReleased { .. } => "StepClaimReleased",
+            Self::DecisionLeaseClaimed { .. } => "DecisionLeaseClaimed",
+            Self::DecisionLeaseEnded { .. } => "DecisionLeaseEnded",
+            Self::ApprovalAgentAbstained { .. } => "ApprovalAgentAbstained",
             Self::StepClaimExpired { .. } => "StepClaimExpired",
             Self::ExecutionCredentialsIssued { .. } => "ExecutionCredentialsIssued",
             Self::ExecutionCredentialsRotated { .. } => "ExecutionCredentialsRotated",
@@ -350,6 +423,12 @@ impl Event {
             Self::StepReported { .. } => "StepReported",
             Self::StepReady { .. } => "StepReady",
             Self::StepSkipped { .. } => "StepSkipped",
+            Self::AgentTargetResolved { .. } => "AgentTargetResolved",
+            Self::StepWaiting { .. } => "StepWaiting",
+            Self::CredentialReleased { .. } => "CredentialReleased",
+            Self::CredentialRevoked { .. } => "CredentialRevoked",
+            Self::RunnerTraceRecorded { .. } => "RunnerTraceRecorded",
+            Self::StepCostReported { .. } => "StepCostReported",
         }
     }
 }
@@ -394,6 +473,11 @@ pub enum Command {
     },
     ResolveEscalation {
         request: crate::EscalationRequest,
+    },
+    /// Record a missed run-relative deadline on a step instance.
+    MarkStepOverdue {
+        step_id: String,
+        due_at_ms: i64,
     },
     /// LANG9: send the reminder due at `due_at_ms`.
     RemindStep {
@@ -495,6 +579,12 @@ pub enum Command {
         step_id: String,
         reason: SkipReason,
         reads: Vec<runbook_expr::ReadRef>,
+    },
+    /// R0-4: record a ready task's agent target.
+    ResolveAgentTarget {
+        step_id: String,
+        step_run_id: StepRunId,
+        target: crate::AgentTargetRef,
     },
 }
 

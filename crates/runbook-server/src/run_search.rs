@@ -14,6 +14,7 @@ pub async fn search(
     backend: &PostgresExecutionBackend,
     scope: &TenantScope,
     mut query: SearchQuery,
+    origin: &str,
 ) -> Result<Value, Error> {
     let factory = PostgresAuthoring::new(backend.config.clone());
     let authoring = factory.scoped(scope.clone());
@@ -80,16 +81,21 @@ pub async fn search(
         items: page
             .runs
             .into_iter()
-            .map(|r| RunSearchEntry {
-                id: r.execution_id,
-                runbook_id: r.runbook_id,
-                status: r.status,
-                title: r.title,
-                tags: r.tags,
-                fields: r.fields,
-                created_by: r.created_by,
-                created_at_ms: r.created_at_ms,
-                completed_at_ms: r.completed_at_ms
+            .map(|r| {
+                let url = runbook_model::execution_api_url(origin, &r.execution_id);
+                RunSearchEntry {
+                    web_url: runbook_model::execution_web_url(&url, &r.execution_id),
+                    url,
+                    id: r.execution_id,
+                    runbook_id: r.runbook_id,
+                    status: r.status,
+                    title: r.title,
+                    tags: r.tags,
+                    fields: r.fields,
+                    created_by: r.created_by,
+                    created_at_ms: r.created_at_ms,
+                    completed_at_ms: r.completed_at_ms,
+                }
             })
             .collect(),
         next_cursor: page.next_cursor

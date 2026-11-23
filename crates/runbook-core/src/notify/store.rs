@@ -97,6 +97,13 @@ pub fn unsubscribe_token_matches(salt: &str, user_id: &UserId, token: &str) -> b
 /// preferences are per person (a user belongs to one org in practice, and
 /// the salt/token must not multiply per org). Implementations keep each
 /// call atomic; futures need not be Send.
+/// Internal settings. The stored target may contain a webhook credential.
+#[derive(Clone)]
+pub struct ProjectSlackSettings {
+    pub target: String,
+    pub notify_run_started: bool,
+}
+
 pub trait NotifyStore {
     fn notify_time_ms(&self) -> impl Future<Output = Result<i64, StoreError>>;
     /// The person's preference and unsubscribe salt, if a row exists.
@@ -140,17 +147,21 @@ pub trait NotifyStore {
         limit: usize,
         lease_ms: u64,
     ) -> impl Future<Output = Result<Vec<EmailLease>, StoreError>>;
-    /// SLACK1: the project's incoming-webhook URL, if configured. The
-    /// URL is a credential: reads exist for posting and settings checks,
-    /// and it is never returned by an API or logged.
-    fn slack_url(
+    fn slack_settings(
         &self,
         scope: &TenantScope,
-    ) -> impl Future<Output = Result<Option<String>, StoreError>>;
-    fn set_slack_url(
+    ) -> impl Future<Output = Result<Option<ProjectSlackSettings>, StoreError>>;
+    /// Update a target and/or its preference. A preference-only update
+    /// requires an existing target.
+    fn save_slack_settings(
         &self,
         scope: &TenantScope,
-        url: Option<String>,
+        target: Option<String>,
+        notify_run_started: Option<bool>,
+    ) -> impl Future<Output = Result<Option<ProjectSlackSettings>, StoreError>>;
+    fn remove_slack_settings(
+        &self,
+        scope: &TenantScope,
     ) -> impl Future<Output = Result<(), StoreError>>;
     /// Mark digested rows sent (they went out inside a summary mail).
     fn mark_digested(

@@ -239,7 +239,26 @@ function StepBody({
           slot="doc-approval"
         >
           <p className="font-medium">{approval.prompt}</p>
-          {approval.decisions.length > 0 ? (
+          {approval.blocked_reason === 'approval.review_missing_report' ? (
+            <p className="mt-0.5 text-sm text-fg-muted">
+              Work in this approval’s review scope timed out. A project admin can supply the missing
+              result.
+            </p>
+          ) : approval.blocked_reason === 'approval.unknown_service_contributor' ? (
+            <p className="mt-0.5 text-sm text-fg-muted">
+              A service token contributor could not be identified. A named approver without project
+              admin rights must review.
+            </p>
+          ) : approval.blocked_reason === 'approval.no_independent_approver' ? (
+            <p className="mt-0.5 text-sm text-fg-muted">
+              All listed approvers contributed to the reviewed work, directly or through an agent or
+              service token.
+            </p>
+          ) : approval.blocked_reason === 'approval.independent_review_required' ? (
+            <p className="mt-0.5 text-sm text-fg-muted">
+              The automatic decision was withheld. This gate requires independent review.
+            </p>
+          ) : approval.decisions.length > 0 ? (
             <ul className="mt-1 grid gap-0.5 text-sm">
               {approval.decisions.map((d, i) => (
                 <li key={i}>
@@ -503,10 +522,8 @@ export function RunDocumentView({ doc, outline, names, documentAt, now }: RunDoc
   const started = header.started_at_ms ?? header.created_at_ms;
   const inputs = Object.entries(header.inputs);
   // A closed log prints as where to read it (a printout cannot open it).
-  const runUrl =
-    typeof window === 'undefined'
-      ? `/x/${header.id}?view=document`
-      : `${window.location.origin}/x/${header.id}?view=document`;
+  const origin = typeof window === 'undefined' ? '' : window.location.origin;
+  const runUrl = `${header.web_url || `${origin}/x/${header.id}`}?view=document`;
   const printNote = `Log not printed: open it on the run page to print it (${runUrl}).`;
   return (
     <article

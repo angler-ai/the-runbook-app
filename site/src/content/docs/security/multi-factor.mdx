@@ -1,0 +1,199 @@
+---
+title: Multi-factor sign-in
+description: Passkeys, authenticator apps and backup codes; the organization's MFA policy; fresh checks before sensitive actions; and recovery.
+sidebar:
+  order: 2
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+Signing in with an email code or Google proves you can read that mailbox or
+that Google account. A **second factor** keeps someone who gets into your
+email out of The Runbook, where your account can reach runner credentials,
+tokens and approvals of destructive steps.
+
+## Second factors
+
+| Factor | What it is |
+| --- | --- |
+| **Passkey** | Your device's fingerprint, face or PIN, or a security key (WebAuthn). The device must check it's you every time. You can have several, each with a name. |
+| **Authenticator app** | A 6-digit code that changes every 30 seconds, from an app such as 1Password, Google Authenticator or Authy. One per account. |
+| **Backup codes** | Ten one-time codes, made when you set up an authenticator app. Each works once, in place of an app code. |
+
+A passkey is also a way to **sign in on its own**: **Sign in with a
+passkey** on the sign-in page needs no email code, and counts as both
+factors.
+
+## Set up a second factor
+
+In the web app, open **Settings**, then **Manage security** (`/settings/security`).
+
+<Steps>
+
+1. **Passkey:** choose **Add passkey**, give it a name you'll recognize
+   (for example "Work laptop"), and follow your browser's prompt.
+
+2. **Authenticator app:** choose **Set up**, scan the QR code with your app
+   (or type the key shown under it), and enter the code the app shows.
+
+3. **Save your backup codes.** They're shown once, right after the
+   authenticator app is set up: copy or download them and keep them
+   somewhere safe. **Regenerate backup codes** makes ten new ones and voids
+   the old ones.
+
+</Steps>
+
+The same page lists your passkeys with when each was last used, lets you
+rename or remove them, remove the authenticator app, and shows recent
+sign-ins to your account. When the server sends email, you get one
+whenever a factor is added or removed, or your factors are reset.
+
+<Aside type="note">
+Once you have a factor, adding or removing one asks you to confirm with a
+factor you already have, if you haven't used one in the last few minutes.
+</Aside>
+
+<Aside type="caution" title="Passkeys need a domain name">
+Browsers only offer passkeys on `https` with a domain name, or on
+`localhost`. A server reached at an IP address (for example
+`http://127.0.0.1:8080`) can't use passkeys: set `RUNBOOK_ORIGIN` to a
+hostname. Authenticator apps work either way.
+</Aside>
+
+## Signing in
+
+After an email code or Google, The Runbook asks for your second factor:
+**Use a passkey**, or type the code from your authenticator app. **Use a
+backup code instead** switches the field to a backup code.
+
+- If your organization requires a second factor and you haven't set one
+  up, you're asked to set one up before anything else. Until you verify or
+  set one up, your session reaches only that screen, your security page
+  and sign-out.
+- If your organization doesn't require one but you've set one up, you can
+  choose **Not now**. Sensitive actions then ask for it when you get to
+  them.
+
+Google's own 2-Step Verification doesn't count as a second factor here: the
+sign-in Google reports to us doesn't reliably say whether it was used.
+
+## Fresh checks before sensitive actions
+
+Some actions need a second factor from the last few minutes (10 by
+default; the organization sets 5 to 60). If yours is older, the web app
+asks for your passkey or code in a prompt, then carries on with exactly
+what you were doing. This applies to anyone who has set up a factor,
+whatever the organization's policy, and to everyone the policy covers.
+
+The actions are:
+
+- entering, rotating, testing, revoking or deleting a runner credential,
+  and changing its labels or bindings; adding, changing or removing model
+  providers and MCP servers; the runner's policy, vault identity and group
+  projects;
+- creating personal, agent and service tokens, runner registrations and
+  runner bootstrap tokens, and approving a CLI login;
+- inviting, adding or changing members, roles, teams and project members;
+  the organization's security settings; resetting someone's factors;
+- approving an agent's proposal on the runner;
+- deciding an approval whose outcome can lead to a destructive step.
+
+Slack sends approvals that can lead to a destructive step back to the web
+app. If your account has a factor or is covered by required MFA, confirm
+with an allowed factor there.
+
+## Your organization's policy
+
+Owners set the policy in **Organization settings › Security** (from the
+account menu at the bottom of the sidebar). Every
+change is recorded in the audit log.
+
+| Setting | Values | Default |
+| --- | --- | --- |
+| Require a second factor | **Off**, **Owners and admins**, **Everyone** | Off |
+| Allowed second factors | Passkeys, authenticator apps (at least one) | Both |
+| Fresh check window | 5 to 60 minutes | 10 |
+
+- To turn the requirement on, you must have set up a second factor
+  yourself, and have used it in the last few minutes.
+- There's no grace period: members the policy covers who have no factor
+  are asked to set one up at their next sign-in, and can do nothing else
+  until they do.
+- Preview the policy before saving. The preview lists people who would be
+  locked out because their only factors are disallowed or they cannot
+  enroll. Arrange for them to set up an allowed factor before changing the
+  policy. Someone enrolling their first factor under required MFA must
+  start with a passkey, so prepare accounts before switching to an
+  authenticator-only policy.
+
+## Apps, the CLI and tokens
+
+- **MCP clients** (OAuth) and **`runbook login`** are approved in the
+  browser, so the policy applies when you approve them: the browser asks
+  for your second factor first. `runbook login` says so and waits while you
+  do it.
+- An MCP client can't present a second factor, so the sensitive actions
+  above are refused through OAuth tokens (`auth.mfa_step_up`). Do them in
+  the web app.
+- When your account has enrolled a factor or is covered by required MFA,
+  create tokens in the web app with a fresh check. The server records that
+  check at issuance.
+- A token created without a fresh second factor (for example before you
+  set one up, or before the policy covered you) keeps its ordinary access
+  but is refused for sensitive actions covered by the policy
+  (`auth.mfa_token_replacement_required`). The token lists flag it. Replace
+  it: run `runbook login` and approve it in the browser with your second
+  factor, or create a new token in the web app.
+
+## If you lose your factors
+
+<Steps>
+
+1. **Use a backup code** at sign-in, then set up your authenticator app
+   again in your security page.
+
+2. **Ask an owner to reset your factors.** In **Organization settings ›
+   Members & Invitations**, an owner chooses **Reset MFA** on your row and confirms (with
+   a fresh check of their own). This removes your passkeys, authenticator
+   app and backup codes, signs you out everywhere and revokes your apps'
+   access. You get an email, and set up a new factor at your next sign-in.
+
+3. **Ask the operator** to reset the last owner or an account that belongs
+   to more than one organization. Run the command in the server environment
+   on Docker or Kubernetes:
+
+   ```sh
+   runbook-server admin mfa reset owner@example.com
+   ```
+
+   On Cloudflare, run this from `cloudflare/` with a Wrangler login that
+   can access the sign-in Worker's D1 database:
+
+   ```sh
+   npm run mfa:reset -- owner@example.com --operator "Alex Doe"
+   ```
+
+   The script uses `wrangler.auth.prod.jsonc` by default. Pass
+   `--auth-config` if you use a different file. Both editions verify the
+   sign-in address, record the reset and queue a security email. Cloudflare
+   delivers it through the [auth Cron Trigger](/operating/upgrades/#upgrade-to-v011).
+
+</Steps>
+
+## Limits and errors
+
+Authenticator and backup codes share one allowance: five attempts in ten
+minutes per account, then both are locked for 15 minutes. A code that just
+worked can't be used again; wait for the app's next one.
+
+| Code | Status | Meaning |
+| --- | --- | --- |
+| `auth.mfa_required` | 403 | The organization requires a second factor and this session hasn't verified one |
+| `auth.mfa_step_up` | 403 | A sensitive action needs a fresher check; the body carries `fresh_minutes` |
+| `auth.mfa_token_replacement_required` | 403 | Replace a token that was issued without a fresh check |
+| `auth.mfa_locked` | 429 | Too many code attempts; wait 15 minutes |
+| `auth.mfa_code_reused` | 401 | That authenticator code was just used |
+| `auth.mfa_removal_refused` | 409 | Removing this factor would leave none the organization allows |
+| `auth.mfa_factor_disallowed` | 403 | The organization doesn't allow this kind of factor |
+| `auth.passkey_uv_required` | 403 | The passkey didn't check it was you (PIN, fingerprint or face) |
+| `auth.passkey_account_mismatch` | 403 | That passkey belongs to a different account |

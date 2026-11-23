@@ -126,7 +126,12 @@ export function DeviceApprovalPage({ initialCode: propCode }: DeviceApprovalPage
       });
       setDecision(approve ? 'approved' : 'denied');
     } catch (err) {
-      if (err instanceof ApiError) {
+      if (err instanceof ApiError && err.code === 'auth.mfa_step_up') {
+        // The step-up prompt was cancelled or could not be shown (J-3).
+        setError(
+          'Approving a device needs a recent second-factor check. Approve again and confirm with your passkey or authenticator code.',
+        );
+      } else if (err instanceof ApiError) {
         setError(`The server refused that action (${err.code}).`);
       } else {
         setError('Failed to process approval decision.');

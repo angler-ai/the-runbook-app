@@ -42,6 +42,11 @@ pub struct TokenMetadata {
     pub created_at: Option<i64>,
     #[serde(default)]
     pub created_by: Option<UserId>,
+    /// Current owner when assigned by a credential store or importer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<UserId>,
+    #[serde(default)]
+    pub fresh_mfa_at_issue: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -248,6 +253,8 @@ pub fn plan_issue(
         name,
         created_at: Some(now),
         created_by: Some(manager.user_id.clone()),
+        owner: None,
+        fresh_mfa_at_issue: false,
     };
     let record = match kind {
         ManagedTokenKind::Personal => {
@@ -417,6 +424,7 @@ pub fn view(record: &CredentialRecord, meta: &TokenMetadata) -> TokenView {
         project_id,
         role,
         created_by: meta.created_by.clone(),
+        fresh_mfa_at_issue: meta.fresh_mfa_at_issue,
         created_at_ms: meta.created_at,
         expires_at_ms: record.expires_at,
         last_used_at_ms: record.last_used_at,

@@ -1,0 +1,120 @@
+[
+  {
+    "requestHash": "18b1157268b1394d463551ab1afa5fee8f47b2514e2f7a6f263df2418d0d15f7",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "call-a",
+        "toolName": "read"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "call-a",
+        "delta": "{\"path\":\"service.log\"}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "call-a"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "call-a",
+        "toolName": "read",
+        "input": "{\"path\":\"service.log\"}",
+        "providerMetadata": {
+          "googleVertex": {
+            "thoughtSignature": "opaque+/A="
+          },
+          "vertex": {
+            "thoughtSignature": "opaque+/A="
+          }
+        }
+      },
+      {
+        "type": "tool-input-start",
+        "id": "call-b",
+        "toolName": "read"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "call-b",
+        "delta": "{\"path\":\"service.log\"}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "call-b"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "call-b",
+        "toolName": "read",
+        "input": "{\"path\":\"service.log\"}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "STOP"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "requestHash": "b6cfecff089ff04965d1c54e35defa599ea9fcd62e55d0b3236dccf88789969d",
+    "parts": [
+      {
+        "type": "tool-input-start",
+        "id": "finish-1",
+        "toolName": "submit_result"
+      },
+      {
+        "type": "tool-input-delta",
+        "id": "finish-1",
+        "delta": "{\"outputs\":\"{\\\"job\\\":21,\\\"kind\\\":\\\"disk_failure\\\"}\",\"checklist\":[\"Inspect the relevant evidence\"],\"summary\":\"The disk failure started the retry cascade.\",\"evidence\":[{\"claim\":\"Originating error\",\"tool_call_ids\":[\"call-a\",\"call-b\"]}],\"unverified\":[]}"
+      },
+      {
+        "type": "tool-input-end",
+        "id": "finish-1"
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "finish-1",
+        "toolName": "submit_result",
+        "input": "{\"outputs\":\"{\\\"job\\\":21,\\\"kind\\\":\\\"disk_failure\\\"}\",\"checklist\":[\"Inspect the relevant evidence\"],\"summary\":\"The disk failure started the retry cascade.\",\"evidence\":[{\"claim\":\"Originating error\",\"tool_call_ids\":[\"call-a\",\"call-b\"]}],\"unverified\":[]}"
+      },
+      {
+        "type": "finish",
+        "finishReason": {
+          "unified": "tool-calls",
+          "raw": "STOP"
+        },
+        "usage": {
+          "inputTokens": {
+            "total": 10,
+            "noCache": 8,
+            "cacheRead": 2,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 5,
+            "text": 5,
+            "reasoning": 0
+          }
+        }
+      }
+    ]
+  }
+]

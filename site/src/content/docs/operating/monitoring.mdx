@@ -18,7 +18,7 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 ```sh
 curl -fsS https://runbooks.example.com/health/ready
-curl -s https://runbooks.example.com/v1/meta | jq '{version, schema, capabilities}'
+curl -s https://runbooks.example.com/v1/meta | jq '{version, schema, runner_contract_version, capabilities}'
 ```
 
 The compose file and the GKE module wire these into the container's
@@ -76,6 +76,15 @@ Some problems show up where people work, not in logs:
 - **Stuck work:** reminders and escalations (`remind_after`,
   `escalate_after`) tell people about steps that wait too long; set them in
   `spec.defaults`.
+
+## Runner
+
+Check registrations and available capacity in the Runner overview. A step
+can show a wait reason when the runner is at capacity or the budget is
+exhausted. The run page records credential releases and flags a step that
+received one but ended without a report. See
+[Limits and budgets](/runner/limits/) and the
+[runner webhook events](/reference/webhook-events/#runnerbudget_threshold).
 
 ## Graceful shutdown
 

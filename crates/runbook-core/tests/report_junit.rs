@@ -58,6 +58,7 @@ fn agent() -> ActorPrincipal {
             session_id: "s1".into(),
             name: "bot".into(),
             model: None,
+            service_attribution: None,
         },
         credential_ref: "svc-1".into(),
     }
@@ -152,6 +153,9 @@ fn state(store: &MemoryExecutionStore, directory: &MemoryDirectory) -> Execution
 
 fn header(state: &ExecutionState) -> ExecutionView {
     ExecutionView {
+        overdue_steps: vec![],
+        url: String::new(),
+        web_url: String::new(),
         schema_revision: NonZeroU32::MIN,
         id: state.id.clone(),
         runbook_id: None,
@@ -184,6 +188,7 @@ fn header(state: &ExecutionState) -> ExecutionView {
         superseded_by: None,
         parent: None,
         progress: None,
+        cost: None,
     }
 }
 
@@ -277,6 +282,7 @@ fn golden_report_matches_exact_xml() {
             summary: Some("rates ok".into()),
             evidence: vec![],
             logs: vec![],
+            cost: None,
         },
         None,
     ))
@@ -312,7 +318,11 @@ fn summary_with_special_characters_is_escaped_and_stripped() {
     );
 
     let doc = ExecutionDocumentView {
+        trace_project: None,
         header: ExecutionView {
+            overdue_steps: vec![],
+            url: String::new(),
+            web_url: String::new(),
             schema_revision: NonZeroU32::MIN,
             id: exe(),
             runbook_id: None,
@@ -345,6 +355,7 @@ fn summary_with_special_characters_is_escaped_and_stripped() {
             superseded_by: None,
             parent: None,
             progress: None,
+            cost: None,
         },
         sections: vec![make_section(
             "vuln_check",
@@ -376,7 +387,11 @@ fn summary_with_special_characters_is_escaped_and_stripped() {
 #[test]
 fn failures_and_skipped_counts_match() {
     let doc = ExecutionDocumentView {
+        trace_project: None,
         header: ExecutionView {
+            overdue_steps: vec![],
+            url: String::new(),
+            web_url: String::new(),
             schema_revision: NonZeroU32::MIN,
             id: exe(),
             runbook_id: None,
@@ -409,6 +424,7 @@ fn failures_and_skipped_counts_match() {
             superseded_by: None,
             parent: None,
             progress: None,
+            cost: None,
         },
         sections: vec![
             make_section(
@@ -500,7 +516,11 @@ fn output_order_is_deterministic() {
     outputs.insert("gamma".into(), serde_json::json!([1, 2, 3]));
 
     let doc = ExecutionDocumentView {
+        trace_project: None,
         header: ExecutionView {
+            overdue_steps: vec![],
+            url: String::new(),
+            web_url: String::new(),
             schema_revision: NonZeroU32::MIN,
             id: exe(),
             runbook_id: Some("rb_00000000000000000000000001".parse().unwrap()),
@@ -533,6 +553,7 @@ fn output_order_is_deterministic() {
             superseded_by: None,
             parent: None,
             progress: None,
+            cost: None,
         },
         sections: vec![
             make_section(
@@ -605,8 +626,12 @@ fn named_junit_names_people_and_reports_only_when_terminal() {
         options: vec![],
         eligible_recipients: vec![],
         escalation_recipients: vec![],
+        excluded_completers: vec![],
+        blocked_reason: None,
         escalated: false,
         quorum: NonZeroU32::MIN,
+        decision_lease: None,
+        agent_notes: vec![],
         decisions: vec![runbook_model::DecisionRecord::Human {
             user_id: alice.clone(),
             membership_revision: std::num::NonZeroU64::MIN,
@@ -658,6 +683,7 @@ fn named_junit_names_people_and_reports_only_when_terminal() {
             summary: Some("rates ok".into()),
             evidence: vec![],
             logs: vec![],
+            cost: None,
         },
         None,
     ))

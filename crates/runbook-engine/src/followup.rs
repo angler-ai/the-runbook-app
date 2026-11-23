@@ -232,3 +232,117 @@ fn resolve(state: &ExecutionState, recipients: &[Recipient]) -> Vec<RecipientRef
         })
         .collect()
 }
+
+/// Pending work is planned if its containing branch or recovery path is
+/// selected. Unconditional sequences can be behind before they open.
+fn planned(state: &ExecutionState, step: &StepState) -> Result<bool, EngineError> {
+    let Some(node) = state.node(&step.step_id) else {
+        return Ok(false);
+    };
+    if node.guard.is_some() {
+        return Ok(false);
+    }
+    let ir = state.compiled().ir();
+    let roots = if node.source_path.starts_with("/spec/finally/") {
+        if state.phase != crate::ExecutionPhase::Cleanup {
+            return Ok(false);
+        }
+        &ir.finally
+    } else {
+        &ir.steps
+    };
+    planned_in(state, roots, node, &step.scope, 0)
+}
+
+fn planned_in(
+    state: &ExecutionState,
+    body: &[runbook_spec::ir::Node],
+    target: &runbook_spec::ir::Node,
+    scope: &[crate::IterationRef],
+    depth: usize,
+) -> Result<bool, EngineError> {
+    let Some(parent) = body.iter().find(|parent| {
+        parent.id == target.id
+            || target
+                .source_path
+                .strip_prefix(&parent.source_path)
+                .is_some_and(|rest| rest.starts_with('/'))
+    }) else {
+        return Ok(false);
+    };
+    if parent.id == target.id {
+        return Ok(true);
+    }
+    let record = crate::tree::record_in(state, parent, &scope[..depth])?;
+    if crate::tree::terminal(record.status) || (record.id.is_none() && parent.guard.is_some()) {
+        return Ok(false);
+    }
+    let (children, depth) = match &parent.kind {
+        NodeKind::Switch(_) => {
+            let Some(choice) = record.branch else {
+                return Ok(false);
+            };
+            (crate::tree::selected(parent, choice)?, depth)
+        }
+        NodeKind::Group(group) => {
+            let body = if record.group_finally.is_some() {
+                &group.finally
+            } else if record.catch_source.is_some() {
+                &group.catch
+            } else {
+                &group.children
+            };
+            (body.as_slice(), depth)
+        }
+        NodeKind::Parallel { children, .. } => (children.as_slice(), depth),
+        NodeKind::Loop(body) => (body.children.as_slice(), depth + 1),
+        NodeKind::Foreach(body) => (body.children.as_slice(), depth + 1),
+        _ => return Ok(false),
+    };
+    planned_in(state, children, target, scope, depth)
+}
+
+pub(crate) fn overdue_due(
+    state: &ExecutionState,
+    step: &StepState,
+) -> Result<Option<i64>, EngineError> {
+    let (Some(after), Some(started)) = (step.due_after_ms, state.started_at_ms) else {
+        return Ok(None);
+    };
+    if !crate::deadline::open(state)
+        || step.overdue_since_ms.is_some()
+        || crate::tree::terminal(step.status)
+        || (state.phase == crate::ExecutionPhase::Cleanup
+            && !crate::cleanup::is_cleanup_step(state, step)?)
+        || (step.id.is_none() && !planned(state, step)?)
+    {
+        return Ok(None);
+    }
+    // Previously published specs could contain an unrepresentable deadline.
+    // Ignore that milestone so it cannot prevent the other timers from settling.
+    Ok(i64::try_from(after)
+        .ok()
+        .and_then(|after| started.checked_add(after)))
+}
+
+pub(crate) fn mark_overdue(
+    state: &mut ExecutionState,
+    step_id: &str,
+    due_at_ms: i64,
+    at_ms: i64,
+) -> Result<(), EngineError> {
+    let index = state
+        .steps
+        .iter()
+        .position(|step| step.step_id == step_id)
+        .ok_or(EngineError::new("step.not_found"))?;
+    if overdue_due(state, &state.steps[index])? != Some(due_at_ms) || at_ms < due_at_ms {
+        return Err(EngineError::new("step.invalid_overdue"));
+    }
+    state.steps[index].overdue_since_ms = Some(due_at_ms);
+    Ok(())
+}
+
+pub(crate) fn owner_recipients(state: &ExecutionState) -> Vec<RecipientRef> {
+    resolve(state, &state.compiled().ir().metadata.owners)
+}

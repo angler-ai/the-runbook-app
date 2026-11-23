@@ -23,6 +23,48 @@ impl AuthLinkStore for MemoryDirectory {
         out.sort();
         Ok(out)
     }
+    async fn auth_links_in_org(
+        &self,
+        org: &OrganizationId,
+    ) -> Result<Vec<AuthLink>, DirectoryError> {
+        Ok(self
+            .database
+            .borrow()
+            .auth_links
+            .values()
+            .filter(|link| &link.org_id == org)
+            .cloned()
+            .collect())
+    }
+    async fn owner_reset_auth_users(
+        &self,
+        org: &OrganizationId,
+        user: &UserId,
+    ) -> Result<Vec<String>, DirectoryError> {
+        let db = self.database.borrow();
+        if !db
+            .orgs
+            .get(org)
+            .and_then(|snapshot| snapshot.users.get(user))
+            .is_some_and(|user| user.active)
+            || db
+                .orgs
+                .iter()
+                .any(|(other, snapshot)| other != org && snapshot.users.contains_key(user))
+            || db
+                .auth_links
+                .values()
+                .any(|link| &link.user_id == user && &link.org_id != org)
+        {
+            return Ok(vec![]);
+        }
+        Ok(db
+            .auth_links
+            .values()
+            .filter(|link| &link.user_id == user)
+            .map(|link| link.auth_user_id.clone())
+            .collect())
+    }
     async fn invitations_for_email(
         &self,
         email: &str,

@@ -91,6 +91,12 @@ impl AuthoringStore for PostgresAuthoringCatalog {
     fn catalog(&self) -> &Self::Catalog {
         &self.store
     }
+    async fn runner_agents(&self) -> Result<runbook_core::authoring::RunnerAgents, StoreError> {
+        let s = &self.store;
+        let c = s.pool.get().await.map_err(connection)?;
+        crate::agent_directory::compile_agents(c.client(), &s.scope.org_id, &s.scope.project_id)
+            .await
+    }
     async fn catalog_runbooks(&self) -> Result<Vec<RunbookRecord>, StoreError> {
         let s = &self.store;
         let c = s.pool.get().await.map_err(connection)?;

@@ -7,7 +7,9 @@ mod credentials;
 mod evidence;
 mod executions;
 mod memory;
+mod mfa;
 mod post_pilot;
+mod runners;
 mod tokens;
 mod webhooks;
 use runbook_model::*;
@@ -23,7 +25,7 @@ pub fn openapi() -> Value {
     macro_rules! register { ($generator:expr; $($ty:ty),+ $(,)?) => {
         $(let _ = $generator.subschema_for::<$ty>();)+
     }; }
-    register!(requests; ExecutionTokenPair, ClaimedStepRead, SkillFileRead);
+    register!(requests; ExecutionTokenPair, ClaimedStepRead, ClaimedDecisionRead, SkillFileRead);
     register!(requests; StartRequest, RerunRequest, ReportRequest, ClaimRequest,
         HeartbeatRequest, ReleaseRequest, LogsRequest, ChecklistRequest, DecisionRequest, SignalRequest,
         ExecutionPatchRequest, RefreshRequest, MintTokenRequest, OverrideRequest,
@@ -36,6 +38,10 @@ pub fn openapi() -> Value {
     register!(requests; TriggerResponse);
     register!(requests; MeView, VersionFormView, ConnectedAppPage, ConnectedAppView, EmailPreferencesView, EmailPreferencesRequest, UnsubscribeRequest, UnsubscribeView, ProjectSlackView, ProjectSlackRequest, UniversalSearchView, UpdateMeRequest, MeUser, PictureUpload, PictureView, UpdateProjectRequest, SyncRequest, SyncFile, SyncView, SyncRunbookView, SyncFileErrors, DetachView);
     register!(requests; StepLogPage);
+    register!(requests; Jwks, RunnerBootstrapRequest, RunnerBootstrapView, RunnerRegisterRequest,
+        RunnerRegisteredView, RunnerJoinRequest, RunnerJoinedView, RunnerHeartbeatRequest,
+        RunnerStatusView, RunnerGroupRegistryView, RunnerGroupProjectsRequest, RunnerVaultIdentityRequest, AgentDirectoryEntry, RunnerWaitingRequest,
+        RunnerEventRequest, RunnerDecideRequest, RunnerAbstainRequest, ApprovalAgentNote, ReadyStepPage, RunnerMemoryProposal, RunnerSkillPin, GrantRequest, GrantView, GrantRevokedRequest);
     register!(requests; CreateTokenRequest, TokenView, TokenSecretView, TokenPage);
     register!(requests; CreateWebhookRequest, UpdateWebhookRequest, WebhookView, WebhookSecretView,
         WebhookPage, DeliveryView, DeliveryPage, UndeliveredNotification);
@@ -460,7 +466,7 @@ pub fn openapi() -> Value {
             operation["summary"] =
                 json!("List my open human tasks and approvals across accessible projects");
             operation["description"] = json!(
-                "Implemented on Postgres (B8f). Query parameters: kind, limit and cursor. Newest assignment first, then execution and step run ID. Requires an active human directory user and executions:read through a personal or user-bound OAuth credential. Service and execution credentials cannot use this inbox. Return open human steps (including checklists and handoffs) and approvals assigned to that user or their directory teams, limited to the intersection of directory project access and any credential project restrictions. Team membership alone grants no project access. Return each step run once even when several assignments match; unrelated users receive an empty page. Completion or a completed approval decision removes the item. This summary grants no claim or voting authority; mutations recheck eligibility. Rows derive only from execution outbox entries applied idempotently by execution and sequence, ignoring older sequences. Postgres updates them in the same transaction; Cloudflare permits the adapter's documented bounded derived-row delay."
+                "Implemented on Postgres and Cloudflare (B8f). Query parameters: kind, limit and cursor. Newest assignment first, then execution and step run ID. Requires an active human directory user. Users with no project grants receive an empty page. Reading tasks for accessible projects requires executions:read. Service and execution credentials cannot use this inbox. Return open human steps (including checklists and handoffs) and approvals assigned to that user or their directory teams, limited to the intersection of directory project access and any credential project restrictions. Team membership alone grants no project access. Return each step run once even when several assignments match; unrelated users receive an empty page. Completion or a completed approval decision removes the item. This summary grants no claim or voting authority; mutations recheck eligibility. Rows derive only from execution outbox entries applied idempotently by execution and sequence, ignoring older sequences. Postgres updates them in the same transaction; Cloudflare permits the adapter's documented bounded derived-row delay."
             );
             operation["x-required-scopes"] = json!(["executions:read"]);
             operation["x-required-principal"] = json!("human");
@@ -559,12 +565,25 @@ pub fn openapi() -> Value {
             operation["x-implementation"] = json!("implemented");
         }
         if path == "/v1/projects/{p}/slack" {
-            operation["summary"] = json!("Project Slack notifications (SLACK1 stage 1)");
+            operation["summary"] = json!("Project Slack notifications");
             operation["description"] = json!(
-                "Implemented. One Slack incoming-webhook URL per project: reads say only whether one is configured (the URL is a credential and is never returned), writes need project admin. Step assigned, approval needed, handoff/stall and run-failed events post a short message linking into the app. Best-effort beside email and webhooks."
+                "Configure an incoming webhook or Slack app channel for a project. The webhook credential is write-only. Run-start notifications are off by default and are best effort alongside email and webhooks."
             );
+            if method == "put" {
+                operation["description"] = json!(
+                    "Set an incoming webhook or Slack app channel. Omit both to update notify_run_started on an existing target. This preference defaults to false on first configuration and is retained when omitted."
+                );
+                operation["responses"]["409"] = problem_response(
+                    "Slack configuration conflict.",
+                    &["slack.app_not_configured", "slack.target_required"],
+                );
+            }
             operation["x-implementation"] = json!("implemented");
-            operation["x-required-scopes"] = json!(["project:admin"]);
+            operation["x-required-scopes"] = json!([if method == "get" {
+                "runbooks:read"
+            } else {
+                "project:admin"
+            }]);
         }
         if path == "/v1/me/email-preferences" {
             operation["summary"] = json!("Notification email preference (NOTIFY1)");
@@ -703,7 +722,9 @@ pub fn openapi() -> Value {
     archives::register(&mut paths);
     auth::register(&mut paths);
     auth::register_device(&mut paths);
+    runners::register(&mut paths);
     auth::cookie_alternatives(&mut paths);
+    mfa::register(&mut paths);
     json!({
         "openapi":"3.1.0",
         "jsonSchemaDialect":"https://json-schema.org/draft/2020-12/schema",

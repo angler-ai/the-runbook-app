@@ -180,3 +180,19 @@ and the credential has `runbooks:publish`; otherwise give them the draft
 revision to review and publish. Never weaken approvals,
 destructive flags or auto-decision policy unless asked, and never edit a
 runbook to get past a step of an execution you are running.
+
+## Setting up runner agents
+
+Use `runner_status` and `list_runner_agents` to find the installation and
+project's agents. Runner access is opt-in. Reads need `runner:read` and
+writes need `runner:admin` and the appropriate project or organization role.
+Give agent descriptions, instructions and skills to the matching create or
+update tool. When the tool returns a proposal ID, hand it to an authorized
+person for review. Changes that extend access, including new credentials,
+tools, egress hosts and higher limits, can require approval.
+
+Use `create_runner_credential` for public credential metadata. Give the
+person the returned link and CLI command. The person enters the secret in
+the app or a local CLI prompt. Keep secret values out of chat, tool
+arguments, files and logs. Use the revoke or pause tool when asked to
+reduce access. See [CLI and MCP equivalents](references/cli.md).

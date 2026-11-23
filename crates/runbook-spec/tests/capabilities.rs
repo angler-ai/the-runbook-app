@@ -158,10 +158,8 @@ fn deferred_behavior_and_unknown_keywords_are_rejected() {
         ("spec.execution.concurrency.on_conflict", json!("cancel")),
         ("spec.triggers.manual", json!(true)),
         ("spec.steps[0].call.timeout", json!("1h")),
+        // R0-3: retired in favour of agent.name.
         ("spec.steps[0].agent.runner", json!("hosted")),
-        ("spec.steps[0].agent.model", json!("model")),
-        ("spec.steps[0].agent.max_cost_usd", json!(5)),
-        ("spec.steps[0].agent.max_tokens", json!(1000)),
         ("spec.steps[0].evidence.required[0]", json!("video")),
         ("spec.steps[0].evidence.accepted[0]", json!("photo")),
         ("spec.inputs.name.magic", json!(true)),
@@ -265,7 +263,7 @@ fn every_flagship_leaf_has_an_owner() {
 
 #[test]
 fn rejected_capabilities_report_source_locations_without_cascades() {
-    let yaml = "apiVersion: therunbook.app/v1\nkind: Runbook\nmetadata: {id: example, title: Example}\nspec:\n  magic: true\n  inputs:\n    bad: {type: secret_ref}\n  steps:\n    - id: work\n      title: Work\n      evidence: {required: [video]}\n      agent: {model: hosted}\n      x-config: {call: retained}\n";
+    let yaml = "apiVersion: therunbook.app/v1\nkind: Runbook\nmetadata: {id: example, title: Example}\nspec:\n  magic: true\n  inputs:\n    bad: {type: secret_ref}\n  steps:\n    - id: work\n      title: Work\n      evidence: {required: [video]}\n      agent: {runner: hosted}\n      x-config: {call: retained}\n";
     let spec = runbook_spec::parse(yaml).unwrap();
     let diagnostics = runbook_spec::validate_capabilities(&spec);
     assert_eq!(diagnostics.len(), 4, "{diagnostics:?}");
@@ -276,7 +274,7 @@ fn rejected_capabilities_report_source_locations_without_cascades() {
             "/spec/steps/0/evidence/required/0",
             "spec.unsupported_value",
         ),
-        ("/spec/steps/0/agent/model", "spec.unsupported_feature"),
+        ("/spec/steps/0/agent/runner", "spec.retired_key"),
     ] {
         let diagnostic = diagnostics.iter().find(|d| d.path == path).unwrap();
         assert_eq!(diagnostic.code, code);

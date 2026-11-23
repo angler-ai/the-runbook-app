@@ -23,6 +23,7 @@ pub mod workers;
 pub use directory::D1Directory;
 pub use sql::{D1, D1Error, Statement, Value, guard, prepare};
 pub mod admission;
+mod agent_directory;
 pub mod applier;
 pub mod archives;
 pub mod bootstrap;
@@ -35,7 +36,10 @@ pub mod notify;
 pub mod portable;
 pub mod replay;
 pub mod retention;
+pub mod runner_ready;
+pub mod runners;
 pub mod search;
+pub mod signing;
 pub mod sources;
 pub mod start;
 pub mod uploads;
@@ -88,6 +92,12 @@ pub(crate) const GUARD_CODES: &[&str] = &[
     "archive.blob_missing",
     "archive.run_gone",
     "archive.member_live",
+    "runner.invalid_token",
+    "runner.already_registered",
+    "runner.url_mismatch",
+    "runner.group_taken",
+    "directory.group_unknown",
+    "directory.project_not_allowed",
 ];
 
 /// The `'static` form of a guard code (`d1.guard` for an unlisted one).

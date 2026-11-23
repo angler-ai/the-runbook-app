@@ -143,6 +143,7 @@ if [ "${CHECK_CLOUDFLARE:-}" = "1" ]; then
     step "CF9: the edition contract suite (native on Postgres and local Workers)"
     cargo build -p runbook-server --locked
     (cd cloudflare && node contract/run.mjs)
+    (cd cloudflare && node contract/runner.mjs)
   fi
 else
   step "Cloudflare Workers suite skipped: set CHECK_CLOUDFLARE=1 to run it"

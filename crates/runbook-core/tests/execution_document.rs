@@ -55,6 +55,7 @@ fn agent() -> ActorPrincipal {
             session_id: "s1".into(),
             name: "bot".into(),
             model: None,
+            service_attribution: None,
         },
         credential_ref: "svc-1".into(),
     }
@@ -143,6 +144,9 @@ fn state(store: &MemoryExecutionStore, directory: &MemoryDirectory) -> Execution
 }
 fn header(state: &ExecutionState) -> ExecutionView {
     ExecutionView {
+        overdue_steps: vec![],
+        url: String::new(),
+        web_url: String::new(),
         schema_revision: NonZeroU32::MIN,
         id: state.id.clone(),
         runbook_id: None,
@@ -175,6 +179,7 @@ fn header(state: &ExecutionState) -> ExecutionView {
         superseded_by: None,
         parent: None,
         progress: None,
+        cost: None,
     }
 }
 fn logs(id: &StepRunId) -> String {
@@ -234,6 +239,7 @@ fn live_and_terminal_exports_share_document() {
             summary: Some(summary.into()),
             evidence: vec![],
             logs: vec![],
+            cost: None,
         },
         None,
     ))
@@ -343,6 +349,7 @@ fn document_carries_amendment_markers() {
             summary: Some("ok".into()),
             evidence: vec![],
             logs: vec![],
+            cost: None,
         },
         None,
     ))
@@ -413,8 +420,12 @@ fn markdown_export_names_people() {
         options: vec![],
         eligible_recipients: vec![],
         escalation_recipients: vec![],
+        excluded_completers: vec![],
+        blocked_reason: None,
         escalated: false,
         quorum: NonZeroU32::MIN,
+        decision_lease: None,
+        agent_notes: vec![],
         decisions: vec![
             DecisionRecord::Human {
                 user_id: alice.clone(),
@@ -452,6 +463,84 @@ fn markdown_export_names_people() {
     assert!(
         render_markdown(&live, &document).contains(&format!("human {}", escape(alice.as_str())))
     );
+}
+
+/// R1-D2: the Markdown report shows a runner agent's decision with its
+/// evidence, the agent reviewing an open approval, and its abstentions.
+#[test]
+fn markdown_shows_agent_decisions_leases_and_abstentions() {
+    use runbook_model::{
+        ApprovalAgentNote, ApprovalView, DecisionLeaseView, DecisionRecord, StepStatus,
+    };
+
+    let (store, directory) = started();
+    let live = state(&store, &directory);
+    let id = check_id(&live);
+    let mut document = build_document(&live, header(&live), logs);
+    let lease: runbook_model::ClaimId = "clm_01JABCDEFGHJKMNPQRSTVWXYZ0".parse().unwrap();
+    let approval = ApprovalView {
+        schema_revision: NonZeroU32::MIN,
+        step_run_id: id,
+        status: StepStatus::Waiting,
+        prompt: "Ship?".into(),
+        options: vec![],
+        eligible_recipients: vec![],
+        escalation_recipients: vec![],
+        excluded_completers: vec![],
+        blocked_reason: None,
+        escalated: false,
+        quorum: NonZeroU32::MIN,
+        decision_lease: Some(DecisionLeaseView {
+            lease_id: lease.clone(),
+            agent_name: "release-reviewer".into(),
+        }),
+        agent_notes: vec![ApprovalAgentNote {
+            lease_id: lease.clone(),
+            principal: "runner:rin_1".into(),
+            agent_name: "release-reviewer".into(),
+            model: Some("claude-sonnet".into()),
+            reason: "No canary data yet".into(),
+            at_ms: 1,
+        }],
+        decisions: vec![],
+    };
+    document.sections[0].approval = Some(approval.clone());
+    let open = render_markdown(&live, &document);
+    assert!(
+        open.contains("- Agent release\\-reviewer is reviewing; people can still decide\n"),
+        "{open}"
+    );
+    assert!(
+        open.contains(
+            "- Agent release\\-reviewer (claude\\-sonnet) abstained: No canary data yet\n"
+        ),
+        "{open}"
+    );
+
+    document.sections[0].approval = Some(ApprovalView {
+        status: StepStatus::Succeeded,
+        decision_lease: None,
+        agent_notes: vec![],
+        decisions: vec![DecisionRecord::Agent {
+            principal: Some("runner:rin_1".into()),
+            evidence: vec!["[call 2]".into()],
+            evidence_source: Some(runbook_model::AgentEvidenceSource::RunnerReported),
+            agent_name: "release-reviewer".into(),
+            model: Some("claude-sonnet".into()),
+            session_id: lease.to_string(),
+            option: "ship".into(),
+            comment: Some("Error rate 0.1% [call 2]".into()),
+        }],
+        ..approval
+    });
+    let decided = render_markdown(&live, &document);
+    assert!(
+        decided.contains(
+            "- Agent release\\-reviewer (claude\\-sonnet) chose ship: Error rate 0\\.1% \\[call 2\\] (runner-reported evidence: \\[call 2\\])\n"
+        ),
+        "{decided}"
+    );
+    assert!(!decided.contains("is reviewing"), "{decided}");
 }
 
 /// LANG7: the Markdown report shows who took over an agent task and a

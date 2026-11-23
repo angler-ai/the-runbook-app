@@ -90,11 +90,16 @@ Fix: check the spelling and level against the
 starts with `x-`; those are kept and never executed.
 
 ## spec.unsupported_feature
-A key the language deliberately refuses, such as `agent.runner`,
-`agent.model`, `agent.max_cost_usd` or `agent.max_tokens`.
+A feature the language deliberately refuses, such as an input type it
+doesn't have yet.
 
-Fix: remove it. Limit what an agent can do through the access you give
-it, not through the runbook.
+Fix: remove it, or use one the [key reference](/reference/keys/) lists.
+
+## spec.retired_key
+A key that was replaced: `agent.runner` is now `agent.name`.
+
+Fix: name the runner agent with `agent.name` (`external` keeps the task
+open to external agents).
 
 ## spec.unsupported_value
 A value the language doesn't support at that key, such as an evidence kind
@@ -212,6 +217,14 @@ Fix: add the `catch` steps, or remove `catch_on`.
 carry a payload.
 
 Fix: remove `outputs`, or wait for a `signal`.
+
+## spec.invalid_excluded_completer
+
+An approval's `exclude_completers_of` contains a duplicate or names something
+other than a human-capable task that precedes the approval on every path.
+
+Fix: name each preceding task once and move the review into the same path
+when the work is conditional.
 
 ## spec.followup_invalid
 The reminder or escalation keys don't fit together: `remind_every`
@@ -432,6 +445,15 @@ Fix: add `approvers: { users: [...] }` or `approvers: { teams: [...] }`.
 
 Fix: set `min: 1`, or don't let agents decide.
 
+## spec.independent_review_required
+An approval with `exclude_completers_of` also sets
+`on_timeout: { decide: … }`. An independent review must be decided by a
+person who didn't work the named steps, so it can't decide itself when it
+times out. Reported when you publish.
+
+Fix: remove `on_timeout`, or set it to `escalate` so the review goes to
+other people instead.
+
 ## spec.agent_approval_destructive
 An approval that agents may decide (`allow_agents`) can lead to a
 destructive task. Only people may approve a destructive path. Reported
@@ -439,6 +461,11 @@ when you publish.
 
 Fix: remove `allow_agents`, or put a human approval between this one and
 the destructive task.
+
+## spec.agent_requires_allow_agents
+An approval names a runner agent (`agent:`) but doesn't let agents decide.
+
+Fix: add `allow_agents: true` (with `min: 1`), or remove `agent`.
 
 ## spec.auto_option_required
 `on_timeout: { decide: … }` names an option that doesn't exist or isn't
@@ -458,6 +485,28 @@ An approval escalates at its timeout but there is no one to escalate to:
 no `escalate_to` and no `metadata.owners`.
 
 Fix: add `escalate_to`, or owners to the runbook.
+
+## spec.destructive_approval_options
+An approval gates a destructive runner task but doesn't say which
+decisions grant permission, so any option, including "no", would let the
+task run. Reported when you publish.
+
+Fix: add `approves: [...]` with the options that grant permission, or make
+the destructive task's `if` check the approval's `outputs.decision`.
+
+## spec.approval_options_unspecified
+A warning on a version published before `approves` existed: its approval
+lets any human decision unlock a destructive runner task. The version keeps
+running as published.
+
+Fix: add `approves: [...]` to the approval in the draft and publish again.
+
+## spec.destructive_approval_loop
+A warning: one approval outside a loop covers every iteration of a
+destructive runner task inside it, so a single decision unlocks them all.
+
+Fix: move the approval inside the loop so each iteration asks for its own
+decision, or keep it outside if one decision really covers the whole batch.
 
 ## spec.on_timeout_requires_timeout
 `on_timeout`, `escalate_to` or `escalation_timeout` is set on an approval
@@ -646,6 +695,45 @@ Fix: pass less, and let the launcher look the rest up.
 
 Fix: subscribe a webhook to `agent.work_available` and put what the
 launcher needs in `spec.agents.params`; see [webhooks](/webhooks/).
+
+## spec.agent_unknown
+An `agent.name` (or `spec.defaults.agent`, or the project's default agent)
+names no runner agent in this project's agent directory. Publish checks
+names against the directory the runner keeps in sync, so it works while
+the runner is offline. Validating a file on its own doesn't check names.
+
+Fix: use the agent's name as the Agents page shows it, or `external` to
+leave the task to external agents.
+
+## spec.agent_outside_ceiling
+The task asks for more than its runner agent allows: a model profile the
+agent doesn't offer, `max_cost_usd` or `max_tokens` above the agent's
+limit, a host outside its egress list or a credential it doesn't have.
+Runner keys on a task with no runner agent are refused the same way.
+
+Fix: stay within the agent's limits, or ask a project admin to widen the
+agent.
+
+## spec.agent_requires_agent_actor
+`agent.name` is on a task whose actor isn't `agent`.
+
+Fix: set `actor: agent`, or remove the name.
+
+## spec.destructive_reach
+A runner task can use a tool, credential or host labeled `destructive`,
+but isn't marked `destructive: true`. The message lists what it can reach.
+
+Fix: mark the task `destructive: true` (it then needs a person's approval
+before it), or narrow it with `connections` and `agent.network`.
+
+## spec.destructive_needs_approval
+A destructive task aimed at a runner agent doesn't come after a person's
+approval on every path to it. An approval inside one branch of a `switch`
+or `parallel`, behind an `if`, decided by agents or on a timeout, or before
+a runbook's `finally`, doesn't count.
+
+Fix: put an approval that people decide before the task, in the same
+sequence or one that encloses it.
 
 # Internal
 

@@ -60,6 +60,7 @@ pub async fn poll_consumes_an_approval_once<C: DeviceCodeStore>(
         projects: None,
         token_expires_at_ms: now + runbook_core::device_codes::DEVICE_TOKEN_TTL_MS,
         decided_at_ms: t + 2,
+        fresh_mfa_at_issue: false,
     };
     assert!(
         !c.decide_device_code(
@@ -165,6 +166,7 @@ pub async fn denial_expiry_and_collisions<C: DeviceCodeStore>(
         projects: None,
         token_expires_at_ms: expiry + 1,
         decided_at_ms: now,
+        fresh_mfa_at_issue: false,
     };
     assert!(
         !c.decide_device_code(

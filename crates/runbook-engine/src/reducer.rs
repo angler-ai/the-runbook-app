@@ -56,6 +56,7 @@ pub fn apply(
             | Event::ExecutionDeadlineElapsed { .. }
             | Event::TaskDeadlineElapsed { .. }
             | Event::ApprovalEscalated { .. }
+            | Event::StepOverdue { .. }
             | Event::StepReminded { .. }
             | Event::StepEscalated { .. }
             | Event::ApprovalExpired { .. }
@@ -70,6 +71,8 @@ pub fn apply(
             | Event::StepHandedOff { .. }
             | Event::StepAssigneeResolved { .. }
             | Event::StepBlockedNotificationQueued { .. }
+            | Event::AgentTargetResolved { .. }
+            | Event::DecisionLeaseEnded { .. }
     ) && envelope.actor != ActorRef::System
     {
         return Err(EngineError::new("event.system_actor_required"));
@@ -212,6 +215,9 @@ pub fn apply(
             let index = crate::deadline::escalate(&mut next, snapshot, envelope.at_ms)?;
             crate::data::note_step_revision(&mut next, index, envelope.seq);
         }
+        Event::StepOverdue { step_id, due_at_ms } => {
+            crate::followup::mark_overdue(&mut next, step_id, *due_at_ms, envelope.at_ms)?;
+        }
         Event::StepReminded {
             step_run_id,
             due_at_ms,
@@ -347,6 +353,8 @@ pub fn apply(
             if !crate::deadline::open(state) {
                 return Err(EngineError::new("execution.not_running"));
             }
+            let index = state.step_index(step_run_id)?;
+            crate::approval::note_contributor(&mut next.steps[index], &envelope.actor);
             crate::assignment::take_over(
                 &mut next,
                 step_run_id,
@@ -736,6 +744,7 @@ pub fn apply(
         }
         Event::ChecklistUpdated { step_run_id, ticks } => {
             let index = crate::checklist::validate(state, step_run_id, ticks)?;
+            crate::approval::note_contributor(&mut next.steps[index], &envelope.actor);
             next.steps[index].checklist = ticks.clone();
         }
         Event::ExecutionStarted {
@@ -765,7 +774,133 @@ pub fn apply(
                 );
             }
         }
-        Event::StepClaimed { step_run_id } => {
+        Event::AgentTargetResolved {
+            step_id,
+            step_run_id,
+            target,
+        } => crate::runner::target_resolved(&mut next, state, step_id, step_run_id, target)?,
+        Event::StepWaiting {
+            step_run_id,
+            reason,
+            detail,
+        } => crate::runner::waiting(&mut next, state, step_run_id, reason, detail.as_deref())?,
+        Event::CredentialReleased {
+            step_run_id,
+            credential_id,
+            credential_version,
+            delivery,
+            runner_id,
+            claim_id,
+        } => crate::runner::released(
+            &mut next,
+            state,
+            step_run_id,
+            crate::CredentialRelease {
+                credential_id: credential_id.clone(),
+                credential_version: *credential_version,
+                delivery: delivery.clone(),
+                runner_id: runner_id.clone(),
+                claim_id: claim_id.clone(),
+                at_ms: envelope.at_ms,
+                revoked: None,
+            },
+        )?,
+        Event::CredentialRevoked {
+            step_run_id,
+            credential_id,
+            reason,
+        } => crate::runner::revoked(&mut next, state, step_run_id, credential_id, reason)?,
+        Event::DecisionLeaseClaimed {
+            step_run_id,
+            lease,
+            agent_version_id,
+            ..
+        } => {
+            let i = state.step_index(step_run_id)?;
+            crate::runner::admit_decision(state, &state.steps[i], envelope.at_ms)?;
+            let approval = next.steps[i]
+                .approval
+                .as_mut()
+                .ok_or(EngineError::new("step.not_approval"))?;
+            if approval.decision_lease.is_some() || !approval.agent_notes.is_empty() {
+                return Err(EngineError::new("step.not_claimable"));
+            }
+            approval.decision_lease = Some(lease.clone());
+            let runner = &mut next.steps[i].runner;
+            runner.agent_version_id = Some(agent_version_id.clone());
+            runner.waiting_reason = None;
+            runner.waiting_detail = None;
+            runner.reported = false;
+        }
+        Event::DecisionLeaseEnded {
+            step_run_id,
+            lease_id,
+            reason,
+        } => {
+            let i = state.step_index(step_run_id)?;
+            let approval = next.steps[i]
+                .approval
+                .as_mut()
+                .ok_or(EngineError::new("step.not_approval"))?;
+            if approval
+                .decision_lease
+                .as_ref()
+                .is_none_or(|lease| &lease.lease_id != lease_id)
+            {
+                return Err(EngineError::new("claim.stale_generation"));
+            }
+            approval.decision_lease = None;
+            let runner = &mut next.steps[i].runner;
+            runner.reported = matches!(reason.as_str(), "agent_decided" | "agent_abstained");
+            for release in runner
+                .releases
+                .iter_mut()
+                .filter(|r| r.claim_id.as_ref() == Some(lease_id) && r.revoked.is_none())
+            {
+                release.revoked = Some(reason.clone());
+            }
+            crate::runner::claim_ended(&mut next, i);
+        }
+        Event::ApprovalAgentAbstained { step_run_id, note } => {
+            let i = state.step_index(step_run_id)?;
+            crate::runner::admit_decision(state, &state.steps[i], envelope.at_ms)?;
+            let approval = next.steps[i]
+                .approval
+                .as_mut()
+                .ok_or(EngineError::new("step.not_approval"))?;
+            if approval
+                .decision_lease
+                .as_ref()
+                .is_none_or(|lease| lease.lease_id != note.lease_id)
+                || !approval.agent_notes.is_empty()
+            {
+                return Err(EngineError::new("claim.stale_generation"));
+            }
+            approval.agent_notes.push(note.clone());
+        }
+        Event::RunnerTraceRecorded {
+            step_run_id,
+            trace_id,
+        } => {
+            if trace_id.len() != 32
+                || !trace_id
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                || trace_id.bytes().all(|b| b == b'0')
+            {
+                return Err(EngineError::new("runner.trace_invalid"));
+            }
+            let index = state.step_index(step_run_id)?;
+            next.steps[index].runner.trace_id = Some(trace_id.clone());
+        }
+        Event::StepCostReported {
+            step_run_id, cost, ..
+        } => crate::runner::cost_reported(&mut next, state, step_run_id, cost)?,
+        Event::StepClaimed {
+            step_run_id,
+            agent_version_id,
+            ..
+        } => {
             if !crate::deadline::open(state) {
                 return Err(EngineError::new("execution.not_running"));
             }
@@ -779,7 +914,14 @@ pub fn apply(
                 return Err(EngineError::new("step.not_claimable"));
             }
             next.steps[index].status = StepStatus::Claimed;
+            crate::approval::note_contributor(&mut next.steps[index], &envelope.actor);
             next.steps[index].actor = Some(envelope.actor.clone());
+            let runner = &mut next.steps[index].runner;
+            runner.waiting_reason = None;
+            runner.waiting_detail = None;
+            if agent_version_id.is_some() {
+                runner.agent_version_id = agent_version_id.clone();
+            }
         }
         Event::StepClaimReleased { step_run_id, .. } | Event::StepClaimExpired { step_run_id } => {
             let index = state.step_index(step_run_id)?;
@@ -789,6 +931,7 @@ pub fn apply(
             next.steps[index].status = StepStatus::Ready;
             next.steps[index].actor = None;
             next.steps[index].taken_over = None;
+            crate::runner::claim_ended(&mut next, index);
             if matches!(envelope.event, Event::StepClaimExpired { .. }) {
                 // Expired work is offered again with the lease_expired reason.
                 next.steps[index].agent_notified_attempt = None;
@@ -835,6 +978,7 @@ pub fn apply(
             next.steps[index].outputs = amendment.to.outputs.clone();
             next.steps[index].summary = amendment.to.summary.clone();
             next.steps[index].amended = true;
+            crate::approval::note_contributor(&mut next.steps[index], &envelope.actor);
             crate::data::note_step_revision(&mut next, index, envelope.seq);
             next.steps[index].amendments.push((**amendment).clone());
             crate::amendments::mark_stale(&mut next, step_run_id);
@@ -871,6 +1015,7 @@ pub fn apply(
                 ReportStatus::Failed | ReportStatus::Blocked => StepStatus::Failed,
             };
             let step = &mut next.steps[index];
+            crate::approval::note_contributor(step, &envelope.actor);
             step.status = status;
             step.attempt_history
                 .push(std::rc::Rc::new(crate::AttemptRecord {
@@ -887,6 +1032,7 @@ pub fn apply(
             step.files.extend(report.files);
             step.logs.extend(report.logs);
             step.actor = Some(envelope.actor.clone());
+            step.runner.reported = true;
             step.finished_at_ms = Some(envelope.at_ms);
             if status == StepStatus::Failed {
                 crate::retry::recover(&mut next, index)?;

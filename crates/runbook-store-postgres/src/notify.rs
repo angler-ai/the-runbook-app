@@ -9,11 +9,21 @@ use crate::{
 };
 use runbook_core::{
     StoreError,
-    notify::{EmailCompletion, EmailLease, EmailPreference, EmailRecord, EmailState, NotifyStore},
+    notify::{
+        EmailCompletion, EmailLease, EmailPreference, EmailRecord, EmailState, NotifyStore,
+        ProjectSlackSettings,
+    },
 };
 use runbook_model::UserId;
 use std::rc::Rc;
 use tokio_postgres::{Client, Row};
+
+fn slack_settings(row: Row) -> ProjectSlackSettings {
+    ProjectSlackSettings {
+        target: row.get(0),
+        notify_run_started: row.get(1),
+    }
+}
 
 const NOW_MS: &str = "SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint";
 const COLUMNS: &str = "id, org_id, user_id, email, kind, execution_id, event_id, subject, \
@@ -315,49 +325,62 @@ impl NotifyStore for PostgresNotify {
         })
         .await
     }
-    async fn slack_url(
+    async fn slack_settings(
         &self,
         scope: &runbook_core::catalog::TenantScope,
-    ) -> Result<Option<String>, StoreError> {
+    ) -> Result<Option<ProjectSlackSettings>, StoreError> {
         let conn = self.pool.get().await.map_err(connection)?;
         let row = conn
             .client()
             .query_opt(
-                "SELECT url FROM runbook.project_slack WHERE org_id = $1 AND project_id = $2",
+                "SELECT url, COALESCE(notify_run_started, false) FROM runbook.project_slack WHERE org_id = $1 AND project_id = $2",
                 &[&scope.org_id.as_str(), &scope.project_id.as_str()],
             )
             .await
             .map_err(db)?;
-        Ok(row.map(|r| r.get(0)))
+        Ok(row.map(slack_settings))
     }
-    async fn set_slack_url(
+    async fn save_slack_settings(
         &self,
         scope: &runbook_core::catalog::TenantScope,
-        url: Option<String>,
+        target: Option<String>,
+        notify_run_started: Option<bool>,
+    ) -> Result<Option<ProjectSlackSettings>, StoreError> {
+        let conn = self.pool.get().await.map_err(connection)?;
+        let c = conn.client();
+        let org = scope.org_id.as_str();
+        let project = scope.project_id.as_str();
+        let row = if let Some(target) = &target {
+            c.query_opt(
+                "INSERT INTO runbook.project_slack (org_id, project_id, url, notify_run_started)
+                 VALUES ($1, $2, $3, COALESCE($4, false))
+                 ON CONFLICT (org_id, project_id) DO UPDATE SET url = EXCLUDED.url,
+                     notify_run_started = COALESCE($4, project_slack.notify_run_started, false)
+                 RETURNING url, notify_run_started",
+                &[&org, &project, target, &notify_run_started],
+            ).await
+        } else {
+            c.query_opt(
+                "UPDATE runbook.project_slack SET notify_run_started = COALESCE($3, notify_run_started, false)
+                 WHERE org_id = $1 AND project_id = $2 RETURNING url, notify_run_started",
+                &[&org, &project, &notify_run_started],
+            ).await
+        }.map_err(db)?;
+        Ok(row.map(slack_settings))
+    }
+    async fn remove_slack_settings(
+        &self,
+        scope: &runbook_core::catalog::TenantScope,
     ) -> Result<(), StoreError> {
-        self.transaction(async |c| {
-            match &url {
-                Some(url) => {
-                    c.execute(
-                        "INSERT INTO runbook.project_slack (org_id, project_id, url) VALUES ($1, $2, $3) \
-                         ON CONFLICT (org_id, project_id) DO UPDATE SET url = EXCLUDED.url",
-                        &[&scope.org_id.as_str(), &scope.project_id.as_str(), url],
-                    )
-                    .await
-                    .map_err(db)?;
-                }
-                None => {
-                    c.execute(
-                        "DELETE FROM runbook.project_slack WHERE org_id = $1 AND project_id = $2",
-                        &[&scope.org_id.as_str(), &scope.project_id.as_str()],
-                    )
-                    .await
-                    .map_err(db)?;
-                }
-            }
-            Ok(())
-        })
-        .await
+        let conn = self.pool.get().await.map_err(connection)?;
+        conn.client()
+            .execute(
+                "DELETE FROM runbook.project_slack WHERE org_id = $1 AND project_id = $2",
+                &[&scope.org_id.as_str(), &scope.project_id.as_str()],
+            )
+            .await
+            .map_err(db)?;
+        Ok(())
     }
     async fn mark_digested(&self, ids: Vec<(String, u64)>, at_ms: i64) -> Result<(), StoreError> {
         self.transaction(async |c| {

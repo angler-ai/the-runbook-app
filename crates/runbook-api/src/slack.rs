@@ -65,18 +65,13 @@ async fn dispatch<B: Backends>(
                 Scope::RunbooksRead,
             )
             .map_err(|_| (403, "auth.forbidden"))?;
-            let stored = notify.slack_url(&scope).await.map_err(|_| UNAVAILABLE)?;
-            let channel = match stored.as_deref().map(SlackTarget::parse) {
-                Some(SlackTarget::Channel(channel)) => Some(channel),
-                _ => None,
-            };
+            let stored = notify
+                .slack_settings(&scope)
+                .await
+                .map_err(|_| UNAVAILABLE)?;
             Ok((
                 200,
-                json!(ProjectSlackView {
-                    configured: stored.is_some(),
-                    channel,
-                    app: backends.slack_app().is_some(),
-                }),
+                json!(settings_view(stored, backends.slack_app().is_some())),
             ))
         }
         "PUT" => {
@@ -96,7 +91,7 @@ async fn dispatch<B: Backends>(
                     if !url.starts_with("https://hooks.slack.com/") || url.len() > 512 {
                         return Err((422, "slack.invalid_url"));
                     }
-                    SlackTarget::Webhook(url)
+                    Some(SlackTarget::Webhook(url))
                 }
                 (None, Some(channel)) => {
                     let channel = channel.trim().to_owned();
@@ -107,25 +102,23 @@ async fn dispatch<B: Backends>(
                     if backends.slack_app().is_none() {
                         return Err((409, "slack.app_not_configured"));
                     }
-                    SlackTarget::Channel(channel)
+                    Some(SlackTarget::Channel(channel))
                 }
+                (None, None) if request.notify_run_started.is_some() => None,
                 _ => return Err((422, "slack.invalid_url")),
             };
-            notify
-                .set_slack_url(&scope, Some(target.stored()))
+            let stored = notify
+                .save_slack_settings(
+                    &scope,
+                    target.map(|target| target.stored()),
+                    request.notify_run_started,
+                )
                 .await
-                .map_err(|_| UNAVAILABLE)?;
-            let channel = match target {
-                SlackTarget::Channel(channel) => Some(channel),
-                SlackTarget::Webhook(_) => None,
-            };
+                .map_err(|_| UNAVAILABLE)?
+                .ok_or((409, "slack.target_required"))?;
             Ok((
                 200,
-                json!(ProjectSlackView {
-                    configured: true,
-                    channel,
-                    app: backends.slack_app().is_some(),
-                }),
+                json!(settings_view(Some(stored), backends.slack_app().is_some())),
             ))
         }
         "DELETE" => {
@@ -138,11 +131,30 @@ async fn dispatch<B: Backends>(
             )
             .map_err(|_| (403, "auth.forbidden"))?;
             notify
-                .set_slack_url(&scope, None)
+                .remove_slack_settings(&scope)
                 .await
                 .map_err(|_| UNAVAILABLE)?;
             Ok((204, serde_json::Value::Null))
         }
         _ => Err((405, "request.method_not_allowed")),
+    }
+}
+
+fn settings_view(
+    stored: Option<runbook_core::notify::ProjectSlackSettings>,
+    app: bool,
+) -> ProjectSlackView {
+    let channel = match stored
+        .as_ref()
+        .map(|settings| SlackTarget::parse(&settings.target))
+    {
+        Some(SlackTarget::Channel(channel)) => Some(channel),
+        _ => None,
+    };
+    ProjectSlackView {
+        configured: stored.is_some(),
+        channel,
+        app,
+        notify_run_started: stored.is_some_and(|settings| settings.notify_run_started),
     }
 }

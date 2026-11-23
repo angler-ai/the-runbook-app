@@ -171,6 +171,12 @@ pub fn parse_session(v: &Value) -> Option<ResolvedSession> {
     } else {
         None
     };
+    let mfa_method = v
+        .get("mfa_method")
+        .and_then(|method| serde_json::from_value(method.clone()).ok());
+    let mfa_verified_at = mfa_method
+        .and_then(|_: MfaMethod| v.get("mfa_verified_at")?.as_i64())
+        .filter(|time| *time > 0);
     Some(ResolvedSession {
         auth_user_id: text("auth_user_id")?,
         email: text("email")?,
@@ -181,6 +187,9 @@ pub fn parse_session(v: &Value) -> Option<ResolvedSession> {
         picture_url: text("image").filter(|url| url.starts_with("https://")),
         session_id: text("session_id")?,
         expires_at_ms,
+        mfa_verified_at,
+        mfa_method,
+        mfa_enrolled: v.get("mfa_enrolled").and_then(Value::as_bool),
         principal: None,
         scopes,
     })
@@ -348,6 +357,15 @@ pub async fn link<B: Backends>(
             &mut principal.principal
         {
             *actor = runbook_core::credentials::ActorKind::Agent;
+        }
+    } else {
+        use runbook_core::credentials::Scope;
+        if snapshot.projects.keys().any(|project| {
+            snapshot
+                .project_role(project, &link.user_id)
+                .is_some_and(Scope::browser_runner_admin)
+        }) {
+            principal.scopes.insert(Scope::RunnerAdmin);
         }
     }
     session.principal = Some(Box::new(principal));
@@ -563,4 +581,12 @@ mod tests {
             "a@EXÄMPLE.test"
         ));
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MfaMethod {
+    Passkey,
+    Totp,
+    BackupCode,
 }

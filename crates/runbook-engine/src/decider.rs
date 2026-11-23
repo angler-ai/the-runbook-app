@@ -205,7 +205,7 @@ fn advance_node(
             }]),
             NodeKind::Wait(_) => crate::wait::prepare(state, step),
             NodeKind::Call(_) => crate::call::prepare(state, step),
-            NodeKind::Task(_) => Ok(vec![]),
+            NodeKind::Task(task) => crate::runner::resolve(task, step),
             NodeKind::Approval(_) => Err(EngineError::invariant("opened approval is not waiting")),
             NodeKind::Set(_) => Ok(vec![Command::ApplyData {
                 change: crate::data::evaluate_assignments_for(state, step)?,

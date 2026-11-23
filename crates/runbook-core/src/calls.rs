@@ -560,6 +560,34 @@ pub async fn stored_state<S: StartStore + BlobStore>(
     Ok(Some(state))
 }
 
+/// A decision in a child can govern continuation and cleanup in any
+/// ancestor. Read immutable call semantics without locking the ancestor.
+pub async fn caller_reaches_destructive(
+    store: &(impl StartStore + BlobStore),
+    state: &ExecutionState,
+) -> Result<bool, StoreError> {
+    let mut parent = state.parent.clone();
+    for _ in 0..MAX_CALL_DEPTH {
+        let Some(link) = parent else { return Ok(false) };
+        let caller = stored_state(store, &link.execution_id)
+            .await?
+            .ok_or(StoreError::NotFound)?;
+        let call = caller
+            .steps
+            .iter()
+            .find(|step| step.id.as_ref() == Some(&link.step_run_id))
+            .ok_or(StoreError::Backend("call.invalid_work"))?;
+        if runbook_spec::approval_reaches_destructive(caller.compiled().ir(), &call.node_id) {
+            return Ok(true);
+        }
+        parent = caller.parent;
+    }
+    if parent.is_some() {
+        return Err(StoreError::Backend("call.invalid_work"));
+    }
+    Ok(false)
+}
+
 /// Whether the call step named by a child's parent link still awaits this
 /// child's outcome. A child that is no longer wanted (its parent was
 /// cancelled, failed or deleted while it was being started) never runs.

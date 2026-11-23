@@ -161,6 +161,12 @@ impl Sessions {
         if !session.email_verified || session.expires_at_ms <= now {
             return Ok(None);
         }
+        if answer
+            .as_ref()
+            .is_some_and(|body| body.get("mfa_enrolled").is_some())
+        {
+            return Ok(Some(session));
+        }
         self.cache().insert(
             key,
             Cached {
@@ -174,14 +180,14 @@ impl Sessions {
     /// MCP2: a connected-app call (`oauth/grants`, `oauth/grants/revoke`)
     /// with a JSON body. A revoke clears the positive cache, so a revoked
     /// grant's tokens stop at once here.
-    pub async fn oauth_apps(
+    pub async fn auth_internal(
         &self,
         route: &str,
         body: &Value,
     ) -> Result<Option<Value>, Unavailable> {
         let header = ("content-type", "application/json".to_owned());
         let answer = self.internal(route, header, body.to_string()).await;
-        if route.ends_with("/revoke") {
+        if route.ends_with("/revoke") || route == "mfa/reset" {
             self.clear();
         }
         answer

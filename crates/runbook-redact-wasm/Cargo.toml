@@ -1,0 +1,18 @@
+[package]
+name = "runbook-redact-wasm"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license = "AGPL-3.0-only"
+description = "The core's streaming redactor for the runner, over a raw Wasm ABI (no wasm-bindgen)."
+
+[lib]
+# cdylib is the Wasm module the runner loads; rlib lets native tests call the same code.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+runbook-core = { path = "../runbook-core" }
+
+[dev-dependencies]
+serde_json = { version = "1" }

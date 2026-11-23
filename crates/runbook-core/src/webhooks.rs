@@ -37,9 +37,11 @@ pub const CATALOG: &[&str] = &[
     "approval.escalated",
     "approval.expired",
     "approval.decided",
+    "lease.revoked",
     "step.blocked",
     "step.completed",
     "step.reminder",
+    "step.overdue",
     "step.escalated",
     "execution.queued",
     "execution.started",
@@ -48,6 +50,15 @@ pub const CATALOG: &[&str] = &[
     "memory.saved",
     "memory.edited",
     "runbook.published",
+    // R0-4: runner events, reported by the runner for the organization.
+    "runner.budget_threshold",
+    "runner.probe_succeeded",
+    "runner.secret_in_response",
+    "runner.binding_mismatch",
+    "credential.reconnect_required",
+    "credential.oauth_expiring",
+    "credential.oauth_refresh_failing",
+    "runner.release_denied",
     TEST_EVENT,
 ];
 /// Events handed to people. Reaching no subscriber is shown on the execution.
@@ -57,6 +68,7 @@ pub const HUMAN_EVENTS: &[&str] = &[
     "approval.expired",
     "step.blocked",
     "step.reminder",
+    "step.overdue",
     "step.escalated",
 ];
 pub const TEST_EVENT: &str = "webhook.test";

@@ -103,9 +103,13 @@ pub struct ActorWork<S: SessionStore> {
     /// bytes once counted ([`crate::run_budget`]).
     run_budget: u64,
     logged: Option<u64>,
+    /// R0-4: the agent version a runner's claim pins (set by
+    /// `grants::runner_claim` only).
+    pub(crate) runner_pin: Option<String>,
+    pub(crate) runner_trace: Option<String>,
 }
 
-/// Open the execution session first (D28), then read the directory
+/// Read the immutable runbook before the execution session (D28), then read the directory
 /// snapshot votes will be authorized against, then rebuild state by
 /// replaying the stored events over the pinned snapshot.
 pub async fn begin_actor<S>(
@@ -117,13 +121,24 @@ pub async fn begin_actor<S>(
 where
     S: StartStore + BlobStore + SessionStore,
 {
+    // A shared blob may live in object storage. Fetch it before taking
+    // the execution lock or checking out a connection for the session.
+    let (record, compiled) = actor_inputs(store, id).await?;
     let session = store.begin(id).await?;
     let snapshot = session.load(id).await?;
     let directory_snapshot = directory
         .snapshot(&scope.org_id)
         .await
         .map_err(|_| StoreError::Backend("actor.directory_unavailable"))?;
-    rebuild(store, session, snapshot, directory_snapshot, scope, id).await
+    rebuild(
+        store,
+        session,
+        snapshot,
+        directory_snapshot,
+        scope,
+        record,
+        compiled,
+    )
 }
 
 /// LANG3: rebuild an execution as `begin_actor` does, but release the
@@ -144,20 +159,22 @@ where
     let session = store.begin(id).await?;
     let snapshot = session.load(id).await?;
     session.release().await;
-    rebuild(store, session, snapshot, directory_snapshot, scope, id).await
+    let (record, compiled) = actor_inputs(store, id).await?;
+    rebuild(
+        store,
+        session,
+        snapshot,
+        directory_snapshot,
+        scope,
+        record,
+        compiled,
+    )
 }
 
-async fn rebuild<S>(
-    store: &S,
-    session: S::Session,
-    snapshot: StoredExecution,
-    directory_snapshot: crate::directory::DirectorySnapshot,
-    scope: TenantScope,
+async fn actor_inputs(
+    store: &(impl StartStore + BlobStore),
     id: &ExecutionId,
-) -> Result<ActorWork<S>, ActorError>
-where
-    S: StartStore + BlobStore + SessionStore,
-{
+) -> Result<(StartRecord, runbook_spec::CompiledRunbook), ActorError> {
     let record = store.start_record(id).await?.ok_or(StoreError::NotFound)?;
     let bytes = store
         .get(&BlobKey::Shared {
@@ -166,6 +183,19 @@ where
         .await?;
     let compiled = runbook_spec::restore(&bytes)
         .map_err(|_| StoreError::Backend("start.snapshot_restore_failed"))?;
+    Ok((record, compiled))
+}
+
+fn rebuild<S: SessionStore>(
+    store: &S,
+    session: S::Session,
+    snapshot: StoredExecution,
+    directory_snapshot: crate::directory::DirectorySnapshot,
+    scope: TenantScope,
+    record: StartRecord,
+    compiled: runbook_spec::CompiledRunbook,
+) -> Result<ActorWork<S>, ActorError> {
+    let id = &snapshot.projection.execution_id;
     let mut state = ExecutionState::new(id.clone(), Rc::new(compiled));
     for envelope in &snapshot.events {
         state = apply(&state, envelope)?;
@@ -185,6 +215,8 @@ where
         snapshot,
         record,
         memory: vec![],
+        runner_pin: None,
+        runner_trace: None,
     })
 }
 
@@ -386,7 +418,12 @@ fn stranded_claims(
         .filter(|claim| {
             !state.steps.iter().any(|step| {
                 step.id.as_ref() == Some(&claim.step_run_id)
-                    && step.status == runbook_model::StepStatus::Claimed
+                    && (step.status == runbook_model::StepStatus::Claimed
+                        || step
+                            .approval
+                            .as_ref()
+                            .and_then(|a| a.decision_lease.as_ref())
+                            .is_some_and(|lease| lease.lease_id == claim.claim_id))
             })
         })
         .map(|claim| crate::ClaimWrite {

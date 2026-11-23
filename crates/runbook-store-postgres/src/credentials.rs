@@ -224,6 +224,24 @@ impl PostgresCredentials {
         let conn = self.pool.get().await.map_err(db)?;
         insert_with_metadata(conn.client(), record, metadata).await
     }
+    pub async fn metadata(
+        &self,
+        org: &OrganizationId,
+        id: &TokenId,
+    ) -> Result<issuance::TokenMetadata, CredentialError> {
+        let conn = self.pool.get().await.map_err(db)?;
+        let row = conn
+            .client()
+            .query_opt(
+                "SELECT payload FROM runbook.credential WHERE org_id = $1 AND id = $2",
+                &[&org.as_str(), &id.as_str()],
+            )
+            .await
+            .map_err(db)?;
+        row.map_or(Ok(issuance::TokenMetadata::default()), |row| {
+            metadata_of(row.get(0))
+        })
+    }
     /// The organization's live credentials with their management metadata,
     /// ordered by ID. Execution credentials live elsewhere and never appear.
     pub async fn list_org(

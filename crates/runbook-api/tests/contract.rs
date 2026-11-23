@@ -11,6 +11,7 @@ fn route_contract_has_no_private_api() {
         .chain(runbook_model::WEBHOOK_ROUTES)
         .chain(runbook_model::TOKEN_ROUTES)
         .chain(runbook_model::ME_ROUTES)
+        .chain(runbook_model::MFA_ROUTES)
         .chain(runbook_model::STEP_LOG_ROUTES)
         .chain(runbook_model::MEMORY_ROUTES)
         .chain(runbook_model::EVIDENCE_ROUTES)
@@ -18,6 +19,7 @@ fn route_contract_has_no_private_api() {
         .chain(runbook_model::SLACK_ROUTES)
         .chain(runbook_model::PICTURE_ROUTES)
         .chain(runbook_model::UNIVERSAL_SEARCH_ROUTES)
+        .chain(runbook_model::RUNNER_ROUTES)
     {
         let op = &doc["paths"][route.path][route.method.to_ascii_lowercase()];
         assert_eq!(
@@ -31,7 +33,11 @@ fn route_contract_has_no_private_api() {
                 "missing {name}"
             );
         }
-        assert!(route.path.starts_with("/v1/") || route.path == "/.well-known/runbook");
+        assert!(
+            route.path.starts_with("/v1/")
+                || route.path == "/.well-known/runbook"
+                || route.path == "/.well-known/jwks.json"
+        );
     }
     for (path, methods) in doc["paths"].as_object().unwrap() {
         for (method, op) in methods.as_object().unwrap() {
@@ -46,6 +52,7 @@ fn route_contract_has_no_private_api() {
                         .chain(runbook_model::WEBHOOK_ROUTES)
                         .chain(runbook_model::TOKEN_ROUTES)
                         .chain(runbook_model::ME_ROUTES)
+                        .chain(runbook_model::MFA_ROUTES)
                         .chain(runbook_model::STEP_LOG_ROUTES)
                         .chain(runbook_model::MEMORY_ROUTES)
                         .chain(runbook_model::EVIDENCE_ROUTES)
@@ -55,6 +62,7 @@ fn route_contract_has_no_private_api() {
                         .chain(runbook_model::SLACK_ROUTES)
                         .chain(runbook_model::PICTURE_ROUTES)
                         .chain(runbook_model::UNIVERSAL_SEARCH_ROUTES)
+                        .chain(runbook_model::RUNNER_ROUTES)
                         .any(|r| r.path == path && r.method.eq_ignore_ascii_case(method))
                 );
             }

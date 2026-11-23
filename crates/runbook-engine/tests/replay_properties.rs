@@ -189,6 +189,7 @@ fn agent() -> ActorRef {
         session_id: "s1".into(),
         name: "prop-agent".into(),
         model: None,
+        service_attribution: None,
     }
 }
 fn directory() -> runbook_spec::CompileContext {
@@ -302,6 +303,8 @@ impl Run {
             Action::Claim { step, human: h } => {
                 let event = Event::StepClaimed {
                     step_run_id: self.run_id(step)?,
+                    agent_version_id: None,
+                    claim_id: None,
                 };
                 self.append(event, if *h { human(2) } else { agent() })
             }

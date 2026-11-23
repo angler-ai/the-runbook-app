@@ -57,7 +57,14 @@ pub async fn run_counts<D: D1>(
 ) -> Result<Vec<(String, u64)>, D1Error> {
     let mut out = vec![];
     for table in tables(db).await? {
-        if ["tombstone", "step_run_tombstone", "archive_member"].contains(&table.as_str()) {
+        if [
+            "tombstone",
+            "step_run_tombstone",
+            "archive_member",
+            "runner_ready_heads",
+        ]
+        .contains(&table.as_str())
+        {
             continue;
         }
         let columns = db

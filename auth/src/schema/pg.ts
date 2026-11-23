@@ -14,6 +14,8 @@ export const user = authSchema.table('user', {
   email: text('email').notNull().unique(),
   emailVerified: boolean('email_verified').default(false).notNull(),
   image: text('image'),
+  twoFactorEnabled: boolean('two_factor_enabled').default(false).notNull(),
+  mfaGeneration: integer('mfa_generation').default(0).notNull(),
   createdAt: at('created_at').defaultNow().notNull(),
   updatedAt: at('updated_at').defaultNow().$onUpdate(() => new Date()).notNull(),
 });
@@ -28,6 +30,9 @@ export const session = authSchema.table(
     updatedAt: at('updated_at').$onUpdate(() => new Date()).notNull(),
     ipAddress: text('ip_address'),
     userAgent: text('user_agent'),
+    mfaVerifiedAt: at('mfa_verified_at'),
+    mfaMethod: text('mfa_method'),
+    mfaGeneration: integer('mfa_generation').default(-1).notNull(),
     userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
   },
   (table) => [index('session_user_id_idx').on(table.userId)],
@@ -167,6 +172,8 @@ export const oauthRefreshToken = authSchema.table(
   'oauth_refresh_token',
   {
     id: text('id').primaryKey(),
+    mfaVerifiedAt: at('mfa_verified_at'),
+    mfaMethod: text('mfa_method'),
     token: text('token').notNull().unique(),
     clientId: text('client_id').notNull().references(() => oauthClient.clientId, { onDelete: 'cascade' }),
     sessionId: text('session_id').references(() => session.id, { onDelete: 'set null' }),
@@ -197,6 +204,8 @@ export const oauthAccessToken = authSchema.table(
   'oauth_access_token',
   {
     id: text('id').primaryKey(),
+    mfaVerifiedAt: at('mfa_verified_at'),
+    mfaMethod: text('mfa_method'),
     token: text('token').unique(),
     clientId: text('client_id').notNull().references(() => oauthClient.clientId, { onDelete: 'cascade' }),
     sessionId: text('session_id').references(() => session.id, { onDelete: 'set null' }),
@@ -245,3 +254,40 @@ export const oauthClientAssertion = authSchema.table('oauth_client_assertion', {
 export const userRelations = relations(user, ({ many }) => ({ sessions: many(session), accounts: many(account) }));
 export const sessionRelations = relations(session, ({ one }) => ({ user: one(user, { fields: [session.userId], references: [user.id] }) }));
 export const accountRelations = relations(account, ({ one }) => ({ user: one(user, { fields: [account.userId], references: [user.id] }) }));
+
+export const twoFactor = authSchema.table('two_factor', {
+  id: text('id').primaryKey(),
+  secret: text('secret').notNull(),
+  backupCodes: text('backup_codes').notNull(),
+  userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
+  verified: boolean('verified').default(true),
+  failedVerificationCount: integer('failed_verification_count').default(0),
+  lockedUntil: at('locked_until'),
+});
+
+export const passkey = authSchema.table('passkey', {
+  id: text('id').primaryKey(),
+  name: text('name'),
+  publicKey: text('public_key').notNull(),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  credentialID: text('credential_id').notNull().unique(),
+  counter: integer('counter').notNull(),
+  deviceType: text('device_type').notNull(),
+  backedUp: boolean('backed_up').notNull(),
+  transports: text('transports'),
+  createdAt: at('created_at'),
+  lastUsedAt: at('last_used_at'),
+  mfaGeneration: integer('mfa_generation').default(-1).notNull(),
+  aaguid: text('aaguid'),
+}, (table) => [index('auth_passkey_user_id_idx').on(table.userId)]);
+
+export const mfaAudit = authSchema.table('mfa_audit', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  action: text('action').notNull(),
+  actor: text('actor').notNull(),
+  occurredAt: at('occurred_at').notNull(),
+  notification: text('notification'),
+  notifyAttemptedAt: at('notify_attempted_at'),
+  notifiedAt: at('notified_at'),
+}, (table) => [index('auth_mfa_audit_user_idx').on(table.userId, table.occurredAt)]);

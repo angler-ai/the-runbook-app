@@ -240,3 +240,8 @@ pub async fn the_applier_is_ordered_idempotent_and_releases<D: D1>(
     )?;
     consistent(&db, "api").await
 }
+
+pub async fn runner_registration_and_rejoin(db: impl D1) {
+    let store = runbook_store_d1::runners::D1Runners::new(db);
+    runbook_store_conformance::runners::registration_and_rejoin(&store, scope(1)).await;
+}

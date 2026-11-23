@@ -309,3 +309,176 @@ pub fn call_links(view: &serde_json::Value) -> Vec<String> {
     }
     lines
 }
+
+/// Budget blocks recorded by the runner scheduler, for human-readable run details.
+pub fn runner_budget_lines(view: &serde_json::Value) -> Vec<String> {
+    use crate::memory::clean;
+    view["steps"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|step| {
+            let runner = &step["runner"];
+            let reason = runner["waiting_reason"].as_str()?;
+            let scope = reason.strip_prefix("limit:")?;
+            let path = clean(step["path"].as_str().unwrap_or("unknown"));
+            let detail = runner["waiting_detail"]
+                .as_str()
+                .map(clean)
+                .unwrap_or_else(|| format!("{} limit reached", clean(scope)));
+            Some(format!("step {path}: {detail}"))
+        })
+        .collect()
+}
+
+/// R1-D2: what runner agents did on the run's approvals, for `run get`: an
+/// agent's decision, the agent reviewing now (people can still decide),
+/// its abstentions, and when an agent may decide. Agent-written text is
+/// escaped for the terminal. `now_ms` dates "may decide in …".
+pub fn approval_agent_lines(view: &serde_json::Value, now_ms: i64) -> Vec<String> {
+    use crate::memory::clean;
+    let mut lines = vec![];
+    for step in view["steps"].as_array().into_iter().flatten() {
+        if step["kind"].as_str() != Some("approval") {
+            continue;
+        }
+        let path = clean(step["path"].as_str().unwrap_or("unknown"));
+        let actor = &step["actor"];
+        if actor["kind"].as_str() == Some("agent") && step["status"].as_str() == Some("succeeded") {
+            let comment = step["outputs"]["comment"].as_str().unwrap_or("");
+            lines.push(format!(
+                "approval {path}: decided by agent {}{}: {}{}",
+                clean(actor["name"].as_str().unwrap_or("unknown")),
+                actor["model"]
+                    .as_str()
+                    .map(|m| format!(" ({})", clean(m)))
+                    .unwrap_or_default(),
+                clean(step["outputs"]["decision"].as_str().unwrap_or("")),
+                if comment.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ({})", clean(comment))
+                },
+            ));
+        }
+        let Some(runner) = step.get("runner").filter(|r| r.is_object()) else {
+            continue;
+        };
+        let name = clean(runner["agent_name"].as_str().unwrap_or("unknown"));
+        let notes = runner["agent_notes"]
+            .as_array()
+            .map_or(&[][..], Vec::as_slice);
+        for note in notes {
+            lines.push(format!(
+                "approval {path}: agent {}{} abstained: {}",
+                clean(note["agent_name"].as_str().unwrap_or(&name)),
+                note["model"]
+                    .as_str()
+                    .map(|m| format!(" ({})", clean(m)))
+                    .unwrap_or_default(),
+                clean(note["reason"].as_str().unwrap_or("")),
+            ));
+        }
+        let open = matches!(step["status"].as_str(), Some("waiting" | "ready"));
+        if !open {
+            continue;
+        }
+        if let Some(lease) = runner.get("decision_lease").filter(|l| l.is_object()) {
+            lines.push(format!(
+                "approval {path}: agent {} is reviewing; people can still decide",
+                clean(lease["agent_name"].as_str().unwrap_or(&name)),
+            ));
+        } else if notes.is_empty()
+            && let Some(ready) = runner["decision_ready_at_ms"].as_i64()
+        {
+            lines.push(if ready > now_ms {
+                format!(
+                    "approval {path}: agent {name} may decide in {} if no one has",
+                    short_duration(ready - now_ms)
+                )
+            } else {
+                format!("approval {path}: agent {name} may decide now")
+            });
+        }
+    }
+    lines
+}
+
+/// `45s`, `15m`, `2h 5m`: a short, rounded-down duration.
+fn short_duration(ms: i64) -> String {
+    let seconds = ms.max(0) / 1000;
+    match seconds {
+        0..60 => format!("{seconds}s"),
+        60..3600 => format!("{}m", seconds / 60),
+        _ if seconds % 3600 < 60 => format!("{}h", seconds / 3600),
+        _ => format!("{}h {}m", seconds / 3600, seconds % 3600 / 60),
+    }
+}
+
+#[cfg(test)]
+mod approval_agent_tests {
+    use super::approval_agent_lines;
+    use serde_json::json;
+
+    fn approval(status: &str, extra: serde_json::Value) -> serde_json::Value {
+        let mut step = json!({"path": "release_gate", "kind": "approval", "status": status});
+        for (key, value) in extra.as_object().unwrap() {
+            step[key] = value.clone();
+        }
+        json!({"steps": [step, {"path": "deploy", "kind": "task", "status": "ready",
+            "runner": {"agent_id": "agt_1", "agent_name": "deployer"}}]})
+    }
+
+    #[test]
+    fn says_when_an_agent_may_decide() {
+        let runner = json!({"runner": {"agent_id": "agt_1", "agent_name": "release-reviewer",
+            "decision_ready_at_ms": 1_000 + 15 * 60_000}});
+        assert_eq!(
+            approval_agent_lines(&approval("waiting", runner.clone()), 1_000),
+            ["approval release_gate: agent release-reviewer may decide in 15m if no one has"]
+        );
+        assert_eq!(
+            approval_agent_lines(&approval("waiting", runner), 100_000_000),
+            ["approval release_gate: agent release-reviewer may decide now"]
+        );
+    }
+
+    #[test]
+    fn shows_the_agent_reviewing_and_its_abstentions() {
+        let lease = json!({"runner": {"agent_id": "agt_1", "agent_name": "release-reviewer",
+            "decision_ready_at_ms": 0,
+            "decision_lease": {"lease_id": "clm_1", "agent_name": "release-reviewer"}}});
+        assert_eq!(
+            approval_agent_lines(&approval("waiting", lease), 1),
+            ["approval release_gate: agent release-reviewer is reviewing; people can still decide"]
+        );
+        let abstained = json!({"runner": {"agent_id": "agt_1", "agent_name": "release-reviewer",
+            "decision_ready_at_ms": 0,
+            "agent_notes": [{"lease_id": "clm_1", "principal": "runner:rin_1",
+                "agent_name": "release-reviewer", "model": "claude-sonnet",
+                "reason": "No canary data\n\u{1b}[31mforged", "at_ms": 1}]}});
+        assert_eq!(
+            approval_agent_lines(&approval("waiting", abstained), 1),
+            [
+                "approval release_gate: agent release-reviewer (claude-sonnet) abstained: No canary data\\u{a}\\u{1b}[31mforged"
+            ]
+        );
+    }
+
+    #[test]
+    fn shows_the_agent_decision() {
+        let decided = json!({
+            "actor": {"kind": "agent", "name": "release-reviewer", "model": "claude-sonnet",
+                "principal_id": "runner:rin_1", "session_id": "clm_1"},
+            "outputs": {"decision": "ship", "comment": "Canary healthy [call 1]",
+                "decided_by": "runner:rin_1"},
+            "runner": {"agent_id": "agt_1", "agent_name": "release-reviewer",
+                "decision_ready_at_ms": 0}});
+        assert_eq!(
+            approval_agent_lines(&approval("succeeded", decided), 1),
+            [
+                "approval release_gate: decided by agent release-reviewer (claude-sonnet): ship (Canary healthy [call 1])"
+            ]
+        );
+    }
+}

@@ -23,6 +23,7 @@ export const EVENT_GROUPS: EventGroup[] = [
       { kind: 'step.blocked', label: 'Step blocked or handed off' },
       { kind: 'step.completed', label: 'Step completed' },
       { kind: 'step.reminder', label: 'Step reminder' },
+      { kind: 'step.overdue', label: 'Step overdue' },
       { kind: 'step.escalated', label: 'Step escalated' },
     ],
   },
@@ -50,6 +51,14 @@ export const EVENT_GROUPS: EventGroup[] = [
   {
     label: 'Agents',
     events: [{ kind: 'agent.work_available', label: 'Agent work available' }],
+  },
+  {
+    label: 'Runner credentials',
+    events: [
+      { kind: 'credential.reconnect_required', label: 'OAuth credential needs reconnection' },
+      { kind: 'credential.oauth_refresh_failing', label: 'OAuth credential refresh keeps failing' },
+      { kind: 'credential.oauth_expiring', label: 'OAuth credential expires soon' },
+    ],
   },
 ];
 

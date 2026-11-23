@@ -1586,3 +1586,162 @@ async fn step_read_carries_the_evidence_policy() {
     })
     .await;
 }
+
+async fn service_review_gate(
+    f: &Fixture,
+    metadata: runbook_core::credentials::issuance::TokenMetadata,
+    approvers: &str,
+) -> StepRunId {
+    let service = encode_secret(TokenKind::Service, [87; 32]);
+    PostgresCredentials::new(f.config.database.clone())
+        .insert_issued(
+            &CredentialRecord {
+                id: "tok_00000000000000000000000087".parse().unwrap(),
+                kind: TokenKind::Service,
+                hash: secret_hash(&service),
+                principal: CredentialPrincipal::Service {
+                    project_id: f.project.clone(),
+                    role: ProjectRole::Operator,
+                },
+                org_id: f.org.clone(),
+                scopes: [Scope::ExecutionsAct].into(),
+                projects: Some([f.project.clone()].into()),
+                expires_at: None,
+                revoked_at: None,
+                last_used_at: None,
+            },
+            &metadata,
+        )
+        .await
+        .unwrap();
+    let (store,id)=active(f,source(&format!("    - {{id: work, actor: any}}\n    - id: gate\n      approval: {{prompt: Review?, options: [keep], approvers: {approvers}, exclude_completers_of: [work]}}"), "")).await;
+    let work = step(&store, &id, "work").await;
+    let claim = call(
+        &f.app,
+        &service,
+        "POST",
+        &format!("/v1/step-runs/{work}/claim"),
+        json!({"session_id":"service-work", "actor":{"kind":"agent","agent_name":"automation"}}),
+        Some("service-claim"),
+        None,
+    )
+    .await;
+    assert_eq!(claim.status, 200, "{}", claim.body);
+    let report = call(&f.app, &service, "POST", &format!("/v1/step-runs/{work}/report"),
+        json!({"step_run_id":work,"claim":claim.body,"status":"succeeded","outputs":{},"evidence":[],"logs":[]}), Some("service-report"), None).await;
+    assert_eq!(report.status, 200, "{}", report.body);
+    step(&store, &id, "gate").await
+}
+
+async fn service_review_person(f: &Fixture) -> (UserId, String) {
+    let user: UserId = "usr_00000000000000000000000088".parse().unwrap();
+    mutate_directory(
+        f,
+        vec![
+            DirectoryMutation::CreateUser(UserRecord {
+                id: user.clone(),
+                name: "Named reviewer".into(),
+                active: true,
+                role: OrgRole::Member,
+            }),
+            DirectoryMutation::GrantProjectRole {
+                project_id: f.project.clone(),
+                user_id: user.clone(),
+                role: ProjectRole::Operator,
+            },
+        ],
+    )
+    .await;
+    let secret = encode_secret(TokenKind::Personal, [88; 32]);
+    PostgresCredentials::new(f.config.database.clone())
+        .insert(CredentialRecord {
+            id: "tok_00000000000000000000000088".parse().unwrap(),
+            kind: TokenKind::Personal,
+            hash: secret_hash(&secret),
+            principal: CredentialPrincipal::User {
+                user_id: user.clone(),
+                actor: runbook_core::credentials::ActorKind::Human,
+            },
+            org_id: f.org.clone(),
+            scopes: [Scope::ExecutionsAct].into(),
+            projects: Some([f.project.clone()].into()),
+            expires_at: Some(i64::MAX),
+            revoked_at: None,
+            last_used_at: None,
+        })
+        .await
+        .unwrap();
+    (user, secret)
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL; owned databases only"]
+async fn service_token_work_excludes_its_creator_and_owner_from_review() {
+    with_fixture(async |f, _| {
+        let (owner, owner_secret) = service_review_person(f).await;
+        let approvers = format!("{{users: [{}, {owner}]}}", f.user);
+        let gate = service_review_gate(
+            f,
+            runbook_core::credentials::issuance::TokenMetadata {
+                created_by: Some(f.user.clone()),
+                owner: Some(owner),
+                ..Default::default()
+            },
+            &approvers,
+        )
+        .await;
+        for (credential, key) in [(&f.token, "creator-vote"), (&owner_secret, "owner-vote")] {
+            let refused = call(
+                &f.app,
+                credential,
+                "POST",
+                &format!("/v1/step-runs/{gate}/decision"),
+                json!({"option":"keep"}),
+                Some(key),
+                None,
+            )
+            .await;
+            assert_eq!(
+                refused.body["code"], "approval.excluded_completer",
+                "{}",
+                refused.body
+            );
+        }
+    })
+    .await;
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL; owned databases only"]
+async fn unknown_service_work_requires_a_named_non_admin() {
+    with_fixture(async |f, _| {
+        let (reviewer, reviewer_secret) = service_review_person(f).await;
+        let approvers = format!("{{users: [{}, {reviewer}]}}", f.user);
+        let gate = service_review_gate(f, Default::default(), &approvers).await;
+        let refused = act(
+            f,
+            &gate,
+            "decision",
+            json!({"option":"keep"}),
+            Some("admin-vote"),
+        )
+        .await;
+        assert_eq!(
+            refused.body["code"], "approval.unknown_service_contributor",
+            "{}",
+            refused.body
+        );
+        let accepted = call(
+            &f.app,
+            &reviewer_secret,
+            "POST",
+            &format!("/v1/step-runs/{gate}/decision"),
+            json!({"option":"keep"}),
+            Some("independent-vote"),
+            None,
+        )
+        .await;
+        assert_eq!(accepted.status, 200, "{}", accepted.body);
+    })
+    .await;
+}

@@ -1,0 +1,153 @@
+{
+  "source": "crates/runbook-core/tests/redact.rs cases() (logs_and_links_are_safe_and_scoped)",
+  "cases": [
+    {
+      "input": "before trb_pat_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA after",
+      "expected": "before [REDACTED:runbook_pat] after"
+    },
+    {
+      "input": "before trb_svc_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA after",
+      "expected": "before [REDACTED:runbook_svc] after"
+    },
+    {
+      "input": "before trb_exe_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA after",
+      "expected": "before [REDACTED:runbook_exe] after"
+    },
+    {
+      "input": "before trb_exr_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA after",
+      "expected": "before [REDACTED:runbook_exr] after"
+    },
+    {
+      "input": "AKIAAAAAAAAAAAAAAAAA",
+      "expected": "[REDACTED:aws_access_key]"
+    },
+    {
+      "input": "ASIAAAAAAAAAAAAAAAAA",
+      "expected": "[REDACTED:aws_access_key]"
+    },
+    {
+      "input": "ghp_Sensitive123",
+      "expected": "[REDACTED:github_token]"
+    },
+    {
+      "input": "gho_Sensitive123",
+      "expected": "[REDACTED:github_token]"
+    },
+    {
+      "input": "ghs_Sensitive123",
+      "expected": "[REDACTED:github_token]"
+    },
+    {
+      "input": "github_pat_Sensitive123",
+      "expected": "[REDACTED:github_token]"
+    },
+    {
+      "input": "xoxa-Sensitive-123",
+      "expected": "[REDACTED:slack_token]"
+    },
+    {
+      "input": "xoxb-Sensitive-123",
+      "expected": "[REDACTED:slack_token]"
+    },
+    {
+      "input": "xoxp-Sensitive-123",
+      "expected": "[REDACTED:slack_token]"
+    },
+    {
+      "input": "xoxo-Sensitive-123",
+      "expected": "[REDACTED:slack_token]"
+    },
+    {
+      "input": "xoxs-Sensitive-123",
+      "expected": "[REDACTED:slack_token]"
+    },
+    {
+      "input": "xoxr-Sensitive-123",
+      "expected": "[REDACTED:slack_token]"
+    },
+    {
+      "input": "before -----BEGIN PRIVATE KEY-----\nU2Vuc2l0aXZl\n-----END PRIVATE KEY----- after",
+      "expected": "before [REDACTED:private_key] after"
+    },
+    {
+      "input": "before -----BEGIN RSA PRIVATE KEY-----\nU2Vuc2l0aXZl\n-----END RSA PRIVATE KEY----- after",
+      "expected": "before [REDACTED:private_key] after"
+    },
+    {
+      "input": "before -----BEGIN EC PRIVATE KEY-----\nU2Vuc2l0aXZl\n-----END EC PRIVATE KEY----- after",
+      "expected": "before [REDACTED:private_key] after"
+    },
+    {
+      "input": "before -----BEGIN OPENSSH PRIVATE KEY-----\nU2Vuc2l0aXZl\n-----END OPENSSH PRIVATE KEY----- after",
+      "expected": "before [REDACTED:private_key] after"
+    },
+    {
+      "input": "before -----BEGIN ENCRYPTED PRIVATE KEY-----\nU2Vuc2l0aXZl\n-----END ENCRYPTED PRIVATE KEY----- after",
+      "expected": "before [REDACTED:private_key] after"
+    },
+    {
+      "input": "Authorization: Bearer sensitive\nafter",
+      "expected": "Authorization: [REDACTED:authorization]\nafter"
+    },
+    {
+      "input": "AUTHORIZATION : Basic sensitive\r\nafter",
+      "expected": "AUTHORIZATION : [REDACTED:authorization]\r\nafter"
+    },
+    {
+      "input": "Authorization: Digest username=\"alice\", nonce=\"abc\", response=\"secret-digest\"\nafter",
+      "expected": "Authorization: [REDACTED:authorization]\nafter"
+    },
+    {
+      "input": "Bearer sensitive after",
+      "expected": "Bearer [REDACTED:bearer] after"
+    },
+    {
+      "input": "password=sensitive after",
+      "expected": "password=[REDACTED:password] after"
+    },
+    {
+      "input": "secret=\"sensitive with spaces\" after",
+      "expected": "secret=\"[REDACTED:secret]\" after"
+    },
+    {
+      "input": "token='sensitive with spaces' after",
+      "expected": "token='[REDACTED:token]' after"
+    },
+    {
+      "input": "secret=\"sensitive\\\"still secret\" after",
+      "expected": "secret=\"[REDACTED:secret]\" after"
+    },
+    {
+      "input": "DB_PASSWORD=sensitive after",
+      "expected": "DB_PASSWORD=[REDACTED:password] after"
+    },
+    {
+      "input": "GITHUB_TOKEN=sensitive after",
+      "expected": "GITHUB_TOKEN=[REDACTED:token] after"
+    },
+    {
+      "input": "client_secret=sensitive after",
+      "expected": "client_secret=[REDACTED:secret] after"
+    },
+    {
+      "input": "{\"password\":\"sensitive\"} after",
+      "expected": "{\"password\":\"[REDACTED:password]\"} after"
+    },
+    {
+      "input": "{\"api_token\": \"sensitive\", \"user\": \"bob\"}",
+      "expected": "{\"api_token\": \"[REDACTED:token]\", \"user\": \"bob\"}"
+    },
+    {
+      "input": "password: sensitive after",
+      "expected": "password: [REDACTED:password] after"
+    },
+    {
+      "input": "xoxc-Sensitive-123 after",
+      "expected": "[REDACTED:slack_token] after"
+    },
+    {
+      "input": "xoxe-Sensitive-123",
+      "expected": "[REDACTED:slack_token]"
+    }
+  ]
+}

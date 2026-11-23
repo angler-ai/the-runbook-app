@@ -79,6 +79,10 @@ pub fn served_routes() -> impl Iterator<Item = &'static (&'static str, &'static 
 {
     ROUTES.iter().chain(DEPRECATED_ROUTES)
 }
+pub(crate) fn parse_step_run_id(parameter: &str) -> Option<StepRunId> {
+    parameter.parse().ok()
+}
+
 impl<D: DirectoryOperations, C: CredentialStore, B: ActorBackend> ActorService<D, C, B> {
     pub async fn handle(&self, r: Request) -> Response {
         match self.dispatch(&r).await {
@@ -86,6 +90,10 @@ impl<D: DirectoryOperations, C: CredentialStore, B: ActorBackend> ActorService<D
             Err(e) => {
                 let mut out = Response::error(e.status, e.code, &r.request_id);
                 out.body["errors"] = serde_json::json!(e.diagnostics);
+                if e.code == "approval.excluded_completer" {
+                    out.body["detail"] =
+                        "You completed a step this approval must review independently.".into();
+                }
                 out
             }
         }
@@ -116,7 +124,7 @@ impl<D: DirectoryOperations, C: CredentialStore, B: ActorBackend> ActorService<D
             return Err(err(401, "auth.invalid_credential"));
         }
         let (execution_id, project_id, step_run_id) = if let Some(sr) = params.get("sr") {
-            let sr: StepRunId = sr.parse().map_err(|_| err(404, "resource.not_found"))?;
+            let sr = parse_step_run_id(sr).ok_or_else(|| err(404, "resource.not_found"))?;
             let (exe, project) = self
                 .backend
                 .step_run_execution(&record.org_id, &sr)

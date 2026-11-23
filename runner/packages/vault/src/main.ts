@@ -1,0 +1,67 @@
+// The vault process (`runner vault`). Its own container and identity: the
+// KEK (local key file or Cloud KMS through its attached service account),
+// its rb_vault database login, its release-only core token, and the gateway
+// it pushes material to. Inbound only from runner-api and runner-worker.
+import { loadConfig, loadInstallId, required } from '@runbook/runner-shared/config';
+import { openPool } from '@runbook/runner-shared/db';
+import { createLogger } from '@runbook/runner-shared/log';
+import { createKek } from './kek/index.ts';
+import { SecretManager, secretManagerResources } from './secret-manager.ts';
+import { createVaultServer } from './server.ts';
+import { VertexIdentity, vertexTargets } from './vertex-identity.ts';
+import { Vault } from './vault.ts';
+
+export async function main(): Promise<void> {
+  // No diagnostic reports: they would capture memory that can hold material.
+  process.report.reportOnFatalError = false;
+  process.report.reportOnSignal = false;
+  process.report.reportOnUncaughtException = false;
+
+  const config = loadConfig('vault');
+  const log = createLogger('vault');
+  const secretManager = new SecretManager(secretManagerResources(process.env.RUNNER_SECRET_MANAGER_RESOURCES));
+  const vertexIdentity = new VertexIdentity({ targets: vertexTargets(process.env.RUNNER_VERTEX_TARGETS) });
+  const kek = await createKek(required(config.kek, 'RUNNER_KEK_PROVIDER'));
+  const pool = openPool('vault', required(config.databaseUrl, 'RUNNER_DATABASE_URL'));
+  const issuer = required(config.coreUrl, 'CORE_URL');
+  const baseUrl = config.vaultCoreUrl ?? issuer;
+  const vault = await Vault.create({
+    pool,
+    kek,
+    orgId: required(config.orgId, 'RUNNER_ORG_ID'),
+    secretManager,
+    vertexIdentity,
+    log,
+    assertion: {
+      coreUrl: issuer,
+      jwksBaseUrl: baseUrl,
+      installId: loadInstallId(),
+    },
+    core: { baseUrl, issuer, releaseToken: required(config.coreToken, 'CORE_RELEASE_TOKEN') },
+    gateway: {
+      baseUrl: required(config.urls.gateway, 'GATEWAY_URL'),
+      token: required(config.outboundTokens.gateway, 'RUNNER_TOKEN_VAULT_GATEWAY'),
+    },
+  });
+  const server = createVaultServer(vault, { inboundTokens: config.inboundTokens, workerTokens: config.workerTokens,
+    soleRunner: config.runnerIds?.length === 1 ? config.runnerIds[0] : undefined });
+  await new Promise<void>((resolve) => server.listen(config.listen.port, config.listen.host, resolve));
+  log.info('vault listening', { host: config.listen.host, port: config.listen.port });
+
+  const shutdown = () => {
+    log.info('vault stopping');
+    vault.stop();
+    server.close(() => void pool.end().finally(() => process.exit(0)));
+    setTimeout(() => process.exit(0), 8_000).unref();
+  };
+  process.once('SIGTERM', shutdown);
+  process.once('SIGINT', shutdown);
+  process.on('uncaughtException', (e) => {
+    log.error('uncaught exception', { error: e.name });
+    process.exit(1);
+  });
+  process.on('unhandledRejection', (e) => {
+    log.error('unhandled rejection', { error: e instanceof Error ? e.name : 'error' });
+    process.exit(1);
+  });
+}

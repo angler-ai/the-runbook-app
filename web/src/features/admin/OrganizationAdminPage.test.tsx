@@ -325,3 +325,37 @@ describe('OrganizationAdminPage', () => {
     await expectNoAxeViolations(container);
   });
 });
+
+describe('OrganizationAdminPage MFA (J-3)', () => {
+  it('lets an owner reset a member’s second factors after confirming', async () => {
+    tokenStore.set('trb_pat_owner');
+    setupHandlers(meOwner);
+    const resets: string[] = [];
+    server.use(
+      http.post('*/v1/orgs/:org/users/:user/mfa/reset', ({ params, request }) => {
+        resets.push(`${String(params.user)} ${request.headers.get('x-runbook-csrf')}`);
+        return HttpResponse.json({ reset: true });
+      }),
+    );
+    renderPage();
+    const user = userEvent.setup();
+    expect(screen.queryByRole('button', { name: 'Reset MFA for Admin Alice' })).toBeNull();
+    await user.click(await screen.findByRole('button', { name: 'Reset MFA for Dev David' }));
+    const dialog = await screen.findByRole('alertdialog', {
+      name: "Reset Dev David's second factors?",
+    });
+    expect(dialog).toHaveTextContent(/signs them out everywhere/);
+    expect(resets).toEqual([]);
+    await user.click(screen.getByRole('button', { name: 'Reset MFA' }));
+    await waitFor(() => expect(resets).toEqual(['usr_dev 1']));
+  });
+
+  it('shows the Security tab to owners only', async () => {
+    tokenStore.set('trb_pat_admin');
+    setupHandlers({ ...meOwner, org: { ...meOwner.org, role: 'admin' } });
+    renderPage();
+    expect(await screen.findByRole('tab', { name: /members/i })).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /security/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /reset mfa/i })).toBeNull();
+  });
+});

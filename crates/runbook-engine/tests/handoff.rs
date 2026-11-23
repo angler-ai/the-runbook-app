@@ -17,6 +17,7 @@ fn agent_report(step: &str, status: ReportStatus) -> Input {
         session_id: "session-1".into(),
         name: "test".into(),
         model: None,
+        service_attribution: None,
     };
     input
 }
@@ -96,6 +97,7 @@ fn blocked_hands_off_without_retry() {
             session_id: "session-1".into(),
             name: "test".into(),
             model: None,
+            service_attribution: None,
         },
         123,
     );

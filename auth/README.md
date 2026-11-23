@@ -118,15 +118,17 @@ x-runbook-internal-secret: <RUNBOOK_AUTH_INTERNAL_SECRET>
 cookie: <the session cookie, name=value>          (no body)
 
 200 {"auth_user_id":"...","email":"ada@example.test","email_verified":true,
-     "session_id":"...","expires_at":1767225600000}
+     "session_id":"...","expires_at":1767225600000,
+     "mfa_verified_at":null,"mfa_method":null,"mfa_enrolled":false}
 401 {"code":"auth.internal_unauthorized","message":"..."}   missing or wrong secret
 401 {"code":"auth.no_session","message":"..."}              no live session in the cookie
 ```
 
 `expires_at` is integer milliseconds since the Unix epoch
 (`ResolvedSession.expires_at_ms`). The call also slides the session's expiry in
-the database once it is a day old. Cache 200s for 30 s keyed by the SHA-256 of the
-session cookie's value.
+the database once it is a day old. Older answers without the MFA fields can be cached for 30 s by cookie digest.
+Resolve MFA-capable sessions on every request so enrollment and revocation
+take effect across replicas and isolates.
 
 **`GET /internal/health`**, same secret header:
 `200 {"status":"ok","methods":["email","google"]}`. Use it for `auth.methods` in
@@ -184,6 +186,66 @@ Callback URLs must be paths on this origin. Codes: 6 digits, 10 minutes, one use
 `auth.registration_refused`, `auth.email_unverified`,
 `auth.internal_unauthorized`, `auth.no_session`, plus Better Auth's own
 `INVALID_OTP`, `OTP_EXPIRED` and `TOO_MANY_ATTEMPTS` from sign-in.
+
+## Multi-factor authentication
+
+All paths below are relative to `/api/auth`. Mutations require the configured
+origin. Account routes require a browser session. Successful factor
+verification rotates the cookie. The browser should use the new cookie for
+its next request. An email code or Google sign-in starts with no MFA time.
+
+| Method and path | Request and result |
+| --- | --- |
+| `GET /passkey/generate-register-options` | WebAuthn creation options with required user verification |
+| `POST /passkey/verify-registration` | `{response, name?}` with the WebAuthn registration response → `{status:true}` |
+| `GET /passkey/generate-authenticate-options` | WebAuthn request options with required user verification. Works without a session. |
+| `POST /passkey/verify-authentication` | `{response}` with the WebAuthn assertion → session cookie. Works without a session. |
+| `GET /passkey/list-user-passkeys` | Array of credentials, with optional `name` and `lastUsedAt` |
+| `POST /passkey/update-passkey` | `{id,name}` → `{passkey}` |
+| `POST /passkey/delete-passkey` | `{id}` → `{status:true}` |
+| `POST /two-factor/disable` | `{}` → `{status:true}` |
+| `POST /two-factor/enable` | `{}` → `{totpURI,backupCodes}`. Enrollment finishes after TOTP verification. |
+| `POST /two-factor/verify-totp` | `{code}` → `{status:true,enrolled:true}` for setup confirmation, or `{status:true}` and a new cookie for step-up |
+| `POST /two-factor/verify-backup-code` | `{code}` → `{status:true}` |
+| `POST /two-factor/generate-backup-codes` | `{}` → `{status:true,backupCodes}` |
+
+`mfa_method` is `passkey`, `totp`, `backup_code`, or null. The verification
+time uses Unix epoch milliseconds. Pending TOTP setup does not set
+`mfa_enrolled`. Authenticator and backup-code checks reserve five attempts in
+ten minutes per account, factor and client address, with a per-session fallback
+when the address is unavailable. Exhausting the allowance locks that bucket
+for 15 minutes (`429 auth.mfa_locked`). Passkey challenges expire after five
+minutes and are consumed by the first submission. The same TOTP code cannot
+verify another session within its acceptance window.
+
+Enrollment and factor changes look up the directory policy through
+`POST /internal/mfa-policy` on the Rust host. Only the auth service can make
+this request. It sends the same verified identity and session facts as
+`/internal/session` and receives the person's MFA policy and partial status.
+A partial OAuth browser session continues through
+`/settings/security?return_to=<encoded local OAuth path>`. The consent page
+checks policy again when submitted. OAuth token introspection includes the
+authorization's MFA time and method while the factor remains enrolled. Removing a factor clears the corresponding browser and OAuth proofs and refresh rechecks the remaining enrollment.
+
+`POST /internal/mfa/factors` with `{auth_user_ids}` (1–256 IDs) answers
+`{factors: [{auth_user_id, email, passkeys, authenticator}]}` for the known
+IDs: the passkey count and whether a confirmed authenticator exists (a
+pending setup does not count). Rust uses it for `authenticator_enrolled` and
+`passkey_count` in `GET /v1/me/security` (both null when this service cannot
+answer) and for the organization policy preview,
+`PUT /v1/orgs/{org}/security?dry_run=true`. The preview saves nothing and
+answers `{dry_run:true, policy, affected, must_enroll}`: `affected` lists
+members the proposed policy covers who hold no allowed factor and cannot
+enroll one themselves (`reason` `factor_not_allowed` or `cannot_enroll`);
+`must_enroll` lists members with no factor who will create a passkey at
+their next sign-in. Each entry has `user_id`, `name`, `email` and `role`.
+
+An owner reset calls `POST /internal/mfa/reset` on the auth service with
+`{auth_user_ids, actor}` after authorizing the owner in Rust. The server's
+operator invokes `runbook-server admin mfa reset <email>`; on Cloudflare,
+`npm run mfa:reset -- <email> --operator <name>` from `cloudflare/`. Both revoke sessions
+and OAuth tokens, delete factors and record a reset audit event in the auth schema.
+The user receives a security notification when mail transport is configured.
 
 ## OAuth 2.1 for remote MCP clients (MCP2)
 
@@ -287,7 +349,7 @@ for its own `auth.__drizzle_migrations` table.
 
 ## Dependencies
 
-Exact pins. `better-auth`, `@better-auth/drizzle-adapter` 1.7.5, `drizzle-orm`
+Exact pins. `better-auth`, `@better-auth/drizzle-adapter` and `@better-auth/passkey` 1.7.5, `drizzle-orm`
 0.45.2, `hono` 4.13.8, `drizzle-kit` 0.31.10, `esbuild` 0.28.2, `miniflare`
 5.20260918.0-alpha, `typescript` 7.0.2 and `@cloudflare/workers-types`
 5.20260920.1 are Shelf's versions, and `package-lock.json` was seeded from Shelf's
@@ -300,3 +362,63 @@ otherwise move `@better-auth/core` to the newest 1.7.x, which its exact peer pin
 and
 `@types/node` 26.6.5 with `undici-types` 8.9.0 (the versions `web/` already locks).
 The Node HTTP adapter is ~40 lines in `server.ts` instead of `@hono/node-server`.
+
+### Authenticator setup confirmation
+
+`POST /api/auth/two-factor/enable` starts setup for the current browser session and
+expires after ten minutes. When the account already has a factor or the
+organization requires MFA, setup requires fresh verification with an allowed
+factor. A user without factors in an MFA-required organization can bootstrap
+with a passkey when permitted.
+
+The first `POST /api/auth/two-factor/verify-totp` during setup returns
+`{"status":true,"enrolled":true}` and does not rotate or upgrade the session.
+Refresh the security view, then prompt for a new code or another allowed factor
+if the next action needs step-up. Normal verification returns `{"status":true}`
+and rotates the cookie. On `auth.mfa_setup_changed`, start setup again.
+
+Owner reset returns HTTP 409 with `auth.mfa_operator_reset_required` when the target's auth identities cannot be reset within that organization. Show operator recovery guidance for this response.
+
+### Browser session management
+
+For enrolled accounts, listing and revoking sessions require a session with a
+verified factor allowed by current policy. On `auth.mfa_required`, prompt for
+MFA before showing session details or retrying revocation. Session listing
+returns `id` and omits `token`. Send `{"session_id":"…"}` to
+`POST /api/auth/revoke-session`.
+
+Passkey registration requires a browser session created within 24 hours. On
+HTTP 403 with `auth.sign_in_again`, prompt the user to sign in again and restart
+the passkey registration ceremony.
+
+Passkey assertions with an unknown credential or an invalid signature return HTTP 401 with `auth.passkey_assertion_failed`. Request fresh assertion options before retrying.
+
+### API token issuance proof
+
+Token creation and `GET /v1/tokens` expose `fresh_mfa_at_issue`. Treat a
+missing value on an older server as false. Show false entries as needing
+replacement for sensitive operations when the token is subject to required
+MFA. When a sensitive bearer request returns
+`auth.mfa_token_replacement_required`, create a replacement from a browser
+after fresh MFA or approve a new CLI device login after fresh MFA.
+
+Passkey registration challenges belong to the browser session that started them. On `auth.mfa_setup_changed`, begin registration again with the current session. Account reset fences pending ceremonies and invalidates all existing browser sessions.
+
+MFA factor enrollment, removal and reset queue security mail in the same
+transaction as the audit event. Native auth retries pending delivery once a
+minute. Cloudflare installations should configure the auth Worker's
+`scheduled` handler with a one-minute Cron Trigger (`* * * * *`). When mail
+is unavailable, pending audit entries remain eligible for retry.
+
+
+### Cloudflare operator recovery
+
+An operator with write access to the installation's auth D1 database can
+recover the last owner (or a shared account) without a public endpoint. From
+`cloudflare/`, `npm run mfa:reset -- <email> --operator <name>` does it with wrangler: it shows
+the account, asks for confirmation, and runs the reset as a single D1 SQL
+import. It invalidates pending ceremonies, removes factors, revokes sessions
+and OAuth tokens, records the operator reset and queues the security
+notification. It then reads back the operator audit row. See
+cloudflare/README.md §7, "Operator MFA reset". Re-enroll with an allowed
+passkey when MFA is required and no factors remain.

@@ -98,6 +98,7 @@ pub async fn directory_routes_enforce_scope_and_roles<
         version: runbook_api::VERSION.into(),
         schema: Default::default(),
         theme: None,
+        trace_sample_ratio: None,
         step_runs: None,
     };
     let api = CheckedService::new(d.clone(), c.clone(), cfg.clone());
@@ -685,6 +686,7 @@ pub async fn admins_cannot_deactivate_owners<
             version: runbook_api::VERSION.into(),
             schema: Default::default(),
             theme: None,
+            trace_sample_ratio: None,
             step_runs: None,
         },
     );

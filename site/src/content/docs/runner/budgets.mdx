@@ -1,0 +1,28 @@
+---
+title: Budgets
+description: Read runner spend, tune caps, and find work waiting on a budget.
+---
+
+Open **Runner → Budgets** to see caps, spend, percentage used, and the last 30 days of daily spend. Concurrency rows show the number of active slots against the cap. Expand **Blocked now** to see the steps waiting on a budget. The run page and `runbook run get` show the budget named by the scheduler. A compute reservation rejected after admission names the budget in the attempt summary.
+
+| Scope | Spend | Concurrency |
+| --- | --- | --- |
+| Organization | Day and month | Yes |
+| Runner group | Day and month | Yes |
+| Environment | Day and month | Yes |
+| Project | Day and month | Yes |
+| Agent | Day and month | Yes |
+| Run | Per execution | |
+| Step | Per step | |
+
+A reservation must fit every applicable cap. The runner reserves room before dispatching work and settles it against recorded usage afterward. A step may wait while another step holds a reservation even when settled spend is below the cap. A blank period cap is uncapped at that scope. Day and month boundaries use the time zone in runner policy.
+
+The compute hold covers the permitted sandbox footprint and a teardown allowance. If usage runs past a hold, the ledger records the excess separately and counts it against remaining room. Usage reports include the full measured charge.
+
+Use a human browser session with `runner:admin` to set organization, group, and project caps in **Runner → Policy**, environment caps in **Runner → Environments**, and agent caps in the project configuration. Agents can propose changes through the existing proposal flow.
+
+The scheduler and ledger read the current cap at each admission. A running attempt keeps its existing reservations. A lower cap can deny its next reservation, including when existing holds or settled spend already meet the new cap. A published agent's version and environment pin can narrow the cap it can use. Raising a setting cannot expand that version's pinned ceiling or reopen a closed agent or environment spend period. A run keeps the lowest cap applied to it by any admitted step.
+
+Set a percentage threshold to send a `runner.budget_threshold` webhook once per period when spend reaches it. Project, agent, run, and step alerts go to subscriptions in the owning project. Budgets using the standard alerts retain the 50%, 80%, and 100% thresholds.
+
+The budgets API returns up to 100 rows per page. Pass the returned `next_cursor` as `cursor` to read the next page. A null cursor signals the last page.

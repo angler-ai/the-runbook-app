@@ -213,6 +213,7 @@ registry!(
         memory_entries::search_filters_and_pages,
     ],
     d1_own: [
+        runner_registration_and_rejoin,
         a_release_never_strands_a_waiter_queued_meanwhile,
         an_admission_rechecks_a_pool_released_meanwhile,
         one_replay_key_reserves_one_run,

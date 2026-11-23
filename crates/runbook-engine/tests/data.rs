@@ -352,3 +352,30 @@ fn start_ignores_unselected_queued_data_and_bindings_borrow_provenance() {
         serde_json::json!("stable")
     );
 }
+
+#[test]
+fn expressions_expose_the_run_page_and_api_address() {
+    let url = "https://runs.example.test/v1/executions/exe_00000000000000000000000001";
+    let trace = run_document_with_start(
+        r#"
+metadata: {id: run-links}
+spec:
+  steps: []
+  outputs:
+    api: '${{ execution.url }}'
+    page: '${{ execution.web_url }}'
+"#,
+        &[],
+        runbook_spec::CompileContext::default(),
+        runbook_engine::StartContext {
+            url: url.into(),
+            ..Default::default()
+        },
+    );
+    assert_eq!(trace.state.outputs["api"], url);
+    assert_eq!(
+        trace.state.outputs["page"],
+        "https://runs.example.test/x/exe_00000000000000000000000001"
+    );
+    assert_eq!(trace.state, trace.replay());
+}

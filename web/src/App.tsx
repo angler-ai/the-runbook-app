@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from '@tanstack/react-router';
 import { useState } from 'react';
 import { retryQuery } from './api/query-policy';
+import { StepUpHost } from './features/mfa/StepUpHost';
 import { router as defaultRouter } from './routes/router';
 import { Toaster } from './ui/primitives/sonner';
 import { TooltipProvider } from './ui/primitives/tooltip';
@@ -21,6 +22,7 @@ export function App({ router = defaultRouter }: { router?: typeof defaultRouter 
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <RouterProvider router={router} />
+        <StepUpHost />
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>

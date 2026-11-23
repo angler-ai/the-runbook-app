@@ -232,6 +232,7 @@ fn failed_report_near_the_deadline_hands_off_with_a_fresh_deadline() {
         session_id: "s1".into(),
         name: "ops".into(),
         model: None,
+        service_attribution: None,
     };
     let trace = run_document(
         &doc(
@@ -366,7 +367,11 @@ fn only_task_steps_can_be_claimed() {
     assert_eq!(trace.step("fan").status, StepStatus::Ready);
     let mut trace = trace;
     trace.append(
-        Event::StepClaimed { step_run_id: fan },
+        Event::StepClaimed {
+            step_run_id: fan,
+            agent_version_id: None,
+            claim_id: None,
+        },
         ActorRef::Human {
             user_id: "usr_00000000000000000000000001".parse().unwrap(),
         },
@@ -507,11 +512,21 @@ fn a_claimed_step_cannot_be_claimed_again() {
     trace.append(
         Event::StepClaimed {
             step_run_id: id.clone(),
+            agent_version_id: None,
+            claim_id: None,
         },
         human(1),
         1,
     );
-    trace.append(Event::StepClaimed { step_run_id: id }, human(2), 2);
+    trace.append(
+        Event::StepClaimed {
+            step_run_id: id,
+            agent_version_id: None,
+            claim_id: None,
+        },
+        human(2),
+        2,
+    );
     assert_eq!(trace.error_codes, ["step.not_claimable"]);
     assert_eq!(trace.step("work").actor, Some(human(1)));
 }
@@ -633,6 +648,7 @@ fn a_run_waiting_only_on_people_or_timers_reports_waiting() {
         session_id: "s1".into(),
         name: "ops".into(),
         model: None,
+        service_attribution: None,
     };
     let id = trace.step("auto").id.clone().unwrap();
     trace.append(
@@ -662,6 +678,8 @@ fn a_run_waiting_only_on_people_or_timers_reports_waiting() {
     trace.append(
         Event::StepClaimed {
             step_run_id: person.clone(),
+            agent_version_id: None,
+            claim_id: None,
         },
         alice.clone(),
         2,
@@ -728,12 +746,17 @@ fn agent_decidable_approvals_and_agent_claims_are_running() {
     let mut claimed = run_case("spec: {steps: [{id: work, title: Work}]}", &[]);
     let id = claimed.step("work").id.clone().unwrap();
     claimed.append(
-        Event::StepClaimed { step_run_id: id },
+        Event::StepClaimed {
+            step_run_id: id,
+            agent_version_id: None,
+            claim_id: None,
+        },
         ActorRef::Agent {
             principal_id: "svc_ops".into(),
             session_id: "s1".into(),
             name: "ops".into(),
             model: None,
+            service_attribution: None,
         },
         1,
     );

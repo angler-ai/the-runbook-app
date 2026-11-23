@@ -1,0 +1,234 @@
+---
+title: Run the runner on GKE
+description: Deploy the runner on GKE Autopilot with gVisor, Cloud SQL IAM authentication, and a Cloud KMS vault.
+sidebar:
+  order: 3
+---
+
+Use the [GKE Terraform module](https://github.com/angler-ai/the-runbook-app/tree/main/deploy/terraform/gcp-gke)
+to run the core and its runner in the same Autopilot cluster. Use GKE 1.32
+or later so Dataplane V2 enforces the gateway's listener port range. Use
+GKE Sandbox, NodeLocal DNS, the Secret Manager CSI add-on, and
+private Google API access. Provide Cloud NAT or equivalent outbound
+internet access for private nodes so the gateway can reach upstreams. If Terraform created the cluster before enabling
+the runner, check the add-on is ready before planning the runner manifests.
+Enable the add-on separately on an existing cluster and verify that
+`kubectl api-resources` lists `ValidatingAdmissionPolicy` and
+`SecretProviderClass`. Check that `kubectl get runtimeclass gvisor` succeeds.
+By default the module creates a private `googleapis.com` DNS zone on the VPC
+which targets the restricted VIP. This changes name resolution for every
+workload on that VPC. Reconcile any existing private zone for that name
+before applying. On a VPC shared with other workloads, set
+`runner_google_api_dns = "pods"` instead: the module then maps only the
+Google API hostnames the runner uses to the restricted VIP, inside the runner
+pods, and leaves the VPC's DNS unchanged. Regional (`.rep.googleapis.com`)
+endpoints are not served by the restricted VIP and are not mapped.
+
+To switch an existing installation from `vpc` to `pods`, keep the zone until
+the new pods run: first apply with `pods` while the zone stays in place
+(`terraform apply -target` on the runner Deployments and migration Job), check
+that every runner pod is ready, then apply the rest to remove the zone. To
+switch back, apply `vpc` for the zone first and wait for its records (TTL 300
+seconds) before the pods drop their host entries. A mode change replaces the
+migration Job. [GKE Sandbox](https://docs.cloud.google.com/kubernetes-engine/docs/concepts/sandbox-pods) · [Dataplane V2 port ranges](https://docs.cloud.google.com/kubernetes-engine/docs/how-to/dataplane-v2#port_ranges_for_network_policies_dont_take_effect) · [Secret Manager add-on](https://docs.cloud.google.com/secret-manager/docs/secret-manager-managed-csi-component)
+
+## Register the runner
+
+1. Upgrade the core to the matching release. Set both
+   `RUNBOOK_RUNNER_PRIVATE_NETWORKS=true` and
+   `RUNBOOK_RUNNER_PRIVATE_URL=http://runner-api.runbook-runner.svc.cluster.local:8090`
+   on the core during first-time registration. The Terraform module sets
+   both when enabled. An operator can set these on the core before the
+   runner workloads or use an initial infrastructure apply with the
+   registration values and workloads deferred as described below. For that
+   apply, set the image digests and leave `runner_install` and
+   `runner_secret_versions` at their defaults.
+2. Sign in as an organization owner or admin with `runner:read` and
+   `runner:admin`. Use
+   `runbook runner bootstrap --org "$ORG_ID" --url "$RUNNER_API_URL"`
+   with the exact Service URL above. Keep the bootstrap token and responses
+   that carry tokens in a trusted environment. They are needed once.
+3. POST to `$CORE_URL/v1/runner-installs/register` using the bootstrap token
+   as a Bearer token. Send a JSON body with `url` set to the Service URL,
+   `version` set to the release version, and `contract_version` set to the
+   value from `$CORE_URL/v1/meta`. Save the returned `install_id`,
+   `directory_token`, `release_token` and `join_token`.
+4. POST to `$CORE_URL/v1/runner-installs/$INSTALL_ID/runners` using the join
+   token as a Bearer token. Send `name` (for example `gke`), a unique
+   `group_id` in the format `rg_` followed by a 26-character ULID,
+   `group_name`, and the release `version`. Save the `runner_id` and
+   `claim_token`. Assign the intended projects to this group in the core.
+
+`CORE_URL` is the core's HTTPS origin. The runner uses that origin to verify
+signed claims. The vault uses the core Service for its HTTP calls and still
+verifies the public issuer. The native core reaches the runner over the ClusterIP
+Service. A Cloudflare Workers core needs a reachable HTTPS runner origin,
+such as a Cloudflare Tunnel or a mutually authenticated TLS endpoint.
+
+## Set Terraform inputs
+
+| Variable | Value or default |
+| --- | --- |
+| `runner_enabled` | `false`. Set to `true` to enable runner infrastructure. |
+| `runner_image`, `runner_sandbox_image` | The matching release's `ghcr.io/angler-ai/runbook-runner@sha256:…` and `ghcr.io/angler-ai/runbook-sandbox@sha256:…` references, or a private mirror of each by the same digest. The repository names must end in `runbook-runner` and `runbook-sandbox`, or in those names with your `name_prefix`. Verify both attestations with `gh attestation verify oci://IMAGE@DIGEST --repo angler-ai/the-runbook-app` before mirroring. |
+| `runner_google_api_dns` | `vpc` (default) adds a private `googleapis.com` zone to the VPC. `pods` maps the runner's Google API hostnames inside the runner pods only. |
+| `runner_install` | Set `id`, `org_id`, `group_id` and `runner_id` from registration, and a unique lowercase `role_prefix` for this installation. Keep the prefix on upgrades and restores. |
+| `runner_secret_versions` | Map each of the five processes to its own versioned Secret Manager resource `projects/PROJECT/secrets/SECRET/versions/NUMBER`. |
+| `runner_database_bootstrap_ready` | `false` for the infrastructure apply. Set `true` after the one-time database preparation. |
+| `runner_max_sandbox_pods`, `runner_worker_capacity` | Default 20 and 1. Capacity must fit the sandbox quota. |
+| `runner_dns_ip` | Default `169.254.20.10`. Set to the cluster's NodeLocal DNS IPv4 address when it differs. |
+| `runner_kek_rotation_period` | Vault key rotation interval. |
+| `runner_vault_vertex_enabled`, `runner_vertex_targets` | Enable attached Vertex with a dedicated inference service account and list the allowed locations for each model project. [Configure Vertex providers](/runner/models/#vertex-ai-with-the-runners-google-identity). |
+
+Create five JSON secret versions directly in Secret Manager. Each secret is
+mounted read-only into its own pod and read at process start. Use an
+independent random value of at least 32 characters for each caller-to-callee
+token, and put the same value at both ends of each link.
+
+| Process | JSON keys |
+| --- | --- |
+| `api` | `CORE_DIRECTORY_TOKEN`, `RUNNER_METRICS_TOKEN`, optional `RUNNER_CORE_WEBHOOK_SECRET`, `RUNNER_WORKER_API_TOKENS`, `RUNNER_WORKER_NOTIFIERS`, `RUNNER_TOKEN_API_VAULT`, `RUNNER_TOKEN_GATEWAY_API`, `RUNNER_TOKEN_SANDBOXCTL_API` |
+| `worker` | `CORE_CLAIM_TOKEN`, `RUNNER_TOKEN_API_WORKER`, `RUNNER_TOKEN_WORKER_API`, `RUNNER_TOKEN_WORKER_VAULT`, `RUNNER_TOKEN_WORKER_GATEWAY`, `RUNNER_TOKEN_WORKER_SANDBOXCTL` |
+| `sandbox-ctl` | `RUNNER_TOKEN_WORKER_SANDBOXCTL`, `RUNNER_TOKEN_SANDBOXCTL_GATEWAY`, `RUNNER_TOKEN_SANDBOXCTL_API`, `RUNNER_TOKEN_SANDBOXCTL_VAULT` |
+| `vault` | `CORE_RELEASE_TOKEN`, `RUNNER_TOKEN_API_VAULT`, `RUNNER_TOKEN_WORKER_VAULT`, `RUNNER_TOKEN_SANDBOXCTL_VAULT`, `RUNNER_TOKEN_VAULT_GATEWAY` |
+| `gateway` | `RUNNER_TOKEN_VAULT_GATEWAY`, `RUNNER_TOKEN_WORKER_GATEWAY`, `RUNNER_TOKEN_SANDBOXCTL_GATEWAY`, `RUNNER_TOKEN_GATEWAY_API` |
+
+`RUNNER_WORKER_API_TOKENS` is a JSON **string** containing an object that maps
+the runner ID to the value of `RUNNER_TOKEN_WORKER_API`.
+`RUNNER_WORKER_NOTIFIERS` is a JSON string mapping the same ID to an object with
+`url` set to `http://runner-worker.runbook-runner.svc.cluster.local:8094`
+and `token` set to the worker's `RUNNER_TOKEN_API_WORKER`. Choose a new
+numeric secret version and apply Terraform to roll a process. For shared
+tokens, update both ends during the same maintenance window.
+
+Terraform enables the Cloud Asset Inventory API when `enable_apis` is set.
+Enable it separately if you manage APIs outside Terraform. The sandbox IAM
+setup check uses Python
+3 and the active gcloud identity. That identity needs Service Usage access in the
+project, permission to search IAM policies
+(`cloudasset.assets.searchAllIamPolicies`) across the project's organization
+(or the project for a standalone installation), and permission to read the
+project's and ancestors' IAM policies. The inventory query selects candidate
+bindings for the workload identity pool and `allAuthenticatedUsers`. The
+check rejects unconditional and conditional grants to the sandbox service
+account, namespace, cluster, workload identity pool, or `allAuthenticatedUsers`.
+Existing clusters must be Autopilot with Dataplane V2, GKE 1.32 or later,
+and the `gvisor` RuntimeClass.
+
+## Prepare Cloud SQL once
+
+Apply the infrastructure with `runner_database_bootstrap_ready = false`.
+Read `terraform output -json runner_database_logins` for the three
+PostgreSQL IAM usernames. The Cloud SQL instance enforces a private-IP
+connector connection. From a trusted operator host with private VPC access,
+connect through the Cloud SQL Auth Proxy as the database owner or an
+administrator empowered to change the listed roles and database grants.
+
+Using the actual bootstrap and core database usernames, run the
+following SQL once. Preserve explicit `CONNECT` grants for any other
+authorized core maintenance principals before revoking the default grant.
+
+Replace the database names with the actual names when using `name_prefix`.
+Connect initially with an operator role that owns the databases, has
+`CREATEDB` and `CREATEROLE`, and can administer the bootstrap login.
+PostgreSQL 16 requires the operator to be able to `SET ROLE` to the new
+owner. The example grants this temporarily to an operator without that
+option. If the operator already holds it, leave its membership unchanged
+and omit the two statements that change the SET option.
+
+```sql
+BEGIN;
+GRANT CONNECT ON DATABASE runbook TO "CORE_DATABASE_LOGIN";
+REVOKE CONNECT ON DATABASE runbook FROM PUBLIC;
+ALTER ROLE "RUNNER_BOOTSTRAP_LOGIN" CREATEROLE;
+REVOKE CONNECT, TEMPORARY ON DATABASE runbook_runner FROM PUBLIC;
+GRANT "RUNNER_BOOTSTRAP_LOGIN" TO CURRENT_USER WITH SET TRUE;
+ALTER DATABASE runbook_runner OWNER TO "RUNNER_BOOTSTRAP_LOGIN";
+REVOKE SET OPTION FOR "RUNNER_BOOTSTRAP_LOGIN" FROM CURRENT_USER;
+COMMIT;
+```
+
+Run `terraform output -raw runner_database_connection_sql` and apply its SQL
+with the same administrator. This sets connection limits and a 15-second
+idle transaction timeout on all three IAM logins. Repeat this step when
+changing the connection budget, before applying the workload changes.
+
+Set `runner_database_bootstrap_ready = true` and apply. The migration Job
+checks that both runner runtime IAM logins are denied access to the core
+database, runs migrations under the bootstrap principal, and creates the
+per-install role grants. The API and scheduler share an IAM login and use
+distinct effective roles on separate connection pools. The vault uses a
+different IAM login. Back up both databases and test restoration in an
+isolated Cloud SQL instance with the same role names and vault key access.
+
+### Shared database connection budget
+
+The module reserves the core Rust and auth pool sizes plus one LISTEN
+connection per replica, including the default Kubernetes rollout surge.
+It leaves additional room for PostgreSQL reserved slots and maintenance.
+The API and scheduler pools share the API login's cap, and bootstrap can
+open two connections. PostgreSQL enforces the login caps across databases
+and processes, including clients that use `SET ROLE`.
+
+| Cloud SQL tier | Max connections | Core reserve with default pools | Runner pool size | API / vault / bootstrap login limits |
+| --- | ---: | ---: | ---: | --- |
+| `db-f1-micro` with one core replica | 25 | 16 | 1 | 2 / 1 / 2 |
+| `db-custom-1-3840` with two core replicas | 100 | 24 | 4 | 9 / 5 / 2 |
+
+The production tier retains 60 connections beyond the core and runner
+allocations, including five of maintenance headroom. Account for other
+workloads on the instance before raising pool sizes or adding replicas.
+Set `runner_sql_max_connections` for an unlisted tier and use
+`runner_database_pool_size` to lower the upper bound per pool. Changing the
+instance's `max_connections` can restart Cloud SQL. The migration Job
+checks the actual SQL settings and login caps before proceeding.
+
+On the micro tier, the vault identity command may need to wait for the
+vault pool's single connection to go idle and close (30 seconds).
+The production tier leaves one additional vault login slot for enrollment.
+
+## Enroll the vault identity
+
+Read the public key from the trusted vault pod and enroll it as an org owner.
+
+```sh
+VAULT_PUBLIC_KEY="$(kubectl -n runbook-runner exec deploy/runner-vault -c vault -- \
+  node /app/bin/runner.mjs vault-identity)"
+runbook runner vault-identity --org "$ORG_ID" --public-key "$VAULT_PUBLIC_KEY"
+runbook runner status --org "$ORG_ID" --json
+```
+
+Compute the SHA-256 fingerprint of the base64url-decoded public key and
+compare it with `vault_identity_fingerprint` before entering credentials.
+The vault encrypts its identity key under its Cloud KMS key.
+
+## Isolation and operational checks
+
+Autopilot starts gVisor nodes on demand. The controller checks the admitted
+pod's runtime class and a gVisor marker inside the pod, then checks that the
+listener authenticates and direct or proxied metadata connections fail.
+The first sandbox on a cold cluster can wait up to five minutes, within
+the step's own deadline. An evicted sandbox fails the attempt and uses the
+step's retry policy. The three writable mounts use bounded `emptyDir`
+volumes. The Docker PID limit and `noexec` on `/tmp` and
+`/runbook-results` have no pod equivalents here.
+
+The gateway has one replica. Its restart discards listeners, and the
+controller reaps attempts that lose their listener. Live release material
+is republished by the vault's renewal loop. Sandboxes can reach the
+gateway's listener range by IP. Sandbox DNS egress is blocked. The gateway
+resolves hostnames supplied in CONNECT requests.
+
+Runner peers use plain HTTP on the cluster network, with process-specific
+bearer tokens and signed assertions. OAuth access tokens for live releases
+cross this boundary. Refresh tokens stay in the vault. Only API and vault
+Deployments have Google service accounts. The migration Job has its own
+bootstrap identity. Each process's KSA gets Secret Manager permission only
+on its own CSI secret. The worker, gateway, and sandbox controller have
+metadata egress blocked. The sandbox has no token mount or IAM grants.
+
+The controller has namespace-wide exec and deletion rights and is trusted
+across sandbox attempts. It checks pod UID and claim annotations before
+exec or deletion. The core's Cloud SQL built-in administrator may be
+able to access runner tables. Stored secret data remains envelope-encrypted
+under the vault's key. [Review the Docker trust boundary](/runner/security/).

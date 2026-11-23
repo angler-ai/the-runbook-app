@@ -39,7 +39,8 @@ why (`initial`, `approval_decided`, `timer`, `signal`, `auto_decision`,
     "runbook": "rb_01JC9Z0000000000000000000A",
     "runbook_version_id": "rbv_01JD0000000000000000000003",
     "runbook_version": 3,
-    "url": "https://runbooks.example.com/runs/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7"
+    "url": "https://runbooks.example.com/v1/executions/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7",
+    "web_url": "https://runbooks.example.com/x/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7"
   },
   "sequence": 4,
   "data": {
@@ -48,6 +49,41 @@ why (`initial`, `approval_decided`, `timer`, `signal`, `auto_decision`,
       { "step_run_id": "sr_01JD2X6Q1B3N5P7R9T1V3X5Z7A", "path": "check_health", "title": "Check health" }
     ],
     "params": { "repo": "acme/api", "workflow": "runbook-resume.yml" }
+  }
+}
+```
+
+## lease.revoked
+A runner agent's decision lease on an approval ended: the agent decided
+or abstained, a person decided first, the approval closed (an automatic
+decision, a timeout, the run was cancelled or ended), or the lease was
+released or expired. The runner stops that decision run. `data.reason` is
+`agent_decided`, `agent_abstained`, `human_decided`,
+`automatic_decision`, `approval_closed`, `released`, `expired` or
+`admin_released`.
+
+```json
+{
+  "id": "evt_01JD2X7B3C5D7F9H1K3M5P7R9V",
+  "type": "lease.revoked",
+  "version": 1,
+  "created_at": "2026-11-18T09:47:03.120Z",
+  "org": "org_01JC0000000000000000000001",
+  "project": "prj_01JC0000000000000000000001",
+  "execution": {
+    "id": "exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7",
+    "title": "Release 2.4.0",
+    "runbook": "rb_01JC9Z0000000000000000000A",
+    "runbook_version_id": "rbv_01JD0000000000000000000003",
+    "runbook_version": 3,
+    "url": "https://runbooks.example.com/v1/executions/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7",
+    "web_url": "https://runbooks.example.com/x/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7"
+  },
+  "sequence": 9,
+  "data": {
+    "lease_id": "clm_01JD2X7A1B3C5D7F9H1K3M5P7R",
+    "reason": "human_decided",
+    "step_run_id": "sr_01JD2X9A6E9G1J315N7Q9S1V3W"
   }
 }
 ```
@@ -72,7 +108,8 @@ people it was sent to (teams are expanded to their members).
     "runbook": "rb_01JC9Z0000000000000000000A",
     "runbook_version_id": "rbv_01JD0000000000000000000003",
     "runbook_version": 3,
-    "url": "https://runbooks.example.com/runs/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7"
+    "url": "https://runbooks.example.com/v1/executions/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7",
+    "web_url": "https://runbooks.example.com/x/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7"
   },
   "sequence": 11,
   "data": {
@@ -81,7 +118,7 @@ people it was sent to (teams are expanded to their members).
       { "type": "user", "id": "usr_01JC0000000000000000000A1C" },
       { "type": "user", "id": "usr_01JC0000000000000000000B0B" }
     ],
-    "link": "https://runbooks.example.com/runs/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7"
+    "link": "https://runbooks.example.com/v1/executions/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7"
   }
 }
 ```
@@ -105,13 +142,14 @@ are the people it now goes to; `targets` the configured `escalate_to`
     "runbook": "rb_01JC9Z0000000000000000000A",
     "runbook_version_id": "rbv_01JD0000000000000000000003",
     "runbook_version": 3,
-    "url": "https://runbooks.example.com/runs/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7"
+    "url": "https://runbooks.example.com/v1/executions/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7",
+    "web_url": "https://runbooks.example.com/x/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7"
   },
   "sequence": 14,
   "data": {
     "step_run_id": "sr_01JD2X9A6E9G1J315N7Q9S1V3W",
     "recipients": [{ "type": "user", "id": "usr_01JC0000000000000000000CAR" }],
-    "link": "https://runbooks.example.com/runs/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7",
+    "link": "https://runbooks.example.com/v1/executions/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7",
     "targets": [{ "type": "team", "id": "team_01JC00000000000000000001DS" }]
   }
 }
@@ -135,13 +173,14 @@ pauses or the step fails, by `on_expired`.
     "runbook": "rb_01JC9Z0000000000000000000A",
     "runbook_version_id": "rbv_01JD0000000000000000000003",
     "runbook_version": 3,
-    "url": "https://runbooks.example.com/runs/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7"
+    "url": "https://runbooks.example.com/v1/executions/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7",
+    "web_url": "https://runbooks.example.com/x/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7"
   },
   "sequence": 17,
   "data": {
     "step_run_id": "sr_01JD2X9A6E9G1J315N7Q9S1V3W",
     "recipients": [{ "type": "user", "id": "usr_01JC0000000000000000000CAR" }],
-    "link": "https://runbooks.example.com/runs/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7",
+    "link": "https://runbooks.example.com/v1/executions/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7",
     "targets": [{ "type": "team", "id": "team_01JC00000000000000000001DS" }]
   }
 }
@@ -166,7 +205,8 @@ Automatic timeout decisions don't send this event.
     "runbook": "rb_01JC9Z0000000000000000000A",
     "runbook_version_id": "rbv_01JD0000000000000000000003",
     "runbook_version": 3,
-    "url": "https://runbooks.example.com/runs/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7"
+    "url": "https://runbooks.example.com/v1/executions/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7",
+    "web_url": "https://runbooks.example.com/x/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7"
   },
   "sequence": 12,
   "data": {
@@ -200,14 +240,15 @@ report's status (`failed`, `blocked`, …).
     "runbook": "rb_01JC9Z0000000000000000000A",
     "runbook_version_id": "rbv_01JD0000000000000000000003",
     "runbook_version": 3,
-    "url": "https://runbooks.example.com/runs/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7"
+    "url": "https://runbooks.example.com/v1/executions/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7",
+    "web_url": "https://runbooks.example.com/x/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7"
   },
   "sequence": 9,
   "data": {
     "step_run_id": "sr_01JD2XC8D0F2H4K6M8P0R2T4V6",
     "recipients": [{ "type": "user", "id": "usr_01JC0000000000000000000A1C" }],
     "reason": "failed",
-    "link": "https://runbooks.example.com/runs/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7"
+    "link": "https://runbooks.example.com/v1/executions/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7"
   }
 }
 ```
@@ -230,7 +271,8 @@ A step reached a final status. `path` is its place in the runbook
     "runbook": "rb_01JC9Z0000000000000000000A",
     "runbook_version_id": "rbv_01JD0000000000000000000003",
     "runbook_version": 3,
-    "url": "https://runbooks.example.com/runs/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7"
+    "url": "https://runbooks.example.com/v1/executions/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7",
+    "web_url": "https://runbooks.example.com/x/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7"
   },
   "sequence": 6,
   "data": {
@@ -260,13 +302,50 @@ A step has been open for `remind_after` (and every `remind_every` after).
     "runbook": "rb_01JC9Z0000000000000000000A",
     "runbook_version_id": "rbv_01JD0000000000000000000003",
     "runbook_version": 3,
-    "url": "https://runbooks.example.com/runs/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7"
+    "url": "https://runbooks.example.com/v1/executions/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7",
+    "web_url": "https://runbooks.example.com/x/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7"
   },
   "sequence": 15,
   "data": {
     "step_run_id": "sr_01JD2XC8D0F2H4K6M8P0R2T4V6",
     "recipients": [{ "type": "user", "id": "usr_01JC0000000000000000000A1C" }],
-    "link": "https://runbooks.example.com/runs/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7"
+    "link": "https://runbooks.example.com/v1/executions/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7"
+  }
+}
+```
+
+## step.overdue
+An unfinished step reached its run-relative `due_after` deadline.
+`path` identifies the step and `due_at_ms` is its deadline in epoch milliseconds.
+`reason` is `still_open` for an open step or `not_open` for a step that has yet
+to open. `step_run_id` is null before a step is materialized. Recipients are
+the step's people or, for pending work, the runbook's owners.
+
+```json
+{
+  "id": "evt_01JD31D2F4H6K8M0P2R4T6V8X0",
+  "type": "step.overdue",
+  "version": 1,
+  "created_at": "2026-11-18T11:47:55.004Z",
+  "org": "org_01JC0000000000000000000001",
+  "project": "prj_01JC0000000000000000000001",
+  "execution": {
+    "id": "exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7",
+    "title": "Verify api",
+    "runbook": "rb_01JC9Z0000000000000000000A",
+    "runbook_version_id": "rbv_01JD0000000000000000000003",
+    "runbook_version": 3,
+    "url": "https://runbooks.example.com/v1/executions/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7",
+    "web_url": "https://runbooks.example.com/x/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7"
+  },
+  "sequence": 15,
+  "data": {
+    "step_run_id": null,
+    "path": "confirm_setup",
+    "due_at_ms": 1794998875004,
+    "reason": "not_open",
+    "recipients": [{ "type": "user", "id": "usr_01JC0000000000000000000A1C" }],
+    "link": "https://runbooks.example.com/v1/executions/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7"
   }
 }
 ```
@@ -290,13 +369,14 @@ users.
     "runbook": "rb_01JC9Z0000000000000000000A",
     "runbook_version_id": "rbv_01JD0000000000000000000003",
     "runbook_version": 3,
-    "url": "https://runbooks.example.com/runs/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7"
+    "url": "https://runbooks.example.com/v1/executions/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7",
+    "web_url": "https://runbooks.example.com/x/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7"
   },
   "sequence": 21,
   "data": {
     "step_run_id": "sr_01JD2XC8D0F2H4K6M8P0R2T4V6",
     "recipients": [{ "type": "user", "id": "usr_01JC0000000000000000000CAR" }],
-    "link": "https://runbooks.example.com/runs/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7",
+    "link": "https://runbooks.example.com/v1/executions/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7",
     "targets": [{ "type": "team", "id": "team_01JC00000000000000000001DS" }]
   }
 }
@@ -322,7 +402,8 @@ A start was queued behind the runbook's concurrency limit. `sequence` is
     "runbook": "rb_01JC9Z0000000000000000000A",
     "runbook_version_id": "rbv_01JD0000000000000000000003",
     "runbook_version": 3,
-    "url": "https://runbooks.example.com/runs/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7"
+    "url": "https://runbooks.example.com/v1/executions/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7",
+    "web_url": "https://runbooks.example.com/x/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7"
   },
   "sequence": 0,
   "data": {
@@ -349,7 +430,8 @@ A run started (or a queued run got its slot).
     "runbook": "rb_01JC9Z0000000000000000000A",
     "runbook_version_id": "rbv_01JD0000000000000000000003",
     "runbook_version": 3,
-    "url": "https://runbooks.example.com/runs/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7"
+    "url": "https://runbooks.example.com/v1/executions/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7",
+    "web_url": "https://runbooks.example.com/x/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7"
   },
   "sequence": 1,
   "data": {
@@ -376,7 +458,8 @@ holds the run's outputs.
     "runbook": "rb_01JC9Z0000000000000000000A",
     "runbook_version_id": "rbv_01JD0000000000000000000003",
     "runbook_version": 3,
-    "url": "https://runbooks.example.com/runs/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7"
+    "url": "https://runbooks.example.com/v1/executions/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7",
+    "web_url": "https://runbooks.example.com/x/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7"
   },
   "sequence": 19,
   "data": {
@@ -409,7 +492,8 @@ identifiers: read the entry (untrusted text) through the API. From a run,
     "runbook": "rb_01JC9Z0000000000000000000A",
     "runbook_version_id": "rbv_01JD0000000000000000000003",
     "runbook_version": 3,
-    "url": "https://runbooks.example.com/runs/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7"
+    "url": "https://runbooks.example.com/v1/executions/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7",
+    "web_url": "https://runbooks.example.com/x/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7"
   },
   "sequence": 10,
   "data": {
@@ -461,7 +545,8 @@ An agent edited an existing memory entry. The same two shapes as
     "runbook": "rb_01JC9Z0000000000000000000A",
     "runbook_version_id": "rbv_01JD0000000000000000000003",
     "runbook_version": 3,
-    "url": "https://runbooks.example.com/runs/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7"
+    "url": "https://runbooks.example.com/v1/executions/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7",
+    "web_url": "https://runbooks.example.com/x/exe_01JD2X6PZ5R8E2W4Y6A0C3D5F7"
   },
   "sequence": 18,
   "data": {
@@ -493,6 +578,191 @@ that runbook; tag-filtered subscriptions don't.
     "runbook_slug": "post-deploy",
     "runbook_version_id": "rbv_01JD0000000000000000000003",
     "runbook_version": 3
+  }
+}
+```
+
+# Runner
+
+The organization's runner reports these; each goes to every project's
+subscriptions of its type. `execution` is `null` and `data.install_id`
+names the runner install.
+
+## runner.budget_threshold
+A cost budget crossed its alert threshold (by default 50%, 80% and 100%)
+at some level: org, runner group, environment, project, agent or run. It
+is sent once per budget, threshold and period. A project's budget goes only
+to that project's subscriptions.
+
+```json
+{
+  "id": "evt_01JD2W0A2C4E6G8J012N4Q6S8W",
+  "type": "runner.budget_threshold",
+  "version": 1,
+  "created_at": "2026-11-20T09:12:00.050Z",
+  "org": "org_01JC0000000000000000000001",
+  "project": "prj_01JC0000000000000000000001",
+  "execution": null,
+  "sequence": 0,
+  "data": {
+    "level": "project",
+    "percent": 80,
+    "install_id": "ri_01JD0000000000000000000001"
+  }
+}
+```
+
+## runner.probe_succeeded
+A sandbox's start-up probe reached a cloud metadata address; the sandbox
+was stopped.
+
+```json
+{
+  "id": "evt_01JD2W0A2C4E6G8J012N4Q6S8X",
+  "type": "runner.probe_succeeded",
+  "version": 1,
+  "created_at": "2026-11-20T09:12:00.050Z",
+  "org": "org_01JC0000000000000000000001",
+  "project": "prj_01JC0000000000000000000001",
+  "execution": null,
+  "sequence": 0,
+  "data": {
+    "step_run_id": "sr_01JD0000000000000000000001",
+    "install_id": "ri_01JD0000000000000000000001"
+  }
+}
+```
+
+## runner.secret_in_response
+A released secret value appeared in a response and was redacted. The
+value itself is never sent.
+
+```json
+{
+  "id": "evt_01JD2W0A2C4E6G8J012N4Q6S8Y",
+  "type": "runner.secret_in_response",
+  "version": 1,
+  "created_at": "2026-11-20T09:12:00.050Z",
+  "org": "org_01JC0000000000000000000001",
+  "project": "prj_01JC0000000000000000000001",
+  "execution": null,
+  "sequence": 0,
+  "data": {
+    "credential_id": "cred_01JD0000000000000000000001",
+    "install_id": "ri_01JD0000000000000000000001"
+  }
+}
+```
+
+## runner.binding_mismatch
+A credential failed to open because its destination changed since its
+secret was entered.
+
+```json
+{
+  "id": "evt_01JD2W0A2C4E6G8J012N4Q6S8Z",
+  "type": "runner.binding_mismatch",
+  "version": 1,
+  "created_at": "2026-11-20T09:12:00.050Z",
+  "org": "org_01JC0000000000000000000001",
+  "project": "prj_01JC0000000000000000000001",
+  "execution": null,
+  "sequence": 0,
+  "data": {
+    "credential_id": "cred_01JD0000000000000000000001",
+    "install_id": "ri_01JD0000000000000000000001"
+  }
+}
+```
+
+## runner.release_denied
+A credential release was refused.
+
+```json
+{
+  "id": "evt_01JD2W0A2C4E6G8J012N4Q6S90",
+  "type": "runner.release_denied",
+  "version": 1,
+  "created_at": "2026-11-20T09:12:00.050Z",
+  "org": "org_01JC0000000000000000000001",
+  "project": "prj_01JC0000000000000000000001",
+  "execution": null,
+  "sequence": 0,
+  "data": {
+    "step_run_id": "sr_01JD0000000000000000000001",
+    "credential_id": "cred_01JD0000000000000000000001",
+    "install_id": "ri_01JD0000000000000000000001"
+  }
+}
+```
+
+## credential.reconnect_required
+An OAuth MCP connection can no longer get access tokens. A runner
+admin must choose **Reconnect**. `data.reason` says why, for example
+`invalid_grant`, `refresh_failure_timeout` or `binding_changed`. Steps
+that need the connection are blocked until it is reconnected.
+
+```json
+{
+  "id": "evt_01JD2W0A2C4E6G8J012N4Q6S91",
+  "type": "credential.reconnect_required",
+  "version": 1,
+  "created_at": "2026-11-23T09:12:00.050Z",
+  "org": "org_01JC0000000000000000000001",
+  "project": "prj_01JC0000000000000000000001",
+  "execution": null,
+  "sequence": 0,
+  "data": {
+    "credential_id": "cred_01JD0000000000000000000001",
+    "reason": "invalid_grant",
+    "install_id": "ri_01JD0000000000000000000001"
+  }
+}
+```
+
+## credential.oauth_expiring
+An OAuth MCP connection's grant expires soon (sent 14 days ahead, for
+providers with a hard grant lifetime). Reconnect before
+`data.expires_at_ms`.
+
+```json
+{
+  "id": "evt_01JD2W0A2C4E6G8J012N4Q6S92",
+  "type": "credential.oauth_expiring",
+  "version": 1,
+  "created_at": "2026-11-23T09:12:00.050Z",
+  "org": "org_01JC0000000000000000000001",
+  "project": "prj_01JC0000000000000000000001",
+  "execution": null,
+  "sequence": 0,
+  "data": {
+    "credential_id": "cred_01JD0000000000000000000001",
+    "expires_at_ms": 1795900000000,
+    "install_id": "ri_01JD0000000000000000000001"
+  }
+}
+```
+
+## credential.oauth_refresh_failing
+Refreshing an OAuth MCP connection's access token has failed for an hour
+because of temporary provider errors. The vault keeps retrying with
+backoff. After 24 hours the connection needs reconnecting.
+`data.since_ms` is when the failures started.
+
+```json
+{
+  "id": "evt_01JD2W0A2C4E6G8J012N4Q6S93",
+  "type": "credential.oauth_refresh_failing",
+  "version": 1,
+  "created_at": "2026-11-23T09:12:00.050Z",
+  "org": "org_01JC0000000000000000000001",
+  "project": "prj_01JC0000000000000000000001",
+  "execution": null,
+  "sequence": 0,
+  "data": {
+    "credential_id": "cred_01JD0000000000000000000001",
+    "since_ms": 1795350000000,
+    "install_id": "ri_01JD0000000000000000000001"
   }
 }
 ```

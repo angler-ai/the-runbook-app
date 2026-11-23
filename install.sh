@@ -8,7 +8,7 @@
 # ~/.local/bin. Nothing runs as root.
 #
 # Settings (environment):
-#   RUNBOOK_VERSION      a version such as 0.1.0 (default: the latest release)
+#   RUNBOOK_VERSION      a version such as 0.1.1 (default: the latest release)
 #   RUNBOOK_INSTALL_DIR  where `runbook` goes (default: ~/.local/bin)
 #   RUNBOOK_REPO         owner/name of the GitHub repository
 #                        (default: angler-ai/the-runbook-app)

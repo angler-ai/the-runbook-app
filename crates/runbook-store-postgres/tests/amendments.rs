@@ -208,6 +208,7 @@ async fn completed_amendment_does_not_reopen() {
                 summary: Some("done".into()),
                 evidence: vec![],
                 logs: vec![],
+                cost: None,
             },
             None,
         )

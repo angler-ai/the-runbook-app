@@ -1,0 +1,116 @@
+---
+title: Runner security
+description: Understand what each runner component can access and how secrets are delivered.
+sidebar:
+  order: 6
+---
+
+## What you trust
+
+The vault can decrypt stored credentials. Keep it and its key-encryption
+key (KEK) under operator control. The core grants use and asserts user
+identity, and serves the code that handles browser secret entry. The runner
+API controls configuration and instructions. Its database role also has
+transcript write access, so transcripts are review records within that trust
+boundary. The gateway handles plaintext for active releases and sends it
+to the bound upstream. The upstream can keep or disclose a credential it
+receives, including by returning it in a tool response.
+
+Agents get the results of their tools and can use the access those tools
+legitimately provide. A compromised worker can claim work for agents in its
+runner group and use their credentials toward the registered destinations
+while those claims live, within gateway limits. Review what a provider or
+MCP tool can do with a credential, even when the runner labels it `read`.
+
+**Docker is one trust domain.** Anyone who controls the Docker host or
+its socket can reach everything on it, including the vault, database and
+local keys. Use the Docker deployment for development or single-tenant
+installations. The sandbox controller requires a confined daemon default
+and selects Docker's built-in seccomp filter for each sandbox. See
+[Configure Docker seccomp](/runner/setup/#configure-docker-seccomp).
+
+## Entering secrets
+
+An organization owner registers the vault's public identity with the core.
+The browser and CLI verify that the vault signed the current ingest key.
+Check the destination and groups before entering a secret. The client
+seals it with HPKE to the ingest key and binds the entry to that destination,
+credential, field, version and expiry. The core and runner API relay the
+sealed value. The vault checks the original user assertion and validates
+the destination and version before it stores the secret.
+
+The browser trusts the core to serve the entry form and its code. The CLI
+can check the ingest-key fingerprint from a trusted source with `--pin`.
+For unattended entry it also checks the expected destination binding.
+See [credential entry and rotation](/runner/credentials/).
+
+## OAuth trust and logging
+
+The vault performs metadata, registration, exchange, refresh and revocation
+requests over a vault-authenticated CONNECT tunnel. The gateway validates
+and pins public addresses, while TLS from the vault to the OAuth provider
+protects the request content. The vault keeps client secrets and refresh
+tokens. A compromised gateway can capture a released OAuth access token and
+replay it until the provider expires or revokes it.
+
+The client shows the OAuth endpoints before confirmation and computes their
+binding. The vault checks the binding whenever it opens a token. The core and
+browser verify the vault’s signed authorization URL against the registered
+vault identity before the browser follows it. CLI connections pin that
+identity in the browser handoff. The core
+receives the authorization callback on a per-credential URL and forwards
+its parameters in an assertion-bound POST. Keep proxy, load balancer and
+Workers logging from recording query strings for
+`/v1/runner/oauth/callback/*`. The GKE module disables access logging on the
+shared core ingress backend. Apply equivalent request-log suppression on
+other deployments. Workers invocation logging should stay disabled
+for the API Worker. Callback responses redirect to a clean settings URL with
+`Cache-Control: no-store` and `Referrer-Policy: no-referrer`.
+
+The native Compose vault uses private networks to reach the core, Postgres
+and the gateway. On Kubernetes, in-cluster HTTP carries per-process bearer
+credentials and signed assertions and can carry live access tokens between
+the vault and gateway. The Kubernetes sandbox controller can exec into
+sandboxes in its namespace. A core Cloud SQL superuser may reach the runner
+database and see encrypted data and metadata. The KEK remains scoped to the
+vault. Workers cores need a reachable runner endpoint, such as an mTLS
+endpoint or a Cloudflare Tunnel.
+
+## Storage and rotation
+
+The vault encrypts each secret version with a fresh AES-256-GCM data key,
+then wraps that key with a local KEK or one in Google Cloud KMS.
+The encrypted value is bound to the
+organization, credential, field, version, type, destination and runner groups.
+Changing the bound destination requires entering the secret again. The API
+returns metadata such as a keyed fingerprint instead of the stored value.
+A database backup contains ciphertext and metadata. Losing the KEK makes
+the sealed values unrecoverable, and backups containing old wrapped keys
+can retain access to those versions until they expire.
+
+## Release and egress
+
+The core issues signed grants scoped to a live lease and its claim
+generation. The vault checks each grant against the binding, sharing and
+agent policy before it unwraps a credential. Only the gateway receives the
+released material. It authenticates model and MCP calls and injects the
+declared header for sandbox HTTPS to an allowed host. A sandbox gets a
+per-step proxy listener and no direct route to cloud metadata or the model
+and MCP endpoints. It receives tool responses, which can contain sensitive
+data even with redaction.
+
+For attached Vertex, the gateway receives an inference token minted for a
+Vertex-only service account. The vault generates it per release and renewal
+with a lifetime under 15 minutes. The vault's Google credential stays in
+the vault and the installer controls the allowed Vertex projects and
+locations. A copied inference token remains usable within the service
+account's IAM permissions until Google expires it. The vault checks live
+attached releases on each renewal pass and removes gateway material when
+the binding or policy no longer allows the release.
+
+When a lease ends or is taken over, the runner fences releases and tears
+down its sandbox. The gateway stops accepting expired grants. A request
+already dispatched to an upstream may still finish. Rotate the value at the
+provider if it may have been exposed. The core records releases and
+revocations, and flags a claim that received a release but ended without
+reporting.

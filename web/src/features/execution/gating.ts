@@ -2,6 +2,7 @@
 // offer; the server re-authorizes every mutation and its errors win.
 import type { Schemas } from '../../api/client';
 import type { MeView } from '../../api/hooks';
+import { securityCodeMessage } from '../mfa/messages';
 
 export interface Capabilities {
   canAct: boolean;
@@ -99,6 +100,8 @@ export function isEligibleToDecide(
   if (!isApprovalOpen(approval)) return false;
   if (!me.credential.scopes.includes('executions:act')) return false;
   if (hasVoted(approval, me)) return false;
+  if (approval.blocked_reason === 'approval.review_missing_report') return false;
+  if (approval.excluded_completers?.includes(me.user.id)) return false;
   const pool = approval.escalated
     ? [...approval.eligible_recipients, ...approval.escalation_recipients]
     : approval.eligible_recipients;
@@ -115,6 +118,12 @@ const FRIENDLY: Record<string, string> = {
   'execution.history_expired': 'This run’s history has expired.',
   'claim.conflict': 'That step was just claimed by someone else. The view has been refreshed.',
   'claim.stale_generation': 'That claim is no longer current. The view has been refreshed.',
+  'approval.review_missing_report':
+    'Work in this approval’s review scope timed out. A project admin can supply the missing result.',
+  'approval.excluded_completer':
+    'You contributed to work this approval reviews, directly or through an agent or service token.',
+  'approval.unknown_service_contributor':
+    'A service token contributor could not be identified. A named approver without project admin rights must review.',
   'approval.not_eligible': 'You are not eligible to decide this approval.',
   'approval.decided': 'This approval has already been decided.',
   'approval.expired': 'This approval has expired.',
@@ -123,7 +132,8 @@ const FRIENDLY: Record<string, string> = {
   'approval.duplicate_vote': 'You have already voted on this approval.',
   'step.not_ready': 'That step is not ready for this action.',
   'step.not_claimable': 'That step cannot be claimed.',
-  'claim.not_assignee': 'Only this step’s assignee (or, once it escalates, its escalation) can claim it.',
+  'claim.not_assignee':
+    'Only this step’s assignee (or, once it escalates, its escalation) can claim it.',
   'claim.take_over_live_claim':
     'An agent is working on this step right now. A project admin can release its claim first.',
   'claim.take_over_not_allowed': 'This step cannot be taken over.',
@@ -153,5 +163,9 @@ const FRIENDLY: Record<string, string> = {
 };
 
 export function friendlyError(code: string): string {
-  return FRIENDLY[code] ?? `The server refused that action (${code}). The view has been refreshed.`;
+  return (
+    FRIENDLY[code] ??
+    securityCodeMessage(code) ??
+    `The server refused that action (${code}). The view has been refreshed.`
+  );
 }

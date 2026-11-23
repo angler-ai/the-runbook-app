@@ -1,6 +1,7 @@
+import { fileURLToPath } from 'node:url';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
-import { defineConfig, type ProxyOptions } from 'vite';
+import { defineConfig, searchForWorkspaceRoot, type ProxyOptions } from 'vite';
 
 // Single origin, no CORS (A4): the dev server proxies the API paths to a local
 // runbook-server. Override with RUNBOOK_DEV_API=http://host:port.
@@ -18,7 +19,20 @@ export default defineConfig({
       { find: /^monaco-editor\/esm\/vs\/(.+)$/, replacement: 'monaco-editor/$1' },
     ],
   },
-  server: { host: '127.0.0.1', port: 5173, strictPort: true, proxy },
+  server: {
+    host: '127.0.0.1',
+    port: 5173,
+    strictPort: true,
+    proxy,
+    fs: {
+      allow: [
+        searchForWorkspaceRoot(process.cwd()),
+        fileURLToPath(
+          new URL('../runner/packages/shared/src/credential-manifest.ts', import.meta.url),
+        ),
+      ],
+    },
+  },
   preview: { host: '127.0.0.1', port: 4173, strictPort: true, proxy },
   build: { target: 'es2023' },
 });

@@ -228,6 +228,7 @@ fn node_source(n: &Node) -> Result<Value, Vec<Diagnostic>> {
     optional(&mut m, "if", &n.guard);
     m.insert("on_failure".into(), text(failure(n.on_failure)));
     duration(&mut m, "timeout", n.timeout);
+    duration(&mut m, "due_after", n.due_after);
     followup(&mut m, n.followup.as_ref());
     // LANG9: labels are part of the step; a restore must rebuild them.
     if !n.labels.is_empty() {
@@ -313,6 +314,20 @@ fn node_source(n: &Node) -> Result<Value, Vec<Diagnostic>> {
             }
             if let Some(v) = &t.agent.commands {
                 a.insert("commands".into(), v.clone());
+            }
+            // R0-3: the step's own limits are source; its resolved target
+            // and credential IDs are pins, compared apart.
+            if let Some(l) = &t.agent_limits {
+                optional(&mut a, "model", &l.model);
+                if let Some(cost) = l.max_cost_usd {
+                    a.insert("max_cost_usd".into(), cost.into());
+                }
+                if let Some(tokens) = l.max_tokens {
+                    a.insert("max_tokens".into(), tokens.into());
+                }
+                if let Some(network) = &l.network {
+                    a.insert("network".into(), strings(network));
+                }
             }
             m.insert("agent".into(), Value::Object(a));
         }
@@ -472,6 +487,32 @@ fn node_source(n: &Node) -> Result<Value, Vec<Diagnostic>> {
                 }),
             );
             v.insert("allow_agents".into(), a.allow_agents.into());
+            if a.agent_target.is_some() || a.agent_limits.is_some() || a.agent_after.is_some() {
+                let mut agent = object();
+                if let Some(limits) = &a.agent_limits {
+                    optional(&mut agent, "model", &limits.model);
+                    if let Some(cost) = limits.max_cost_usd {
+                        agent.insert("max_cost_usd".into(), cost.into());
+                    }
+                    if let Some(tokens) = limits.max_tokens {
+                        agent.insert("max_tokens".into(), tokens.into());
+                    }
+                }
+                if let Some(AgentTarget::Runner { name, .. }) = &a.agent_target {
+                    agent.insert("name".into(), text(name));
+                }
+                duration(&mut agent, "after", a.agent_after);
+                v.insert("agent".into(), Value::Object(agent));
+            }
+            if !a.exclude_completers_of.is_empty() {
+                v.insert(
+                    "exclude_completers_of".into(),
+                    strings(&a.exclude_completers_of),
+                );
+            }
+            if let Some(approves) = &a.approves {
+                v.insert("approves".into(), strings(approves));
+            }
             m.insert("approval".into(), Value::Object(v));
         }
         NodeKind::Set(a) => {
@@ -683,10 +724,15 @@ pub(crate) fn validate_ir(mut ir: NormalizedRunbook) -> Result<NormalizedRunbook
     // for every call, and they are compared apart from the lowered tree.
     let mut targets = vec![];
     crate::calls::take_targets(&mut ir, &mut targets);
-    if normalized != ir || !targets.iter().all(crate::calls::valid_target) {
+    let agents = crate::agents::take_pins(&mut ir);
+    if normalized != ir
+        || !targets.iter().all(crate::calls::valid_target)
+        || !crate::agents::valid_pins(&agents)
+    {
         return Err(invalid("spec.invalid_ir"));
     }
     crate::calls::put_targets(&mut ir, &mut targets.into_iter());
+    crate::agents::put_pins(&mut ir, agents);
     ir.source_json = annotations.0;
     ir.source_yaml = annotations.1;
     Ok(ir)

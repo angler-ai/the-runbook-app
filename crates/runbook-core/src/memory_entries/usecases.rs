@@ -856,12 +856,49 @@ pub fn proposals_recorded(state: &runbook_engine::ExecutionState) -> usize {
 /// writes of either kind) is counted from events inside it, so it holds on
 /// every backend.
 pub async fn save_in_run<S: SessionStore>(
+    work: ActorWork<S>,
+    principal: &ActorPrincipal,
+    id: MemoryId,
+    memory_scope: MemoryScope,
+    request: &SaveMemoryRequest,
+    replay: Option<&Replay>,
+) -> Result<MemoryEntryRecord, ActorError> {
+    write_in_run(work, principal, id, memory_scope, request, replay, None).await
+}
+
+/// Save a runner proposal from the exact step already claim-fenced in
+/// this execution session by the router.
+pub async fn propose_from_runner<S: SessionStore>(
+    work: ActorWork<S>,
+    principal: &ActorPrincipal,
+    id: MemoryId,
+    request: &SaveMemoryRequest,
+    replay: &Replay,
+    step: &StepRunId,
+) -> Result<MemoryEntryRecord, ActorError> {
+    let scope = MemoryScope::Runbook {
+        runbook_id: work.record.runbook_id.clone(),
+    };
+    write_in_run(
+        work,
+        principal,
+        id,
+        scope,
+        request,
+        Some(replay),
+        Some(step),
+    )
+    .await
+}
+
+async fn write_in_run<S: SessionStore>(
     mut work: ActorWork<S>,
     principal: &ActorPrincipal,
     id: MemoryId,
     memory_scope: MemoryScope,
     request: &SaveMemoryRequest,
     replay: Option<&Replay>,
+    runner_step: Option<&StepRunId>,
 ) -> Result<MemoryEntryRecord, ActorError> {
     const OPERATION: &str = "save_memory";
     if let Some(saved) = work
@@ -876,12 +913,24 @@ pub async fn save_in_run<S: SessionStore>(
         return Err(ActorError::rejected("auth.forbidden"));
     }
     let content = content(request)?;
-    let (step_run_id, actor) = proposing_step(&work, principal, content.step_id.as_deref())?;
+    let (step_run_id, actor) = if let Some(sr) = runner_step {
+        let index = work.step_index(sr)?;
+        if work.runtime.state.steps[index].memory_proposed.len() >= 5 {
+            return Err(ActorError::rejected("memory.proposal_limit"));
+        }
+        (sr.clone(), principal.actor.clone())
+    } else {
+        proposing_step(&work, principal, content.step_id.as_deref())?
+    };
     if proposals_recorded(&work.runtime.state) >= MEMORY_PROPOSALS_PER_EXECUTION {
         return Err(ActorError::rejected("memory.proposal_limit"));
     }
     let execution_id = work.runtime.state.id.clone();
-    let status = requested_status(request);
+    let status = if runner_step.is_some() {
+        MemoryStatus::Proposed
+    } else {
+        requested_status(request)
+    };
     let entry = record(
         &work.runtime.scope.clone(),
         id.clone(),

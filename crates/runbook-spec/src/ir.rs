@@ -175,6 +175,10 @@ pub struct TaskDefaults {
     /// LANG9: reminders and escalation every task inherits, field by field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub followup: Option<Followup>,
+    /// R0-3: `spec.defaults.agent.name`, the runner agent of every agent
+    /// step that names none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
 }
 /// LANG9: follow-up for a step left open: reminders after `remind_after`
 /// (then every `remind_every`), and escalation to `escalate_to` after
@@ -277,6 +281,8 @@ pub struct Node {
     pub on_failure: FailurePolicy,
     pub timeout: Option<Duration>,
     pub kind: NodeKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub due_after: Option<Duration>,
     /// LANG9: free-form labels (`audience: customer`). The engine ignores
     /// them; the API returns them with the step. Omitted when empty, so a
     /// step without labels keeps its stored bytes.
@@ -354,6 +360,10 @@ pub struct CallTarget {
     /// Whether the child can reach a destructive task (its own or through
     /// its calls): the destructive-path policy treats the call as one.
     pub destructive: bool,
+    /// An agent decision anywhere in the child's call tree. Older pins
+    /// lack this summary and are treated conservatively at publication.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_decidable: Option<bool>,
 }
 /// The shape of one of a child's execution outputs, as far as its compiled
 /// definition fixes it (`Any` when it does not).
@@ -381,6 +391,10 @@ pub struct CallResolution {
     pub reaches: Vec<String>,
     /// Whether the child can reach a destructive task.
     pub destructive: bool,
+    /// An agent decision anywhere in the child's call tree. Older pins
+    /// lack this summary and are treated conservatively at publication.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_decidable: Option<bool>,
     /// The child's declared inputs: name to whether a start must supply it
     /// (required with no default).
     pub inputs: BTreeMap<String, bool>,
@@ -441,6 +455,57 @@ pub struct Task {
     pub outputs: DataSchema,
     pub evidence: Evidence,
     pub agent: AgentHints,
+    /// R0-3: the agent this step targets, resolved at publish from the
+    /// project's agent directory. `None`: open to external agents (no
+    /// name anywhere), as before runner agents existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_target: Option<AgentTarget>,
+    /// R0-3: the step's own model profile and limits (within the agent's
+    /// ceiling).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_limits: Option<AgentLimits>,
+    /// R0-3: step `connections`: the credentials the step may use, a
+    /// narrowing of the agent's. Names in source; credential IDs once
+    /// resolved at publish.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connections: Option<Vec<String>>,
+}
+
+/// R0-3: who works an agent step.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "snake_case")]
+pub enum AgentTarget {
+    /// A runner agent, by its directory ID (the name and the runner group
+    /// as resolved at publish).
+    Runner {
+        agent_id: String,
+        name: String,
+        group_id: String,
+    },
+    /// `agent.name: external`: left open to external agents.
+    External,
+    /// A name not yet resolved: exists only between normalization and the
+    /// directory resolution in `compile`; never stored.
+    Named { name: String },
+}
+/// R0-3: a step's model profile and limits for its runner agent.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentLimits {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_cost_usd: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u64>,
+    /// `agent.network`: an explicitly empty list denies every host.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network: Option<Vec<String>>,
+}
+impl AgentLimits {
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
 }
 
 #[derive(Deserialize)]
@@ -466,6 +531,12 @@ struct RawTask {
     pub outputs: DataSchema,
     pub evidence: Evidence,
     pub agent: AgentHints,
+    #[serde(default)]
+    pub agent_target: Option<AgentTarget>,
+    #[serde(default)]
+    pub agent_limits: Option<AgentLimits>,
+    #[serde(default)]
+    pub connections: Option<Vec<String>>,
 }
 
 impl<'de> Deserialize<'de> for Task {
@@ -498,6 +569,9 @@ impl<'de> Deserialize<'de> for Task {
             outputs: raw.outputs,
             evidence: raw.evidence,
             agent: raw.agent,
+            agent_target: raw.agent_target,
+            agent_limits: raw.agent_limits,
+            connections: raw.connections,
         })
     }
 }
@@ -663,12 +737,17 @@ pub struct Wait {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outputs: Option<crate::DataSchema>,
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Approval {
     pub prompt: String,
     pub options: Vec<ApprovalOption>,
+    /// Human decisions that unlock destructive runner steps.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approves: Option<Vec<String>>,
     pub approvers: Vec<Recipient>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exclude_completers_of: Vec<String>,
     pub min: u32,
     pub timeout: Option<Duration>,
     pub on_timeout: ApprovalTimeout,
@@ -676,6 +755,12 @@ pub struct Approval {
     pub escalation_timeout: Option<Duration>,
     pub on_expired: ExpiredPolicy,
     pub allow_agents: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_target: Option<AgentTarget>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_limits: Option<AgentLimits>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_after: Option<Duration>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

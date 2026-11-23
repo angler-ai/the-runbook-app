@@ -141,6 +141,13 @@ pub enum Scope {
     WebhooksManage,
     #[serde(rename = "project:admin")]
     ProjectAdmin,
+    /// R0-2: read the org's runner and its agents through the proxy.
+    #[serde(rename = "runner:read")]
+    RunnerRead,
+    /// R0-2: administer the org's runner (registration, groups, and
+    /// through the proxy the runner's configuration).
+    #[serde(rename = "runner:admin")]
+    RunnerAdmin,
 }
 impl Scope {
     /// Every PRD §9 scope, in declaration order.
@@ -158,9 +165,22 @@ impl Scope {
         Self::WebhooksManage,
         Self::ProjectAdmin,
     ];
+    /// The runner scopes (runner design §11.4). Not in [`Self::ALL`]: they
+    /// are granted to people's sessions by org role and to tokens only when
+    /// chosen explicitly.
+    pub const RUNNER: [Scope; 2] = [Self::RunnerRead, Self::RunnerAdmin];
+    /// Browser sessions can reach project agent authoring through the proxy.
+    /// The runner checks the target project's role for each operation.
+    pub fn browser_runner_admin(role: ProjectRole) -> bool {
+        matches!(role, ProjectRole::Admin | ProjectRole::Editor)
+    }
+
     pub fn project_action(self) -> ProjectAction {
         match self {
-            Self::RunbooksRead | Self::ExecutionsRead | Self::SkillsRead => ProjectAction::Read,
+            Self::RunbooksRead | Self::ExecutionsRead | Self::SkillsRead | Self::RunnerRead => {
+                ProjectAction::Read
+            }
+            Self::RunnerAdmin => ProjectAction::Manage,
             Self::ExecutionsStart | Self::ExecutionsAct | Self::ExecutionsAdmin => {
                 ProjectAction::Run
             }

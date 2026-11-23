@@ -48,6 +48,7 @@ fn agent(name: &str) -> ActorPrincipal {
             session_id: "s1".into(),
             name: name.into(),
             model: None,
+            service_attribution: None,
         },
         credential_ref: "svc-1".into(),
     }
@@ -291,6 +292,7 @@ async fn claim_generation_fences_every_actor_write() {
                 summary: None,
                 evidence: vec![],
                 logs: vec![],
+                cost: None,
             },
             None,
         )
@@ -431,6 +433,7 @@ async fn claim_generation_fences_every_actor_write() {
                     summary: None,
                     evidence: vec![],
                     logs: vec![],
+                    cost: None,
                 },
                 None,
             )
@@ -483,6 +486,7 @@ async fn claim_generation_fences_every_actor_write() {
                     summary: None,
                     evidence: vec![],
                     logs: vec![],
+                    cost: None,
                 },
                 None,
             )
@@ -519,6 +523,7 @@ async fn claim_generation_fences_every_actor_write() {
                 summary: None,
                 evidence: vec![],
                 logs: vec![],
+                cost: None,
             },
             None,
         )
@@ -725,6 +730,7 @@ async fn pause_and_cancel_preserve_lifecycle() {
                 summary: None,
                 evidence: vec![],
                 logs: vec![],
+                cost: None,
             },
             None,
         )
@@ -819,6 +825,7 @@ async fn signal_is_current_and_idempotent() {
                 summary: None,
                 evidence: vec![],
                 logs: vec![],
+                cost: None,
             },
             None,
         )
@@ -895,6 +902,7 @@ async fn agent_decision_uses_agent_provenance() {
         let w = work(&store, &directory).await;
         let gate = step_run(&w, "gate");
         let recorded = agent_decide(
+            &store,
             w,
             &agent("bot"),
             &gate,
@@ -1068,6 +1076,7 @@ async fn actor_replay_is_atomic_for_events_lease_and_logs() {
             summary: None,
             evidence: vec![],
             logs: vec![],
+            cost: None,
         };
         store.fail_after(WriteStage::Idempotency);
         assert!(
@@ -1326,7 +1335,7 @@ async fn admin_release_audits_admin_and_fences_owner() {
         assert!(heartbeat(&store,&owner,&exe(1),&sr,&HeartbeatRequest{claim:claim.clone()},None).await.is_err());
         assert!(append_logs(&store,&owner,&exe(1),&sr,&LogsRequest{claim:claim.clone(),logs:vec!["old".into()]},None).await.is_err());
         assert!(update_checklist(work(&store,&directory).await,&owner,&sr,&ChecklistRequest{claim:claim.clone(),checklist:vec![]},None).await.is_err());
-        let error=report_step(work(&store,&directory).await,&owner,&ReportRequest{step_run_id:sr.clone(),claim:claim.clone(),status:ReportStatus::Succeeded,verdict:None,outputs:Data::new(),summary:None,evidence:vec![],logs:vec![]},None).await.unwrap_err();
+        let error=report_step(work(&store,&directory).await,&owner,&ReportRequest{step_run_id:sr.clone(),claim:claim.clone(),status:ReportStatus::Succeeded,verdict:None,outputs:Data::new(),summary:None,evidence:vec![],logs:vec![],cost:None},None).await.unwrap_err();
         assert_eq!(error.code(),"claim.stale_generation");
         let next=claim_step(work(&store,&directory).await,&human(2),&sr,&ClaimRequest{session_id:"web-2".into(),actor:None,take_over:false},"clm_00000000000000000000000002".parse().unwrap(),None).await.unwrap();
         assert!(next.generation.get()>current.generation);

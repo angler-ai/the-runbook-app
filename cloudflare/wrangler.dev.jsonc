@@ -13,6 +13,8 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "runbook-api-local-cf1",
   "main": "build/index.js",
+  // Invocation events include the full URL, including OAuth callback codes.
+  "observability": { "enabled": false, "logs": { "invocation_logs": false } },
   "compatibility_date": "2026-09-18",
   "workers_dev": false,
   "preview_urls": false,
@@ -24,7 +26,7 @@
     "binding": "ASSETS",
     "html_handling": "none",
     "not_found_handling": "none",
-    "run_worker_first": ["/*", "!/assets/*", "!/manifest.webmanifest"]
+    "run_worker_first": true
   },
   "services": [{ "binding": "AUTH", "service": "runbook-auth-local" }],
   "durable_objects": {

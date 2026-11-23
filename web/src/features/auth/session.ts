@@ -4,6 +4,7 @@
 import { ApiError, createApiRuntime, type Schemas } from '../../api/client';
 import { endSession } from '../../api/session-end';
 import { sessionStore, tokenStore } from '../../api/token-store';
+import { authenticateWithPasskey } from '../mfa/authApi';
 // The tab's actor session id and claims are also cached in memory;
 // features/execution/session.ts forgets them when a session ends (U1).
 
@@ -77,7 +78,10 @@ export function isSecurePasteContext(href: string): boolean {
   try {
     const url = new URL(href);
     if (url.protocol === 'https:') return true;
-    return ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+    if (url.protocol !== 'http:') return false;
+    const host = url.hostname.replace(/\.$/, '');
+    return host === 'localhost' || host.endsWith('.localhost') || host === '[::1]' ||
+      /^127(\.\d{1,3}){3}$/.test(host);
   } catch {
     return false;
   }
@@ -242,6 +246,18 @@ export async function verifyEmailOtp(
   } catch {
     return { ok: false, message: 'Could not complete sign-in. Try again.' };
   }
+}
+
+/**
+ * J-3: sign in with a passkey (it counts as both factors), then read the
+ * session's /v1/me. Throws the auth or WebAuthn error for the caller to show.
+ */
+export async function signInWithPasskey(): Promise<MeView> {
+  await authenticateWithPasskey();
+  sessionStore.setCookieSession();
+  const probe = createApiRuntime({ getToken: () => null, onUnauthorized: null });
+  const { data } = await probe.client.GET('/v1/me');
+  return data as MeView;
 }
 
 export async function startGoogleSignIn(

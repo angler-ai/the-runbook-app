@@ -105,7 +105,15 @@
         "actor": { "$ref": "#/$defs/actor" },
         "timeout": { "$ref": "#/$defs/duration" },
         "retry": { "$ref": "#/$defs/retry" },
-        "on_failure": { "$ref": "#/$defs/failure" }
+        "on_failure": { "$ref": "#/$defs/failure" },
+        "agent": {
+          "description": "The runner agent every agent step names unless it names its own.",
+          "type": "object",
+          "properties": { "name": { "type": "string", "minLength": 1, "maxLength": 128 } },
+          "required": ["name"],
+          "patternProperties": { "^x-": true },
+          "additionalProperties": false
+        }
       },
       "patternProperties": { "^x-": true },
       "additionalProperties": false
@@ -266,7 +274,8 @@
         "title": { "type": "string" },
         "if": { "type": "string" },
         "on_failure": { "$ref": "#/$defs/failure" },
-        "timeout": { "$ref": "#/$defs/duration" }
+        "timeout": { "$ref": "#/$defs/duration" },
+        "due_after": { "$ref": "#/$defs/duration" }
       },
       "patternProperties": { "^x-": true }
     },
@@ -342,7 +351,11 @@
         "allow_auto_decision": { "type": "boolean" },
         "outputs": { "$ref": "#/$defs/declarations" },
         "evidence": { "$ref": "#/$defs/evidence" },
-        "agent": { "$ref": "#/$defs/agent" }
+        "agent": { "$ref": "#/$defs/agent" },
+        "connections": {
+          "description": "The credentials (by name) this step may use: a narrowing of its runner agent's.",
+          "$ref": "#/$defs/strings"
+        }
       },
       "if": { "required": ["assignment"], "properties": { "assignment": { "const": "strict" } } },
       "then": { "required": ["assignee"] }
@@ -376,11 +389,22 @@
       "additionalProperties": false
     },
     "agent": {
-      "description": "Advisory agent hints are preserved and exposed, never server execution instructions.",
+      "description": "Advisory agent hints are preserved and exposed, never server execution instructions. name, model and the limits aim the step at a runner agent, checked at publish against its ceiling.",
       "type": "object",
       "properties": {
         "tools": { "description": "Arbitrary advisory JSON; preserved and exposed, never executed by the server." },
-        "commands": { "description": "Arbitrary advisory JSON; preserved and exposed, never executed by the server." }
+        "commands": { "description": "Arbitrary advisory JSON; preserved and exposed, never executed by the server." },
+        "hints": {
+          "type": "object",
+          "properties": { "tools": {}, "commands": {} },
+          "patternProperties": { "^x-": true },
+          "additionalProperties": false
+        },
+        "name": { "description": "The runner agent that works this step; external keeps it open to external agents.", "type": "string", "minLength": 1, "maxLength": 128 },
+        "model": { "description": "A model profile the agent allows.", "type": "string" },
+        "max_cost_usd": { "type": "number", "exclusiveMinimum": 0 },
+        "max_tokens": { "type": "integer", "minimum": 1 },
+        "network": { "description": "Egress hosts: a narrowing of the agent's.", "$ref": "#/$defs/strings" }
       },
       "patternProperties": { "^x-": true },
       "additionalProperties": false
@@ -482,12 +506,26 @@
       "properties": {
         "prompt": { "type": "string" },
         "options": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/approvalOption" } },
+        "exclude_completers_of": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/nodeId" } },
+        "approves": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
         "approvers": { "$ref": "#/$defs/approvers" },
         "min": { "$ref": "#/$defs/positiveU32" },
         "timeout": { "$ref": "#/$defs/duration" },
         "escalation_timeout": { "$ref": "#/$defs/duration" },
         "escalate_to": { "$ref": "#/$defs/recipients" },
         "allow_agents": { "type": "boolean" },
+        "agent": {
+          "type": "object",
+          "required": ["name"],
+          "properties": {
+            "name": { "$ref": "#/$defs/nonemptyString" },
+            "model": { "$ref": "#/$defs/nonemptyString" },
+            "max_cost_usd": { "type": "number", "exclusiveMinimum": 0 },
+            "max_tokens": { "type": "integer", "minimum": 1 },
+            "after": { "$ref": "#/$defs/duration" }
+          },
+          "additionalProperties": false
+        },
         "on_expired": { "enum": ["pause", "fail"] },
         "on_timeout": { "$ref": "#/$defs/approvalTimeout" }
       },

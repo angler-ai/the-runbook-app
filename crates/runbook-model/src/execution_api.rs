@@ -78,6 +78,12 @@ pub struct TriggerResponse {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct RunSearchEntry {
+    /// The run's API address.
+    #[serde(default)]
+    pub url: String,
+    /// The run page to share with people.
+    #[serde(default)]
+    pub web_url: String,
     pub id: ExecutionId,
     pub runbook_id: RunbookId,
     pub status: ExecutionStatus,

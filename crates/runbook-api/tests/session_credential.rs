@@ -55,6 +55,9 @@ fn session(principal: Option<CredentialRecord>) -> Credential {
         picture_url: None,
         session_id: "sess_1".into(),
         expires_at_ms: 10_000,
+        mfa_verified_at: None,
+        mfa_method: None,
+        mfa_enrolled: Some(false),
         principal: principal.map(Box::new),
         scopes: None,
     })
@@ -63,6 +66,7 @@ fn snapshot(role: OrgRole, projects: &[(u8, ProjectRole)]) -> DirectorySnapshot 
     let mut s = DirectorySnapshot {
         org_id: org(),
         revision: 1,
+        security: Default::default(),
         organization: OrganizationRecord {
             id: org(),
             title: "Org".into(),
@@ -179,7 +183,9 @@ fn session_principal_is_human_and_role_bounded() {
             Scope::RunbooksRead,
             Scope::ExecutionsRead,
             Scope::SkillsRead,
-            Scope::TokensManage
+            Scope::TokensManage,
+            // R0-2: every member reads the runner.
+            Scope::RunnerRead
         ]
         .into()
     );
@@ -198,8 +204,11 @@ fn session_principal_is_human_and_role_bounded() {
     assert!(!operator.scopes.contains(&Scope::ProjectAdmin));
     let admin =
         session_credential(&snapshot(OrgRole::Admin, &[]), &user(1), "sess_a", 5_000).unwrap();
-    // An org admin is admin of every project without a grant (2026-11-17).
-    assert_eq!(admin.scopes, Scope::ALL.into());
+    // An org admin is admin of every project without a grant (2026-11-17),
+    // and administers the runner (R0-2).
+    let mut all: std::collections::BTreeSet<Scope> = Scope::ALL.into();
+    all.extend(Scope::RUNNER);
+    assert_eq!(admin.scopes, all);
     let project_admin = session_credential(
         &snapshot(OrgRole::Member, &[(1, ProjectRole::Admin)]),
         &user(1),
@@ -207,7 +216,10 @@ fn session_principal_is_human_and_role_bounded() {
         5_000,
     )
     .unwrap();
-    assert_eq!(project_admin.scopes, Scope::ALL.into());
+    // A project admin is not an org admin: runner:read only.
+    let mut all: std::collections::BTreeSet<Scope> = Scope::ALL.into();
+    all.insert(Scope::RunnerRead);
+    assert_eq!(project_admin.scopes, all);
     // Distinct sessions get distinct, stable, never-stored token IDs.
     assert_eq!(viewer.id, operator.id);
     let other = session_credential(&snapshot(OrgRole::Member, &[]), &user(1), "sess_b", 1).unwrap();

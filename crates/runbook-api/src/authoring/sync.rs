@@ -192,6 +192,7 @@ impl<D: DirectoryOperations, C: CredentialStore, F: AuthoringFactory> AuthoringS
                     }
                 };
                 runbooks.push(SyncRunbookView {
+                    warnings: op.prepared.warnings.clone(),
                     path: Some(op.path.clone()),
                     slug: op.slug.clone(),
                     runbook_id: op.create.is_none().then(|| op.runbook_id.clone()),
@@ -201,6 +202,7 @@ impl<D: DirectoryOperations, C: CredentialStore, F: AuthoringFactory> AuthoringS
                 });
             }
             runbooks.extend(archive.iter().map(|(slug, id)| SyncRunbookView {
+                warnings: Vec::new(),
                 path: None,
                 slug: slug.clone(),
                 runbook_id: Some(id.clone()),

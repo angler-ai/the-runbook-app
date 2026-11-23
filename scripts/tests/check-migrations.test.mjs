@@ -79,21 +79,24 @@ function fixture(files) {
 
 test('a contract change needs an annotation naming an older release', () => {
   const pg = 'crates/runbook-store-postgres/migrations';
-  const run = (sql, version = '0.4.0') => {
-    const root = fixture({ [`${pg}/0031_x.sql`]: sql });
+  const run = (sql) => {
+    const root = fixture({
+      'Cargo.toml': '[workspace.package]\nversion = "0.1.1"\n',
+      [`${pg}/0031_x.sql`]: sql,
+    });
     try {
-      return check({ root, version, baseline: {} });
+      return check({ root, version: workspaceVersion(root), baseline: {}, releases: ['0.1.0'] });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   };
   assert.match(run('ALTER TABLE runbook.run DROP COLUMN note;').join(), /0031_x\.sql:1: ALTER \.\.\. DROP/);
   assert.deepEqual(
-    run('-- contract(unused-since 0.3.0): 0.3.0 stopped reading run.note\nALTER TABLE runbook.run DROP COLUMN note;'),
+    run('-- contract(unused-since 0.1.0): 0.1.0 stopped reading run.note\nALTER TABLE runbook.run DROP COLUMN note;'),
     [],
   );
   assert.match(
-    run('-- contract(unused-since 0.4.0): same release\nALTER TABLE runbook.run DROP COLUMN note;').join(),
+    run('-- contract(unused-since 0.1.1): same release\nALTER TABLE runbook.run DROP COLUMN note;').join(),
     /must ship before the one that removes it/,
   );
   assert.match(
@@ -105,7 +108,7 @@ test('a contract change needs an annotation naming an older release', () => {
   assert.match(run('-- contract(unused-since 0.1.0):\nDROP TABLE runbook.t;').join(), /:1: malformed annotation/);
   // The annotation covers only the statement right below it.
   assert.equal(
-    run('-- contract(unused-since 0.3.0): x\nDROP TABLE runbook.a;\n\nDROP TABLE runbook.b;').length,
+    run('-- contract(unused-since 0.1.0): x\nDROP TABLE runbook.a;\n\nDROP TABLE runbook.b;').length,
     1,
   );
   assert.deepEqual(run('CREATE TABLE runbook.ok (id TEXT);'), []);

@@ -6,6 +6,7 @@ import '@fontsource/ibm-plex-mono/500.css';
 import './styles/index.css';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { configureBrowserTracing } from './api/trace';
 import { App } from './App';
 import { applyPreference, loadThemeOverride, readPreference } from './theme';
 
@@ -16,7 +17,7 @@ if (!root) throw new Error('index.html is missing #root');
 // repeats the preference (harmless) and refreshes the operator's override
 // from /v1/meta before anything renders, so no default accent flashes (UI-1).
 applyPreference(readPreference());
-void loadThemeOverride().finally(() => {
+void loadThemeOverride({ configureTracing: configureBrowserTracing }).finally(() => {
   createRoot(root).render(
     <StrictMode>
       <App />

@@ -67,6 +67,9 @@ pub(super) fn register(paths: &mut Map<String, Value>) {
             ("503", vec!["storage.unavailable"]),
         ] {
             let mut codes = codes;
+            if path.ends_with("/decisions") && status == "403" {
+                codes.push("approval.excluded_completer");
+            }
             // LANG7: strict assignment and take-over refusals on claim.
             if path.ends_with("/claim") {
                 codes.extend(match status {

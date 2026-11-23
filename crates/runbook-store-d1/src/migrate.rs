@@ -278,6 +278,61 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "1022_project_archived.sql",
         sql: include_str!("../../../cloudflare/migrations/d1/1022_project_archived.sql"),
     },
+    Migration {
+        version: 1023,
+        name: "1023_signing_keys.sql",
+        sql: include_str!("../../../cloudflare/migrations/d1/1023_signing_keys.sql"),
+    },
+    Migration {
+        version: 1024,
+        name: "1024_runners.sql",
+        sql: include_str!("../../../cloudflare/migrations/d1/1024_runners.sql"),
+    },
+    Migration {
+        version: 1025,
+        name: "1025_agent_directory.sql",
+        sql: include_str!("../../../cloudflare/migrations/d1/1025_agent_directory.sql"),
+    },
+    Migration {
+        version: 1026,
+        name: "1026_runner_ready.sql",
+        sql: include_str!("../../../cloudflare/migrations/d1/1026_runner_ready.sql"),
+    },
+    Migration {
+        version: 1027,
+        name: "1027_runner_ready_heads.sql",
+        sql: include_str!("../../../cloudflare/migrations/d1/1027_runner_ready_heads.sql"),
+    },
+    Migration {
+        version: 1028,
+        name: "1028_vault_identity.sql",
+        sql: include_str!("../../../cloudflare/migrations/d1/1028_vault_identity.sql"),
+    },
+    Migration {
+        version: 1029,
+        name: "1029_vault_identity_audit.sql",
+        sql: include_str!("../../../cloudflare/migrations/d1/1029_vault_identity_audit.sql"),
+    },
+    Migration {
+        version: 1030,
+        name: "1030_org_security.sql",
+        sql: include_str!("../../../cloudflare/migrations/d1/1030_org_security.sql"),
+    },
+    Migration {
+        version: 1031,
+        name: "1031_runner_decisions.sql",
+        sql: include_str!("../../../cloudflare/migrations/d1/1031_runner_decisions.sql"),
+    },
+    Migration {
+        version: 1032,
+        name: "1032_runner_decision_contract.sql",
+        sql: include_str!("../../../cloudflare/migrations/d1/1032_runner_decision_contract.sql"),
+    },
+    Migration {
+        version: 1033,
+        name: "1033_project_slack_run_started.sql",
+        sql: include_str!("../../../cloudflare/migrations/d1/1033_project_slack_run_started.sql"),
+    },
 ];
 
 pub fn checksum(sql: &str) -> String {
@@ -697,6 +752,50 @@ mod tests {
             (
                 "1022_project_archived.sql",
                 "b96303e177a3f1b899c4b3eb4a98acae0877b1759b79ee7d439bd04a48cd0f76",
+            ),
+            (
+                "1023_signing_keys.sql",
+                "9d4b3e616e74b03c9941444cb6a3ed7bd820408ec03cfe90d6cf40f8eaee5578",
+            ),
+            (
+                "1024_runners.sql",
+                "c961007591a140d5256f68369a48dcf661cd43f83c2ed6f2f8756e05980efe25",
+            ),
+            (
+                "1025_agent_directory.sql",
+                "472807df570a191220865e90156f90e1aa2e13a916ca1f87c695ae9a70688ac6",
+            ),
+            (
+                "1026_runner_ready.sql",
+                "4f48500bc040d8e6b01f9f20f7a123abe055539dacbec18d0add993d9d946a2c",
+            ),
+            (
+                "1027_runner_ready_heads.sql",
+                "7b6630f648a366ccadde3128d38cd08962c399d45e9187c17b5a6446c7e3f1b3",
+            ),
+            (
+                "1028_vault_identity.sql",
+                "95793e6a71264cc0f81dcedb8afe0f042a80937c7dde601f0872ad78685d4a69",
+            ),
+            (
+                "1029_vault_identity_audit.sql",
+                "7e4cab6281d4a5d0abf08e50bec22cd37e1dd0f12b79aa3b3e43ae02e5c2f558",
+            ),
+            (
+                "1030_org_security.sql",
+                "e347a5d8e82bffff70e3aa7b5605385e0d146d0ffb55cccec8455777068ca3ad",
+            ),
+            (
+                "1031_runner_decisions.sql",
+                "d58ff93f2cfd3730ac148300a614fef912e904b9d8fa61f1f174ef4e4203c634",
+            ),
+            (
+                "1032_runner_decision_contract.sql",
+                "89a3e1cda762ba407bcdb33bf89f125b9cdb7d561998ac8ce0152f874c2355ed",
+            ),
+            (
+                "1033_project_slack_run_started.sql",
+                "16e12a245653a733b4d2992534fd712f347b20f6a8d660b323075224958729c7",
             ),
         ];
         assert_eq!(MIGRATIONS.len(), pinned.len(), "pin every migration");

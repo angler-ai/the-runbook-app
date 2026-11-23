@@ -1521,7 +1521,7 @@ impl World {
 }
 
 /// Publish `caller` (it calls `timed`) and start it as run 50 at time 0.
-fn start_caller(w: &World) {
+fn start_caller(w: &World, source: &str) {
     let caller: RunbookId = "rb_00000000000000000000000002".parse().unwrap();
     ready(w.store.create_runbook(
         RunbookRecord {
@@ -1530,7 +1530,7 @@ fn start_caller(w: &World) {
             origin: RunbookOrigin::Ui,
             archived: false,
         },
-        CALLER.into(),
+        source.into(),
     ))
     .unwrap();
     let runbooks = vec![
@@ -1539,14 +1539,14 @@ fn start_caller(w: &World) {
     ];
     let context = runbook_spec::CompileContext {
         runbooks: ready(runbook_core::calls::call_targets(
-            &w.store, &runbooks, CALLER,
+            &w.store, &runbooks, source,
         ))
         .unwrap(),
         ..Default::default()
     };
     let prepared = prepare(
         "caller",
-        CALLER,
+        source,
         &context,
         "rbv_00000000000000000000000002".parse().unwrap(),
     )
@@ -1575,13 +1575,43 @@ fn start_caller(w: &World) {
     ready(w.store.commit_start(commit)).unwrap();
 }
 
+#[test]
+fn child_approval_classification_includes_parent_cleanup() {
+    let w = world();
+    let source =
+        format!("{CALLER}  finally: [{{id: cleanup, title: Cleanup, destructive: true}}]\n");
+    start_caller(&w, &source);
+    w.settle_without_calls(0);
+    let caller = ready(runbook_core::calls::stored_state(&w.store, &exe(50)))
+        .unwrap()
+        .unwrap();
+    let child_id = &caller
+        .steps
+        .iter()
+        .find(|s| s.step_id == "c")
+        .unwrap()
+        .call
+        .as_ref()
+        .unwrap()
+        .child_execution_id;
+    let child = ready(runbook_core::calls::stored_state(&w.store, child_id))
+        .unwrap()
+        .unwrap();
+    assert!(
+        ready(runbook_core::calls::caller_reaches_destructive(
+            &w.store, &child
+        ))
+        .unwrap()
+    );
+}
+
 /// Re-check 4: a finished child whose parent still awaits its result is
 /// kept by retention, and paged past, so it never holds up the runs behind
 /// it, even in a batch of one.
 #[test]
 fn retention_pages_past_a_child_whose_result_is_pending() {
     let w = world();
-    start_caller(&w);
+    start_caller(&w, CALLER);
     w.settle_without_calls(0);
     let state = ready(runbook_core::calls::stored_state(&w.store, &exe(50)))
         .unwrap()
@@ -1640,7 +1670,7 @@ fn retention_pages_past_a_child_whose_result_is_pending() {
 #[test]
 fn a_parent_is_kept_until_its_child_is_cancelled() {
     let w = world();
-    start_caller(&w);
+    start_caller(&w, CALLER);
     w.settle_without_calls(0);
     let state = ready(runbook_core::calls::stored_state(&w.store, &exe(50)))
         .unwrap()

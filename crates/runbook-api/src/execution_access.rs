@@ -110,6 +110,12 @@ async fn dispatch<B: Backends>(backends: &B, r: &Request) -> Result<Value, Error
     // Recheck revocation/issuer after waiting for the execution lock.
     let current = access(backends, secret).await?;
     let identity = Identity {
+        service_attribution: crate::actor_store::service_attribution(
+            backends,
+            &verified.scope.org_id,
+            &current.principal.issuer,
+        )
+        .await?,
         key: format!("execution:{}", current.principal.family_id),
         human: None,
         credential_ref: current.record.token_id.to_string(),
@@ -198,7 +204,7 @@ fn brief<S: runbook_core::session::SessionStore>(
         Some(ActorKind::Agent),
     ))
 }
-async fn claimed_read<B: Backends>(
+pub(crate) async fn claimed_read<B: Backends>(
     store: &B::Execution,
     work: ActorWork<B::Execution>,
     sr: &StepRunId,
@@ -208,6 +214,15 @@ async fn claimed_read<B: Backends>(
     let state = &work.runtime.state;
     let step = &state.steps[work.step_index(sr).map_err(actor_error)?];
     let node = state.node(&step.step_id).ok_or_else(forbidden)?;
+    if let NodeKind::Approval(approval) = &node.kind
+        && op == "step"
+        && runbook_engine::decision_open(state, step)
+    {
+        return Ok(json!(ClaimedDecisionRead::Decision {
+            step_run_id: sr.clone(),
+            decision: runbook_core::decisions::decision_input(state, step, approval),
+        }));
+    }
     let NodeKind::Task(task) = &node.kind else {
         return Err(forbidden());
     };
@@ -264,6 +279,23 @@ async fn claimed_read<B: Backends>(
         skills_payload,
         &task.evidence,
     );
+    if matches!(
+        task.agent_target,
+        Some(runbook_spec::ir::AgentTarget::Runner { .. })
+    ) {
+        body["runner_limits"] = json!(runbook_model::RunnerStepLimits {
+            model: task
+                .agent_limits
+                .as_ref()
+                .and_then(|limits| limits.model.clone()),
+            max_tokens: task
+                .agent_limits
+                .as_ref()
+                .and_then(|limits| limits.max_tokens),
+            timeout_ms: node.timeout.map(|duration| duration.millis),
+            check: task.check,
+        });
+    }
     // D41: the step's memory as labeled data; the read is recorded when its
     // refs differ from the last one recorded for this step run.
     let (block, refs) = crate::memory::step_memory(

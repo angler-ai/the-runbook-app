@@ -1,4 +1,5 @@
-import { useState, type FormEvent } from 'react';
+import { useMemo, useState, type FormEvent } from 'react';
+import { useMe } from '../../api/hooks';
 import { Button } from '../../ui/primitives/button';
 import { Checkbox } from '../../ui/primitives/checkbox';
 import {
@@ -14,9 +15,17 @@ import { Label } from '../../ui/primitives/label';
 import { useOrgContext } from '../context/OrgContext';
 import { friendlySettingsError, useCreatePersonalToken, type TokenSecretView } from './hooks';
 
+/** A token to replace: its name, scopes and projects prefill the form. */
+export interface TokenTemplate {
+  name: string;
+  scopes: string[];
+  projects: string[];
+}
+
 export interface CreatePersonalTokenDialogProps {
   open: boolean;
   onOpenChange(open: boolean): void;
+  template?: TokenTemplate | null;
 }
 
 const AVAILABLE_SCOPES = [
@@ -31,24 +40,92 @@ const AVAILABLE_SCOPES = [
   { id: 'tokens:manage', label: 'tokens:manage', desc: 'Manage personal and service tokens' },
 ];
 
-const EXPIRY_OPTIONS = [
-  { label: '7 days', days: 7 },
-  { label: '30 days', days: 30 },
-  { label: '90 days (default)', days: 90 },
-  { label: '1 year', days: 365 },
-];
+const DEFAULT_SCOPES = ['runbooks:read', 'executions:read', 'executions:start', 'executions:act'];
 
-export function CreatePersonalTokenDialog({ open, onOpenChange }: CreatePersonalTokenDialogProps) {
+const DAY_MS = 86_400_000;
+const PRESETS = [7, 30, 90, 365];
+const DEFAULT_DAYS = 90;
+/** Room for the clock and the request's trip, so the server never sees a later time. */
+const LIMIT_MARGIN_MS = 5 * 60_000;
+
+export interface ExpiryOption {
+  /** A preset's day count, or `limit` for "until the creating sign-in ends". */
+  value: string;
+  label: string;
+}
+
+export interface ExpiryChoices {
+  options: ExpiryOption[];
+  defaultValue: string;
+  /** The latest expiry allowed, when the creating credential expires. */
+  limitMs: number | null;
+}
+
+/**
+ * The expiry presets this caller may pick. A personal token cannot outlive
+ * the credential that creates it (`tokens.exceeds_caller` on
+ * `expires_at_ms`): a browser session ends after 30 days without use, so the
+ * presets past that end are left out, the largest remaining one is the
+ * default, and "until the session ends" covers the gap.
+ */
+export function expiryChoices(nowMs: number, callerExpiresAtMs: number | null): ExpiryChoices {
+  const limitMs = callerExpiresAtMs === null ? null : callerExpiresAtMs - LIMIT_MARGIN_MS;
+  const fits = (days: number) => limitMs === null || nowMs + days * DAY_MS <= limitMs;
+  const allowed = PRESETS.filter(fits);
+  const options: ExpiryOption[] = allowed.map((days) => ({
+    value: String(days),
+    label: days === 365 ? '1 year' : `${days} days`,
+  }));
+  if (limitMs !== null && !fits(365) && limitMs > nowMs) {
+    options.push({
+      value: 'limit',
+      label: `Until ${new Date(limitMs).toLocaleDateString()} (when this sign-in ends)`,
+    });
+  }
+  const defaultValue = fits(DEFAULT_DAYS)
+    ? String(DEFAULT_DAYS)
+    : allowed.length > 0
+      ? String(allowed[allowed.length - 1])
+      : 'limit';
+  return {
+    options: options.map((option) =>
+      option.value === String(DEFAULT_DAYS)
+        ? { ...option, label: `${option.label} (default)` }
+        : option,
+    ),
+    defaultValue,
+    limitMs: limitMs !== null && !fits(365) ? limitMs : null,
+  };
+}
+
+/** The chosen expiry, never past the creating credential's end. */
+export function expiryMs(value: string, nowMs: number, choices: ExpiryChoices): number {
+  const preset = nowMs + Number(value) * DAY_MS;
+  if (choices.limitMs === null) return preset;
+  return value === 'limit' ? choices.limitMs : Math.min(preset, choices.limitMs);
+}
+
+export function CreatePersonalTokenDialog({
+  open,
+  onOpenChange,
+  template,
+}: CreatePersonalTokenDialogProps) {
   const { projects } = useOrgContext();
-  const [name, setName] = useState('');
-  const [expiryDays, setExpiryDays] = useState(90);
-  const [selectedScopes, setSelectedScopes] = useState<string[]>([
-    'runbooks:read',
-    'executions:read',
-    'executions:start',
-    'executions:act',
-  ]);
-  const [selectedProjects, setSelectedProjects] = useState<string[]>([]);
+  const me = useMe();
+  const callerExpiry = me.data?.credential.expires_at_ms ?? null;
+  // When the form was last reset (mount or close); the submit recomputes.
+  const [shownAt, setShownAt] = useState(() => Date.now());
+  const choices = useMemo(() => expiryChoices(shownAt, callerExpiry), [shownAt, callerExpiry]);
+  const [name, setName] = useState(template?.name ?? '');
+  const [expiry, setExpiry] = useState<string | null>(null);
+  const expiryValue =
+    expiry !== null && choices.options.some((option) => option.value === expiry)
+      ? expiry
+      : choices.defaultValue;
+  const [selectedScopes, setSelectedScopes] = useState<string[]>(
+    template?.scopes ?? DEFAULT_SCOPES,
+  );
+  const [selectedProjects, setSelectedProjects] = useState<string[]>(template?.projects ?? []);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<TokenSecretView | null>(null);
   const [copied, setCopied] = useState(false);
@@ -56,18 +133,14 @@ export function CreatePersonalTokenDialog({ open, onOpenChange }: CreatePersonal
   const createMutation = useCreatePersonalToken();
 
   const reset = () => {
-    setName('');
-    setExpiryDays(90);
-    setSelectedScopes([
-      'runbooks:read',
-      'executions:read',
-      'executions:start',
-      'executions:act',
-    ]);
-    setSelectedProjects([]);
+    setName(template?.name ?? '');
+    setExpiry(null);
+    setSelectedScopes(template?.scopes ?? DEFAULT_SCOPES);
+    setSelectedProjects(template?.projects ?? []);
     setError(null);
     setCreated(null);
     setCopied(false);
+    setShownAt(Date.now());
   };
 
   const handleOpenChange = (nextOpen: boolean) => {
@@ -102,7 +175,8 @@ export function CreatePersonalTokenDialog({ open, onOpenChange }: CreatePersonal
     if (!name.trim()) return;
     setError(null);
     try {
-      const expires_at_ms = Date.now() + expiryDays * 86_400_000;
+      const now = Date.now();
+      const expires_at_ms = expiryMs(expiryValue, now, expiryChoices(now, callerExpiry));
       const res = await createMutation.mutateAsync({
         name: name.trim(),
         scopes: selectedScopes,
@@ -173,17 +247,25 @@ export function CreatePersonalTokenDialog({ open, onOpenChange }: CreatePersonal
               <Label htmlFor="token-expiry">Expiration</Label>
               <select
                 id="token-expiry"
-                value={expiryDays}
-                onChange={(e) => setExpiryDays(Number(e.target.value))}
+                value={expiryValue}
+                onChange={(e) => setExpiry(e.target.value)}
                 disabled={createMutation.isPending}
+                aria-describedby={choices.limitMs !== null ? 'token-expiry-limit' : undefined}
                 className="flex h-9 w-full rounded-md border border-border bg-surface px-3 py-1 text-sm text-fg"
               >
-                {EXPIRY_OPTIONS.map((opt) => (
-                  <option key={opt.days} value={opt.days}>
+                {choices.options.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
                     {opt.label}
                   </option>
                 ))}
               </select>
+              {choices.limitMs !== null ? (
+                <p id="token-expiry-limit" className="text-xs text-fg-muted">
+                  A token cannot outlive the sign-in that creates it, and this browser session ends
+                  on {new Date(choices.limitMs).toLocaleDateString()}. For a longer-lived token,
+                  sign out and in again, then create it.
+                </p>
+              ) : null}
             </div>
 
             <div className="grid gap-2">
@@ -192,10 +274,7 @@ export function CreatePersonalTokenDialog({ open, onOpenChange }: CreatePersonal
                 {AVAILABLE_SCOPES.map((scope) => {
                   const scopeId = `scope-${scope.id.replace(':', '-')}`;
                   return (
-                    <div
-                      key={scope.id}
-                      className="flex items-start gap-2 text-xs text-fg"
-                    >
+                    <div key={scope.id} className="flex items-start gap-2 text-xs text-fg">
                       <Checkbox
                         id={scopeId}
                         checked={selectedScopes.includes(scope.id)}

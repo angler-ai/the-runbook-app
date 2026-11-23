@@ -426,6 +426,7 @@ impl<D: D1, O: Objects, B: ObjectBucket> CfStore<D, O, B> {
         // CF11: the run's token routes are the control database's, outside
         // the deletion's shard batch; forgotten before the purge is.
         runbook_store_d1::credentials::forget_execution_routes(&self.control(), id).await?;
+        runbook_store_d1::runner_ready::forget(&self.control(), id).await?;
         runbook_store_d1::retention::purge_done(self.catalog.db(), id).await
     }
 
@@ -439,28 +440,38 @@ impl<D: D1, O: Objects, B: ObjectBucket> CfStore<D, O, B> {
     pub async fn drain_derived(&self, id: &ExecutionId) -> Result<Drained, StoreError> {
         let object = self.object(id)?;
         let mut drained = Drained::default();
-        let mut step_runs: Option<Vec<StepRunId>> = None;
+        let mut projection_sequence = None;
+        let mut step_runs = Vec::new();
         loop {
             let page = object.pending_derived(drained.through, DRAIN_PAGE).await?;
-            if page.is_empty() {
-                break;
-            }
-            if step_runs.is_none() {
+            let Some((last, _)) = page.last() else { break };
+            // This drain can observe commits that arrived after it loaded
+            // the projection for an earlier page. Refresh before acking
+            // any row newer than that projection.
+            if projection_sequence.is_none_or(|sequence| sequence < *last) {
                 let run = object.load(id).await?;
-                step_runs = Some(
-                    run.projection
-                        .steps
-                        .iter()
-                        .map(|s| s.step_run_id.clone())
-                        .collect(),
-                );
+                if let Err(error) = runbook_store_d1::runner_ready::sync(
+                    &self.control(),
+                    &self.scope,
+                    &run.projection,
+                )
+                .await
+                {
+                    object
+                        .defer_outbox(runbook_store_do::OutboxStream::Derived)
+                        .await?;
+                    return Err(error);
+                }
+                projection_sequence = Some(run.projection.sequence);
+                step_runs = run
+                    .projection
+                    .steps
+                    .into_iter()
+                    .map(|step| step.step_run_id)
+                    .collect();
             }
             for (sequence, update) in &page {
-                let applied = match self
-                    .catalog
-                    .apply_derived(update, step_runs.as_deref().unwrap_or_default())
-                    .await
-                {
+                let applied = match self.catalog.apply_derived(update, &step_runs).await {
                     Ok(applied) => applied,
                     Err(error) => {
                         // CF2-6: back the stream off; the object's alarm

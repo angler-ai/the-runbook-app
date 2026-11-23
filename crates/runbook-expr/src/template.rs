@@ -270,6 +270,52 @@ fn expression_end(source: &str, open: usize) -> Result<usize, ExprDiagnostic> {
     }
 }
 
+/// Whether every true branch of a boolean guard compares the named field for
+/// equality with one of the given values. Other expression forms are ignored.
+pub fn template_requires_string_equality(source: &str, path: &[&str], allowed: &[&str]) -> bool {
+    use cel_core::types::{BinaryOp, Expr, SpannedExpr};
+
+    fn selects(node: &SpannedExpr, path: &[&str]) -> bool {
+        let Some((field, parent)) = path.split_last() else {
+            return false;
+        };
+        match &node.node {
+            Expr::Ident(name) => parent.is_empty() && name == field,
+            Expr::Member {
+                expr, field: name, ..
+            } => name == field && selects(expr, parent),
+            Expr::Index { expr, index, .. } => {
+                matches!(&index.node, Expr::String(name) if name == field) && selects(expr, parent)
+            }
+            _ => false,
+        }
+    }
+
+    fn requires(node: &SpannedExpr, path: &[&str], allowed: &[&str]) -> bool {
+        let Expr::Binary { op, left, right } = &node.node else {
+            return false;
+        };
+        match op {
+            BinaryOp::And => requires(left, path, allowed) || requires(right, path, allowed),
+            BinaryOp::Or => requires(left, path, allowed) && requires(right, path, allowed),
+            BinaryOp::Eq => [(left, right), (right, left)].into_iter().any(|(field, value)| {
+                selects(field, path)
+                    && matches!(&value.node, Expr::String(value) if allowed.contains(&value.as_str()))
+            }),
+            _ => false,
+        }
+    }
+
+    let mut required = false;
+    let mode = visit_expressions(source, |span| {
+        let expr = crate::compile::parse_expression(&source[span])?;
+        crate::profile::validate_parsed(&expr)?;
+        required = requires(&expr, path, allowed);
+        Ok(())
+    });
+    matches!(mode, Ok(TemplateMode::WholeValue)) && required
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1547,3 +1547,48 @@ fn run_get_shows_the_call_links() {
          \x20 step cache runs exe_01JABCDEFGHJKMNPQRSTVWXYZ3 (limit.executions_monthly)\n"
     );
 }
+
+/// R1-D2: `run get` shows what runner agents did on the run's approvals.
+#[test]
+fn run_get_shows_agent_reviews_and_abstentions() {
+    let (host, handle) = spawn_fake_server(
+        200,
+        json!({
+            "id": "exe_01JABCDEFGHJKMNPQRSTVWXYZ0",
+            "title": "Release",
+            "status": "waiting",
+            "steps": [
+                {"path": "release_gate", "kind": "approval", "status": "waiting",
+                 "runner": {"agent_id": "agt_1", "agent_name": "release-reviewer",
+                    "decision_ready_at_ms": 1,
+                    "decision_lease": {"lease_id": "clm_1", "agent_name": "release-reviewer"}}},
+                {"path": "second_gate", "kind": "approval", "status": "waiting",
+                 "runner": {"agent_id": "agt_1", "agent_name": "release-reviewer",
+                    "decision_ready_at_ms": 1,
+                    "agent_notes": [{"lease_id": "clm_2", "principal": "runner:rin_1",
+                        "agent_name": "release-reviewer", "reason": "No canary data yet.", "at_ms": 2}]}}
+            ]
+        }),
+    );
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_runbook"))
+        .args([
+            "--host",
+            &host,
+            "run",
+            "get",
+            "exe_01JABCDEFGHJKMNPQRSTVWXYZ0",
+        ])
+        .env("RUNBOOK_TOKEN", "dummy")
+        .env("RUNBOOK_HOST", "https://runbook.example.test")
+        .output()
+        .unwrap();
+    handle.join().unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(
+        stdout,
+        "exe_01JABCDEFGHJKMNPQRSTVWXYZ0 Release (waiting)\n\
+         \x20 approval release_gate: agent release-reviewer is reviewing; people can still decide\n\
+         \x20 approval second_gate: agent release-reviewer abstained: No canary data yet.\n"
+    );
+}

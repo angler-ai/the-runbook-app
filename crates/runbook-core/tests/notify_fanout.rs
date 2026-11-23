@@ -60,6 +60,8 @@ fn intent(kind: &str, recipients: Vec<RecipientRef>) -> NotificationIntent {
             path: "signoff".into(),
             title: "Sign off".into(),
             actor_kind: runbook_model::ActorKind::Human,
+            agent_id: None,
+            group_id: None,
         }],
         params: None,
         detail: None,
@@ -207,5 +209,36 @@ fn a_failed_run_with_no_recipients_mails_its_owners() {
         let leases = notify.claim_emails(10, 60_000).await.unwrap();
         assert_eq!(leases[0].record.email, "olivia@example.test");
         assert!(leases[0].record.subject.contains("Run failed"));
+    });
+}
+
+/// A run's stored URL is its API address; the email sends people to the
+/// run's page instead (found on the test site: the link opened raw JSON).
+#[test]
+fn emails_link_to_the_run_page_not_the_api() {
+    ready(async {
+        let directory = seeded().await;
+        let notify = MemoryNotify::new(1_700_000_001_000);
+        let mut failed = intent("execution.completed", vec![]);
+        failed.detail = Some(serde_json::json!({"status": "failed"}));
+        failed.link =
+            "https://runs.example.test/v1/executions/exe_00000000000000000000000001".into();
+        fan_out_email(
+            &notify,
+            &directory,
+            &scope(),
+            &failed,
+            "Notify run",
+            "https://runs.example.test",
+            || "salt-1".into(),
+        )
+        .await
+        .unwrap();
+        let leases = notify.claim_emails(10, 60_000).await.unwrap();
+        let record = &leases[0].record;
+        let page = "https://runs.example.test/x/exe_00000000000000000000000001";
+        assert!(record.text.contains(page), "{}", record.text);
+        assert!(record.html.contains(page), "{}", record.html);
+        assert!(!record.text.contains("/v1/") && !record.html.contains("/v1/"));
     });
 }

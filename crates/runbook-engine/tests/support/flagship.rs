@@ -13,6 +13,7 @@ fn agent() -> ActorRef {
         session_id: "session-current".into(),
         name: "fixture-agent".into(),
         model: None,
+        service_attribution: None,
     }
 }
 fn report(

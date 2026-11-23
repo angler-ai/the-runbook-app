@@ -127,7 +127,7 @@ fn base(
     let timestamp = arena.intern(TypeDef::Timestamp, "/spec/execution")?;
     let tags = arena.intern(TypeDef::List(string), "/spec/execution/tags")?;
     let mut execution = BTreeMap::new();
-    for name in ["id", "title", "url", "created_by"] {
+    for name in ["id", "title", "url", "web_url", "created_by"] {
         execution.insert(name.into(), field(string, true));
     }
     execution.insert("tags".into(), field(tags, true));

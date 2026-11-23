@@ -268,6 +268,7 @@ pub async fn directory_fixture_has_distinct_principals<F: DirectoryFactory>(
         session_id: "fixture".into(),
         name: "runner".into(),
         model: None,
+        service_attribution: None,
     };
     assert!(matches!(service, ActorRef::Agent { .. }));
     Ok(())

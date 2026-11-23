@@ -1,6 +1,6 @@
 output "ingress_ip" {
   description = "The reserved external IPv4 address assigned to the GKE Ingress load balancer. Point DNS A records for app_domain (and usercontent_domain) to this IP."
-  value       = google_compute_global_address.ingress_ip.address
+  value       = one(google_compute_global_address.ingress_ip[*].address)
 }
 
 output "app_hostname" {
@@ -34,13 +34,13 @@ output "migration_job_name" {
 }
 
 output "database_user" {
-  description = "The built-in application user created for The Runbook in Cloud SQL."
-  value       = google_sql_user.runbook_app.name
+  description = "The PostgreSQL username used by The Runbook."
+  value       = local.database_user
 }
 
 output "cluster_name" {
   description = "The GKE cluster name."
-  value       = var.cluster_name
+  value       = local.cluster_name
 }
 
 output "cluster_location" {

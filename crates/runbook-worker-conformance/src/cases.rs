@@ -1211,6 +1211,7 @@ fn step_projection(n: u8, summary: &str) -> runbook_core::StepProjection {
         verdict: Some(runbook_model::Verdict::Pass),
         outputs,
         summary: Some(summary.to_owned()),
+        runner: None,
     }
 }
 

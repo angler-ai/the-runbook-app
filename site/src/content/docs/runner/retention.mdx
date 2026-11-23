@@ -1,0 +1,56 @@
+---
+title: Retention and archives
+description: Keep recent runner step detail in PostgreSQL and older detail in daily archives.
+sidebar:
+  order: 8
+---
+
+Runner-api checks once per UTC day for steps whose newest record predates
+the live window. It writes one gzip-compressed JSON Lines file per
+organization for that day, with a manifest as the first line and a SHA-256
+checksum in the archive index and filename. It verifies the file before
+removing the corresponding transcripts, tool calls, releases, usage events
+and closed ledger reservations from PostgreSQL. Steps with running attempts,
+live releases, or reservations awaiting settlement or usage reconciliation
+stay live.
+
+The run's **Transcript** link and the agent's **Tools** tab can read these
+records after archival. They show the archive date and a read-only note.
+Archived reads require the same `runner:read` scope and project access as live
+reads. Budget caps, 30-day spend charts and usage totals use retained
+aggregates. The hash-chained audit log stays in PostgreSQL.
+
+## Settings
+
+| Runner-api setting | Default | Effect |
+| --- | --- | --- |
+| `RUNNER_RETENTION_LIVE_DAYS` | `30` | How many days to keep step detail live. Set `off` to keep live detail. |
+| `RUNNER_RETENTION_ARCHIVE_DAYS` | `off` | How many days from archival to keep the file. Set `off` to keep it indefinitely. |
+| `RUNNER_RETENTION_ARCHIVE_STORE` | `/var/lib/runbook/runner-archives` | Absolute directory or `gs://bucket/prefix` or `s3://bucket/prefix`. |
+
+Windows accept whole days from 1 to 36,500. A finite archive window
+requires a finite live window and must be at least as long. Runner-api
+rejects invalid settings at startup.
+
+**Docker.** Set these variables in `runner-config/api.env`. Compose mounts
+the default path on the `runner-archives` volume. Keep that volume and the
+runner database together when moving or restoring the installation.
+A custom local path needs a persistent directory writable by the runner-api
+user (UID 10001). For object storage, configure Google Application Default
+Credentials or the AWS credential chain and `AWS_REGION` for runner-api.
+Give that identity permission to put, get and delete objects under the
+configured location. Keep bucket policies and object versioning consistent
+with the archive window if you use your own bucket.
+
+**GKE.** The module creates a dedicated GCS bucket and grants object access
+to the runner-api identity. The bucket uses uniform bucket-level access and
+public access prevention, with versioning and soft delete disabled. Set
+`runner_retention_live_days` and `runner_retention_archive_days` in Terraform.
+A finite archive window also configures a GCS lifecycle rule.
+
+Runner archives and [core run archives](/operating/retention/) have separate
+retention policies. The core can purge its live detail or archive while the
+runner still holds its own archived step detail. Anyone with the required
+runner and project access can still read that detail until the runner
+archive expires. To align the live windows on GKE, set
+`retention_live_days = "30"` and `runner_retention_live_days = "30"`.

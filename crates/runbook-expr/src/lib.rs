@@ -30,6 +30,7 @@ mod template;
 pub use template::{
     CheckedTemplate, ExpressionSyntaxSummary, TemplateExpressionRef, TemplateMode,
     TemplateSyntaxSummary, check_template, render_template, summarize_template_syntax,
+    template_requires_string_equality,
 };
 
 mod reads;

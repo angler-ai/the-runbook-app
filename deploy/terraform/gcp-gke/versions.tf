@@ -1,14 +1,18 @@
 terraform {
-  required_version = ">= 1.5.0, < 2.0.0"
+  required_version = ">= 1.9.0, < 2.0.0"
 
   required_providers {
+    external = {
+      source  = "hashicorp/external"
+      version = "~> 2.3"
+    }
     google = {
       source  = "hashicorp/google"
-      version = "~> 6.0"
+      version = ">= 7.20, < 8.0"
     }
     google-beta = {
       source  = "hashicorp/google-beta"
-      version = "~> 6.0"
+      version = ">= 7.20, < 8.0"
     }
     kubernetes = {
       source  = "hashicorp/kubernetes"

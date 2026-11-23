@@ -56,6 +56,7 @@ fn agent() -> ActorPrincipal {
             session_id: "s1".into(),
             name: "ops".into(),
             model: None,
+            service_attribution: None,
         },
         credential_ref: "exec_ops".into(),
     }
@@ -358,6 +359,7 @@ fn step_outputs_and_logs_are_size_limited() {
         summary: None,
         evidence: vec![],
         logs,
+        cost: None,
     };
     let big: Data = [(
         "blob".to_string(),
@@ -421,10 +423,12 @@ fn agent_decisions_are_recorded_as_agent_decisions() {
             session_id: "s1".into(),
             name: "ops".into(),
             model: Some("model-a".into()),
+            service_attribution: None,
         },
         ..agent()
     };
     let record = ready(runbook_core::decisions::agent_decide(
+        &store,
         work,
         &principal,
         &gate,

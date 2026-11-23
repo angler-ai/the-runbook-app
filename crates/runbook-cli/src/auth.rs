@@ -235,6 +235,14 @@ fn try_open_browser(url: &str) {
     let _ = cmd.spawn();
 }
 
+/// J-4: the device code says nothing about who will approve it, so the CLI
+/// cannot know in advance whether the browser will ask for a second factor.
+/// Say so before polling, so a passkey or authenticator prompt in the browser
+/// is expected and the person knows this command keeps waiting meanwhile.
+pub const DEVICE_APPROVAL_NOTE: &str = "Approve this login in the browser. If your organization requires a second factor, \
+     the browser asks for your passkey or authenticator code first (or to set one up); \
+     this command waits until you approve or the code expires.";
+
 pub fn handle_login(env: &Env, a: LoginArgs) -> i32 {
     let run = || -> Exit<i32> {
         let store = env
@@ -314,6 +322,7 @@ pub fn handle_login(env: &Env, a: LoginArgs) -> i32 {
 
         eprintln!("Verification URI: {}", code_view.verification_uri);
         eprintln!("User code: {}", code_view.user_code);
+        eprintln!("{}", DEVICE_APPROVAL_NOTE);
 
         let should_open_browser = !a.no_browser
             && std::env::var_os("CI").is_none()

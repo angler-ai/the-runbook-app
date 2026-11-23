@@ -43,7 +43,7 @@ const WITH_CLEANUP: &str = "spec:\n  steps:\n    - {id: work, title: Work}\n    
 #[test]
 fn a_run_past_its_ceiling_closes_failed_without_its_cleanup() {
     let mut trace = run_case(WITH_CLEANUP, &[succeeded("work")]);
-    assert_eq!(trace.state.engine_version, 6);
+    assert_eq!(trace.state.engine_version, ENGINE_VERSION);
     assert!(run_ceiling_applies(&trace.state));
     fault(&mut trace);
     trace.settle();

@@ -164,6 +164,7 @@ fn malformed_or_cross_execution_writes_are_atomic_rejections() {
         verdict: None,
         outputs: Default::default(),
         summary: None,
+        runner: None,
     });
     variants.push(bad);
     let mut bad = batch();

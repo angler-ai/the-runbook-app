@@ -1,0 +1,26 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "packages/shared"
+    },
+    {
+      "path": "packages/api"
+    },
+    {
+      "path": "packages/worker"
+    },
+    {
+      "path": "packages/sandbox-ctl"
+    },
+    {
+      "path": "packages/vault"
+    },
+    {
+      "path": "packages/gateway"
+    },
+    {
+      "path": "packages/evals"
+    }
+  ]
+}

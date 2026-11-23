@@ -10,7 +10,7 @@
 // Both bootstrap the same names, so they start from the same state. LOCAL
 // ONLY.
 import { execFile, spawn } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -61,7 +61,7 @@ async function webFixture() {
   return dir;
 }
 
-export async function startNative({ databaseUrl, log = () => {} }) {
+export async function startNative({ databaseUrl, log = () => {}, runnerPrivateNetworks = false }) {
   if (!databaseUrl) throw new Error('the native target needs DATABASE_URL');
   const target = process.env.CARGO_TARGET_DIR ?? join(repo, 'target');
   const bin = process.env.RUNBOOK_SERVER_BIN ?? join(target, 'debug', 'runbook-server');
@@ -82,6 +82,7 @@ export async function startNative({ databaseUrl, log = () => {} }) {
     RUNBOOK_ORIGIN: origin,
     RUNBOOK_WEBHOOK_SECRET_KEY: randomBytes(32).toString('base64'),
     RUNBOOK_ALLOW_PRIVATE_WEBHOOK_TARGETS: 'true',
+    RUNBOOK_RUNNER_PRIVATE_NETWORKS: String(runnerPrivateNetworks),
     // The api Worker's request-body cap on every route (CF12: native's JSON
     // cap, 2 MiB + 64 KiB). Native allows skill uploads up to this variable
     // (64 MiB by default), a configuration difference rather than a contract
@@ -110,6 +111,15 @@ export async function startNative({ databaseUrl, log = () => {} }) {
       origin,
       usercontent,
       pat: boot.pat,
+      async grantRunnerScopes() {
+        const hash = createHash('sha256').update(boot.pat).digest('hex');
+        const statement = `UPDATE runbook.credential
+          SET payload = ((payload::jsonb) || jsonb_build_object(
+            'scopes', payload::jsonb->'scopes' || '["runner:read","runner:admin"]'::jsonb))::text
+          WHERE secret_hash = decode('${hash}', 'hex')`;
+        await run('psql', ['-X', '-q', '-v', 'ON_ERROR_STOP=1', '-c', statement],
+          { ...admin, PGDATABASE: name });
+      },
       service: boot.service,
       org: boot.org_id,
       user: boot.user_id,

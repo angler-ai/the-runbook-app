@@ -72,6 +72,10 @@ fn target_for_table(name: &str) -> (String, Option<String>) {
         // CF11: one WebhookDO per subscription holds its delivery log
         "webhook_delivery" | "webhook_attempt" => ("webhookdo".to_string(), Some(name.to_string())),
 
+        // R0/R0b: the runner's core tables live in D1 under the same names
+        // (signing_keys, runner_*, project_runner_settings), so they take the
+        // default D1 mapping below.
+
         // D1 database
         d1_name => ("d1".to_string(), Some(d1_name.to_string())),
     }

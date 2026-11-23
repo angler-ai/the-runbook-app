@@ -14,6 +14,7 @@ pub struct DiscoveryConfig {
     pub schema: BTreeMap<String, u64>,
     /// UI-1: the theme override `/v1/meta` reports ([`theme_from_vars`]).
     pub theme: Option<ThemeView>,
+    pub trace_sample_ratio: Option<String>,
     /// The per-run step cap `/v1/meta` reports (none: no cap).
     pub step_runs: Option<u64>,
 }
@@ -26,12 +27,14 @@ impl DiscoveryConfig {
             minimum_cli_version: self.minimum_cli_version.clone(),
             // D48: no sign-in method is configured until AUTH2/AUTH5.
             auth: AuthDiscovery::default(),
+            jwks_uri: Some(format!("{}{}", self.origin, crate::runners::JWKS_PATH)),
         }
     }
     pub fn meta(&self) -> MetaView {
         MetaView {
             edition: "self_hosted".into(),
             version: self.version.clone(),
+            runner_contract_version: runbook_model::RUNNER_CONTRACT_VERSIONS.last().copied(),
             schema: self.schema.clone(),
             capabilities: [
                 ("directory".into(), true),
@@ -50,6 +53,7 @@ impl DiscoveryConfig {
             },
             usage: None,
             theme: self.theme.clone(),
+            trace_sample_ratio: self.trace_sample_ratio.clone(),
         }
     }
 }

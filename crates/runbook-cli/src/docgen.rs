@@ -53,7 +53,10 @@ fn key_exists(pointer: &str) -> bool {
     match runbook_spec::classify(pointer, &Value::Null) {
         runbook_spec::Support::Rejected { code } => !matches!(
             code.as_str(),
-            "spec.unknown_key" | "spec.unsupported_feature" | "spec.agents_dispatch_removed"
+            "spec.unknown_key"
+                | "spec.unsupported_feature"
+                | "spec.agents_dispatch_removed"
+                | "spec.retired_key"
         ),
         _ => true,
     }
@@ -187,7 +190,7 @@ fn command(cmd: &Command, parents: &[&str]) -> Value {
         .get_arguments()
         .filter(|a| !a.is_hide_set())
         .filter(|a| !matches!(a.get_id().as_str(), "help" | "version"))
-        .map(arg)
+        .map(|argument| arg(argument, parents.is_empty()))
         .collect();
     let subcommands: Vec<Value> = cmd
         .get_subcommands()
@@ -205,7 +208,7 @@ fn command(cmd: &Command, parents: &[&str]) -> Value {
     })
 }
 
-fn arg(a: &Arg) -> Value {
+fn arg(a: &Arg, at_root: bool) -> Value {
     let takes_value = !matches!(
         a.get_action(),
         ArgAction::SetTrue | ArgAction::SetFalse | ArgAction::Count | ArgAction::Help
@@ -243,7 +246,9 @@ fn arg(a: &Arg) -> Value {
         "multiple": matches!(a.get_action(), ArgAction::Append)
             || a.get_num_args().is_some_and(|n| n.max_values() > 1),
         "required": a.is_required_set(),
-        "global": a.is_global_set(),
+        // The site renders root flags separately. Subcommand flags inherited
+        // by their children still belong to the subcommand that declares them.
+        "global": at_root && a.is_global_set(),
         "help": text(a.get_long_help().or(a.get_help())),
         "env": if a.is_hide_env_set() { None } else { a.get_env().map(|e| e.to_string_lossy().into_owned()) },
         "default": defaults,
@@ -307,9 +312,10 @@ mod tests {
         // Nested step lists point back to the first step shape.
         let nested = find(&tree, "spec.steps[].steps").unwrap();
         assert_eq!(nested["item"]["same_as"], "spec.steps[]");
-        // Removed and forbidden keys are left out.
+        // Removed and retired keys are left out (R0-3: agent.runner).
         assert!(find(&tree, "spec.agents.dispatch").is_none());
-        assert!(find(&tree, "spec.steps[].agent.model").is_none());
+        assert!(find(&tree, "spec.steps[].agent.runner").is_none());
+        assert!(find(&tree, "spec.steps[].agent.name").is_some());
     }
 
     #[test]

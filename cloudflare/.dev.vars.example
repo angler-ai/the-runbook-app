@@ -16,7 +16,7 @@
 BOOTSTRAP_SECRET=CHANGE_ME_TO_32_RANDOM_HEX_CHARACTERS_FOR_BOOTSTRAP
 
 # --- Webhook Signing & Sealing Secret -----------------------------------------
-# Required. 32 random bytes in base64 used to seal webhook signing secrets at rest
+# Required. 32 random bytes in base64 used to seal webhook secrets and runner signing keys at rest
 # using AES-256-GCM. Generate once and keep stable:
 #   openssl rand -base64 32
 WEBHOOK_SECRET_KEY=CHANGE_ME_TO_BASE64_ENCODED_32_RANDOM_BYTES_SEAL_KEY==

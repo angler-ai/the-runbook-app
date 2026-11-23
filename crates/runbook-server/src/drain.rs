@@ -449,9 +449,12 @@ impl Drainer {
             ),
         ] {
             if count > 0 {
-                eprintln!(
-                    "warning: archive job: kept {count} run(s) ({code}): {}",
-                    runbook_core::archives::job::refusal_message(code).unwrap_or_default()
+                crate::log::warning(
+                    "archive",
+                    &format!(
+                        "archive job: kept {count} run(s) ({code}): {}",
+                        runbook_core::archives::job::refusal_message(code).unwrap_or_default()
+                    ),
                 );
             }
         }
@@ -528,6 +531,7 @@ impl Drainer {
         // post; the lease still completes through webhooks/email.
         let _ = runbook_core::slack::fan_out_slack(
             &self.notify,
+            &self.directory,
             &SlackHttp,
             self.config.slack.as_ref(),
             scope,

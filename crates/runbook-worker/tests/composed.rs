@@ -1015,3 +1015,68 @@ fn an_import_undo_deletes_only_its_tenants_run_rows() {
     );
     assert_eq!(run(other_catalog.list_assignments()).unwrap().len(), 1);
 }
+
+#[test]
+fn a_commit_during_a_ready_drain_is_indexed_before_ack() {
+    run(async {
+        use runbook_core::{StepProjection, StepRunnerProjection};
+        use runbook_model::StepStatus;
+        use runbook_store_d1::{prepare, sql::Columns};
+        use runbook_worker_conformance::d1_cases::Interleave;
+
+        let objects = NativeObjects::default();
+        let (db, _) = fresh(&objects);
+        let id = catalog::id(1);
+        let tenant = scope(1);
+        let object = objects.object(&id, &tenant).unwrap();
+        object.create_execution(execution::projection()).unwrap();
+        let mut opened = catalog::batch(1, 0, 1, ExecutionStatus::Running);
+        let step = StepProjection {
+            execution_id: id.clone(),
+            step_run_id: "sr_00000000000000000000000001".parse().unwrap(),
+            path: "runner-task".into(),
+            status: StepStatus::Ready,
+            verdict: None,
+            outputs: Default::default(),
+            summary: None,
+            runner: Some(StepRunnerProjection {
+                agent_id: "agt_1".into(),
+                decision: None,
+                ready_at_ms: 10,
+                max_cost_usd: None,
+            }),
+        };
+        opened.projection.steps.push(step.clone());
+        object.commit(opened).await.unwrap();
+
+        let mut claimed = catalog::batch(1, 1, 2, ExecutionStatus::Running);
+        claimed.projection.steps.push(StepProjection {
+            status: StepStatus::Claimed,
+            ..step
+        });
+        let interleave = Interleave::new(db.clone());
+        interleave.before_batch("DELETE FROM runner_ready_steps", async move {
+            object.commit(claimed).await.unwrap();
+        });
+        let store = CfStore::new(
+            interleave.clone(),
+            objects,
+            tenant,
+            runbook_store_r2::MemoryBucket::default(),
+            Default::default(),
+        );
+        assert_eq!(store.drain_derived(&id).await.unwrap().through, Some(2));
+        assert!(interleave.fired());
+        let heads = db
+            .all(prepare("SELECT sequence FROM runner_ready_heads"))
+            .await
+            .unwrap();
+        assert_eq!(heads[0].integer(0).unwrap(), 2);
+        assert!(
+            db.all(prepare("SELECT step_run_id FROM runner_ready_steps"))
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    });
+}

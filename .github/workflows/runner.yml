@@ -1,0 +1,114 @@
+name: Runner
+
+# The runner (runner/, design 2026-11-20): generated-file drift, lint,
+# typecheck, Vitest (with a throwaway Postgres for the database, role and
+# vault tests), the TypeScript build and the image build. Dependencies
+# install with --ignore-scripts (F102).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'runner/**'
+      - 'crates/runbook-core/src/redact.rs'
+      - 'crates/runbook-redact-wasm/**'
+      - 'api/openapi.draft.json'
+      - '.github/workflows/runner.yml'
+  pull_request:
+    paths:
+      - 'runner/**'
+      - 'crates/runbook-core/src/redact.rs'
+      - 'crates/runbook-redact-wasm/**'
+      - 'api/openapi.draft.json'
+      - '.github/workflows/runner.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ${{ github.event.repository.private && 'self-hosted' || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: pg
+        ports:
+          - 5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: runner
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Point the runner tests at the service's host port
+        run: echo "RUNNER_TEST_DATABASE_URL=postgres://postgres:pg@localhost:${{ job.services.postgres.ports['5432'] }}/postgres" >> "$GITHUB_ENV"
+      - name: Install rustup if the runner lacks it
+        if: ${{ github.event.repository.private }}
+        run: |
+          if ! command -v rustup >/dev/null 2>&1 && [ ! -x "$HOME/.cargo/bin/rustup" ]; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+          fi
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Install pinned toolchain (with the wasm target)
+        working-directory: .
+        run: |
+          rustup toolchain install
+          rustup show active-toolchain
+      - name: Install Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '26.8.1'
+          package-manager-cache: false
+      - name: Install dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+      # `npm run check` tests before it builds: give the tests the redaction
+      # module and the sandbox image they load.
+      - name: Build the redaction module the tests load
+        run: npm run wasm:build
+      - name: Build the sandbox image the Docker tests use
+        working-directory: .
+        run: docker build -f runner/sandbox.Dockerfile -t runbook-sandbox:1 .
+      - name: Check
+        run: npm run check
+
+  harness-evals:
+    runs-on: ${{ github.event.repository.private && 'self-hosted' || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: runner
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '26.8.1'
+          package-manager-cache: false
+      - name: Install dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+      - name: Run offline fault injection, replay and adapter tests
+        run: env -u RUNNER_TEST_DATABASE_URL -u DOCKER_HOST -u RUNNER_TEST_DOCKER_SOCKET -u ANTHROPIC_API_KEY npm run test:evals
+
+  image:
+    runs-on: ${{ github.event.repository.private && 'self-hosted' || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Build the runner image
+        run: docker build -f runner/Dockerfile -t runbook-runner:ci .

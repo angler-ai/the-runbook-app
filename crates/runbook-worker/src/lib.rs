@@ -32,6 +32,7 @@ pub mod run_search;
 pub mod sealer;
 pub mod settle;
 pub mod shards;
+mod signing;
 pub mod spike;
 pub mod webhooks;
 
@@ -48,3 +49,6 @@ mod live;
 mod notify;
 #[cfg(all(target_arch = "wasm32", feature = "edge"))]
 mod seams;
+
+#[cfg(all(target_arch = "wasm32", feature = "edge"))]
+mod runner_proxy;

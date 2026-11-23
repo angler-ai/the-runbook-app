@@ -77,6 +77,10 @@ pub enum Commands {
     Apps(apps::AppsCommands),
     #[command(subcommand, about = "Manage webhook subscriptions and deliveries")]
     Webhook(webhooks::WebhookCommands),
+    #[command(about = "Manage the organization's runner")]
+    Runner(runbook_cli::runner::RunnerArgs),
+    #[command(about = "Manage runner agents")]
+    Agents(runbook_cli::runner::AgentsArgs),
     #[command(subcommand, about = "Search, save and manage runbook memory")]
     Memory(memory::MemoryCommands),
     #[command(subcommand, about = "List and download runbook execution archives")]
@@ -177,6 +181,8 @@ impl Commands {
                 apps::AppsCommands::List(args) => args.json,
                 apps::AppsCommands::Revoke(args) => args.json,
             },
+            Commands::Runner(args) => args.json,
+            Commands::Agents(args) => args.json,
             Commands::Webhook(whk_cmd) => match whk_cmd {
                 webhooks::WebhookCommands::Create(args) => args.json,
                 webhooks::WebhookCommands::List(args) => args.json,
@@ -766,6 +772,13 @@ fn handle_run_get(client: &ApiClient, args: RunGetArgs) -> Result<i32, String> {
             .unwrap_or("unknown");
         println!("{id} {title} ({status})");
         for line in runbook_cli::cliutil::call_links(&resp) {
+            println!("  {line}");
+        }
+        for line in runbook_cli::cliutil::runner_budget_lines(&resp) {
+            println!("  {line}");
+        }
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        for line in runbook_cli::cliutil::approval_agent_lines(&resp, now_ms) {
             println!("  {line}");
         }
     }
@@ -1560,6 +1573,12 @@ fn run() -> i32 {
         Commands::Team(cmd) => with_env(&cli_env, |env| admin::handle_team(env, cmd)),
         Commands::Token(cmd) => with_env(&cli_env, |env| tokens::handle_token(env, cmd)),
         Commands::Apps(cmd) => with_env(&cli_env, |env| apps::handle_apps(env, cmd)),
+        Commands::Runner(args) => with_env(&cli_env, |env| {
+            runbook_cli::runner::handle_runner(env, args)
+        }),
+        Commands::Agents(args) => with_env(&cli_env, |env| {
+            runbook_cli::runner::handle_agents(env, args)
+        }),
         Commands::Webhook(cmd) => with_env(&cli_env, |env| webhooks::handle_webhook(env, cmd)),
         // Memory resolves its own credentials: a save prefers the stored
         // execution pair over the login (`memory.rs`).

@@ -13,7 +13,8 @@ use clap::{Args, Subcommand};
 use runbook_model::{TokenId, UserId};
 use serde_json::{Map, Value, json};
 
-/// The PRD §9 scope names.
+/// The PRD §9 scope names, and the runner's (R0-2), which a token holds
+/// only when chosen explicitly.
 pub const SCOPES: &[&str] = &[
     "runbooks:read",
     "runbooks:write",
@@ -27,6 +28,8 @@ pub const SCOPES: &[&str] = &[
     "tokens:manage",
     "webhooks:manage",
     "project:admin",
+    "runner:read",
+    "runner:admin",
 ];
 
 /// PATs last at most one year.

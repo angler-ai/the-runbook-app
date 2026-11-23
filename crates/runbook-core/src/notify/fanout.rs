@@ -24,6 +24,13 @@ pub struct EmailFanOut {
 }
 
 fn step_title(intent: &NotificationIntent) -> Option<String> {
+    if let Some(title) = intent
+        .detail
+        .as_ref()
+        .and_then(|detail| detail["step_title"].as_str())
+    {
+        return Some(title.into());
+    }
     let step_run_id = intent.step_run_ids.first()?;
     intent
         .ready_steps
@@ -68,18 +75,37 @@ fn recipients(
     users
 }
 
+/// The link a person follows from an email or a Slack message: the run's
+/// page in the web app. A run's own `url` is its API address
+/// (`{origin}/v1/executions/{exe}`), which a browser cannot show, so any
+/// link into the API on this origin becomes the run page `/x/{exe}`.
+/// Links to other hosts are kept as they are.
 pub(crate) fn link_absolute(origin: &str, intent: &NotificationIntent) -> String {
-    if intent.link.starts_with("http://") || intent.link.starts_with("https://") {
-        return intent.link.clone();
+    let origin = origin.trim_end_matches('/');
+    let link = intent.link.as_str();
+    if (link.starts_with("http://") || link.starts_with("https://"))
+        && link
+            .strip_prefix(origin)
+            .is_none_or(|rest| !rest.starts_with('/'))
+    {
+        return link.to_owned();
     }
-    let path = if intent.link.is_empty() {
+    let path = link.strip_prefix(origin).unwrap_or(link);
+    let path = if path.is_empty() || api_path(path) {
         format!("/x/{}", intent.execution_id)
-    } else if intent.link.starts_with('/') {
-        intent.link.clone()
+    } else if path.starts_with('/') {
+        path.to_owned()
     } else {
-        format!("/{}", intent.link)
+        format!("/{path}")
     };
-    format!("{}{path}", origin.trim_end_matches('/'))
+    format!("{origin}{path}")
+}
+
+/// Whether a path is the API's (`/v1` or below), which no person should be
+/// sent to.
+fn api_path(path: &str) -> bool {
+    let path = path.split(['?', '#']).next().unwrap_or(path);
+    path == "/v1" || path.starts_with("/v1/")
 }
 
 /// Record the emails for one intent. `origin` is the app's public

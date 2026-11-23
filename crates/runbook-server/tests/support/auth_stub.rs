@@ -6,6 +6,7 @@
 //! - `POST /internal/session` with `x-runbook-internal-secret` and the
 //!   session cookie as the `Cookie` header: the session in `STUB_SESSIONS`
 //!   (a JSON object keyed by the cookie's value) or 401.
+//! - `POST /internal/oauth/introspect`: the stored grant for the token and resource.
 //! - `POST /api/auth/sign-out`: removes the cookie's session.
 //! - `GET /api/auth/register-check?email=`: asks
 //!   `RUNBOOK_AUTH_CAN_REGISTER_URL` like Better Auth's `user.create.before`
@@ -68,16 +69,29 @@ impl Files {
         ]
     }
     pub fn put_session(&self, token: &str, auth_user_id: &str, email: &str) {
+        self.put_session_with_enrollment(token, auth_user_id, email, None);
+    }
+    pub fn put_current_session(&self, token: &str, auth_user_id: &str, email: &str) {
+        self.put_session_with_enrollment(token, auth_user_id, email, Some(false));
+    }
+    fn put_session_with_enrollment(
+        &self,
+        token: &str,
+        auth_user_id: &str,
+        email: &str,
+        enrolled: Option<bool>,
+    ) {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_millis() as i64;
         self.update(|s| {
-            s.insert(
-                token.into(),
-                json!({"auth_user_id":auth_user_id,"email":email,"email_verified":true,
-                       "session_id":format!("sess_{token}"),"expires_at":now + 3_600_000}),
-            );
+            let mut facts = json!({"auth_user_id":auth_user_id,"email":email,"email_verified":true,
+                       "session_id":format!("sess_{token}"),"expires_at":now + 3_600_000});
+            if let Some(enrolled) = enrolled {
+                facts["mfa_enrolled"] = json!(enrolled);
+            }
+            s.insert(token.into(), facts);
         });
     }
     pub fn remove_session(&self, token: &str) {
@@ -258,6 +272,21 @@ fn handle(mut stream: TcpStream) -> Option<()> {
             match sessions().get(&token) {
                 Some(session) => respond(&mut stream, 200, &[json_type], &session.to_string()),
                 None => respond(&mut stream, 401, &[], ""),
+            }
+        }
+        ("POST", "/internal/oauth/introspect") => {
+            let input: Value = serde_json::from_slice(&request.body).ok()?;
+            let tokens = sessions();
+            let grant = input["token"].as_str().and_then(|token| tokens.get(token));
+            match grant {
+                Some(grant)
+                    if request.header("x-runbook-internal-secret") == Some(secret.as_str())
+                        && grant["resource"] == input["resource"]
+                        && grant["scope"].is_string() =>
+                {
+                    respond(&mut stream, 200, &[json_type], &grant.to_string())
+                }
+                _ => respond(&mut stream, 401, &[], ""),
             }
         }
         ("POST", "/api/auth/sign-out") => {

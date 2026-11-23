@@ -18,10 +18,12 @@ fn gate(allow: bool, min: u32) -> Trace {
 }
 fn agent(t: &Trace) -> AgentDecision {
     AgentDecision {
+        audit_only_comment: true,
         at_ms: t.state.at_ms,
         base_sequence: t.state.sequence,
         step_run_id: t.step("gate").id.clone().unwrap(),
         option: "keep".into(),
+        evidence: vec![],
         comment: Some("checked".into()),
         principal: "agt_ops".into(),
         agent_name: "ops".into(),
@@ -64,6 +66,11 @@ fn agent_decision_preserves_provenance_without_human_quorum_and_replays() {
     assert!(t.error_codes.is_empty(), "{:?}", t.error_codes);
     let a = t.step("gate").approval.as_ref().unwrap();
     assert_eq!(a.distinct_votes, 0);
+    assert_eq!(t.step("gate").outputs["comment"], "");
+    assert_eq!(
+        a.agent_decision.as_ref().unwrap().comment.as_deref(),
+        Some("checked")
+    );
     assert!(a.votes.is_empty());
     assert!(a.decision.is_none());
     assert_eq!(a.agent_decision.as_ref(), Some(&d));

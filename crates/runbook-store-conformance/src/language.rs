@@ -95,6 +95,7 @@ pub(crate) async fn report<S: LanguageStore, D: LanguageDirectory>(
             summary: None,
             evidence: vec![],
             logs: vec![],
+            cost: None,
         },
         None,
     )
@@ -216,6 +217,7 @@ pub async fn parallel_join_cancels_open_branches<S: LanguageStore, D: LanguageDi
             summary: None,
             evidence: vec![],
             logs: vec![],
+            cost: None,
         },
         None,
     )
@@ -743,6 +745,9 @@ pub async fn on_conflict_cancel_previous_bounds_its_preparation<
 /// fact, applied by `build_document`).
 fn header(state: &runbook_engine::ExecutionState) -> runbook_model::ExecutionView {
     runbook_model::ExecutionView {
+        overdue_steps: vec![],
+        url: String::new(),
+        web_url: String::new(),
         schema_revision: std::num::NonZeroU32::MIN,
         id: state.id.clone(),
         runbook_id: None,
@@ -775,6 +780,7 @@ fn header(state: &runbook_engine::ExecutionState) -> runbook_model::ExecutionVie
         superseded_by: None,
         parent: None,
         progress: None,
+        cost: None,
     }
 }
 
@@ -1161,6 +1167,7 @@ async fn report_on<S: LanguageStore, D: LanguageDirectory>(
             summary: None,
             evidence: vec![],
             logs: vec![],
+            cost: None,
         },
         None,
     )
@@ -2197,6 +2204,7 @@ pub async fn a_person_takes_over_an_agent_task<S: LanguageStore, D: LanguageDire
             summary: Some("finished by hand".into()),
             evidence: vec![],
             logs: vec![],
+            cost: None,
         },
         None,
     )

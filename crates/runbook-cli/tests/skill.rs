@@ -203,7 +203,8 @@ fn test_claude_plugin_bundle_integrity() {
     let manifest_bytes = fs::read(&manifest_path).unwrap();
     let manifest: Value = serde_json::from_slice(&manifest_bytes).expect("valid JSON");
     assert_eq!(manifest["name"], "therunbook");
-    assert_eq!(manifest["version"], "0.1.0");
+    // The plugin ships with the CLI, at the same version.
+    assert_eq!(manifest["version"], env!("CARGO_PKG_VERSION"));
     assert!(
         manifest["description"]
             .as_str()

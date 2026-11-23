@@ -1,0 +1,30 @@
+{
+  "modelId": "fixture",
+  "calls": [
+    {
+      "requestHash": "33e633cd0b152e7f6d777fbc66ba6318b60e539b2f7226fae4e1fbf527ce41bd",
+      "parts": [
+        {
+          "type": "text-start",
+          "id": "text"
+        },
+        {
+          "type": "text-delta",
+          "id": "text",
+          "delta": "{\"tool\":\"read\""
+        },
+        {
+          "type": "error",
+          "error": "overloaded_error"
+        }
+      ]
+    }
+  ],
+  "answer": {
+    "status": "failed",
+    "reason": "model_failed",
+    "toolCalls": 0
+  },
+  "toolNames": [],
+  "toolHashes": []
+}

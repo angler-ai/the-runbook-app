@@ -1,0 +1,122 @@
+---
+title: Runner agents
+description: Configure an agent, target it from a runbook, and review its changes.
+sidebar:
+  order: 4
+---
+
+## Create an agent
+
+Open **Agents** in an allowed project and choose **New agent**. Start with the post-deploy checker, data QA, or incident triage template, or enter your own instructions. Choose a runner group and a model profile. You can save a draft before choosing a model.
+
+A project admin manages the tools, credentials, egress and limits an agent can use. Project editors can edit descriptions, instructions, and skills when their credential has runner write access. Operators and viewers can inspect agents and their work. Assign tools and credentials on the assumption that any editor in the project can steer the agent through a runbook or its instructions.
+
+Review the tool snapshot and labels before allowing tools on an agent. A new agent created from a template still needs explicit tool and credential bindings for any integrations it will use.
+
+Use `runbook agents create --project "$PROJECT_ID" --file agent.json` from the CLI. Include `name`, `group_id`, `profiles` and `status: "active"` in the JSON. A new agent defaults to draft without an explicit status. `runbook agents get` shows a saved agent, and `runbook agents update` applies a JSON patch. Use profile IDs in a file with `{"profiles":["PROFILE_ID"]}` to replace the agent's allowed profiles:
+
+```sh
+runbook runner agent-profiles "$AGENT_ID" --project "$PROJECT_ID" --file profiles.json
+```
+
+For example, save the following as `agent.json` to create a test agent with no upstream MCP tools or sandbox egress:
+
+```json
+{
+  "name": "status-checker",
+  "group_id": "GROUP_ID",
+  "status": "active",
+  "profiles": ["PROFILE_ID"],
+  "instructions": "Check the run's inputs and report what you verified.",
+  "limits": {"max_cost_usd": 0.5, "max_tokens": 8192, "timeout_s": 180}
+}
+```
+
+The model profile, its provider and the provider credential must all be shared with the project. Set a small per-step budget and token limit for the first run, with enough headroom for the model to take a working turn. See [limits and budgets](/runner/limits/).
+
+## Sandbox egress
+
+Sandbox HTTPS goes through the runner gateway on port 443. A host must be permitted by the organization defaults, the agent allow-list and any step network restriction. The step also needs exactly one eligible released proxy credential bound to the host. The gateway denies access when zero or multiple proxy credentials qualify. A read rule permits GET, HEAD and OPTIONS.
+
+## Target an agent
+
+Use the agent name on a step with `actor: agent`. For example, this task targets a project agent named `status-checker`.
+
+```yaml
+- id: verify_deploy
+  actor: agent
+  title: Verify the deployment
+  agent:
+    name: status-checker
+```
+
+The core resolves the name at publish time and stores the agent ID. A different agent with the same name will get a different ID. A step can narrow the agent's model profile and limits, its credentials (`connections`) and its hosts (`agent.network`). A step can't narrow the agent's MCP tools: if an agent has a `destructive` tool, every step that targets it must be marked `destructive`. Put destructive tools on a separate agent. Use `agent: { name: external }` for a step you want an external agent to claim. See the [agent key reference](/reference/keys/#specstepsagentname).
+
+## Context agents receive
+
+The runner identifies the current step, run, runbook, and project in the agent's input. It also supplies the agent and step instructions, template values, parameters, checklist, and any active memory attached to the step. Agents are told to report what they actually did and found. They treat run data, memory, and tool results as untrusted data. Approval decisions stay with the actors authorized by the runbook.
+
+Add skills by name from the project's skill library. Each save resolves those names and pins their exact content to the new agent version. The runner loads the pinned `SKILL.md` bodies, with step skills first and one copy per content hash. Updating a library skill takes effect for that agent after its next save. Re-save an agent with skills configured before this feature to pin those skills.
+
+### Built-in Runbook tools
+
+Every runner agent gets these tools while it holds the live step claim. They work within the current project and use the step's tool timeout and turn limits. Their results are bounded, redacted, and recorded in the transcript.
+
+| Tool | What it does |
+| --- | --- |
+| `run_overview` | Reads this run's title, runbook version, start context, inputs, steps, and approval decisions. |
+| `step_details` | Reads a completed step's outputs, bounded logs, and evidence metadata in this run. |
+| `search_runs` | Finds earlier runs of this runbook in this project, newest first. Returns up to ten summaries. |
+| `get_run` | Reads an earlier run's overview by ID. |
+| `search_memory` | Searches active, unexpired memory for this project and runbook. |
+| `propose_memory` | Submits a durable, evidence-backed fact for human review. Each step can submit up to five proposals. |
+
+The agent's MCP allow-list applies to MCP calls. The built-in Runbook tools are available independently of that list.
+
+## Decide approvals
+
+An approval with `allow_agents: true` can name a runner agent in `agent`. The agent decides it when no person has, after `agent.after` if set. See [A runner agent decides](/concepts/approvals/#a-runner-agent-decides) for the runbook side.
+
+```yaml
+- id: release_gate
+  approval:
+    prompt: Ship it?
+    options: [ship, hold]
+    approvers: { teams: [release-managers] }
+    allow_agents: true
+    agent: { name: release-reviewer, after: 15m }
+```
+
+A decision run differs from a task run:
+
+- **The approval stays open.** The runner takes a decision lease on the approval rather than claiming a step, so only one runner works on it while people keep deciding in the inbox. The first decision wins. When a person decides, the run is paused or ends, or the approval closes or times out, the lease is revoked (`lease.revoked`), the runner stops the run and reports nothing.
+- **Read-only tools.** The agent gets the built-in Runbook tools above except `propose_memory`, and only the MCP tools, credentials and hosts labeled `read`. The gateway enforces the same filter from the lease's grant, whatever the agent otherwise allows. A decision run has no sandbox for files or commands.
+- **Two ways to finish.** `decide_approval` picks one of the approval's options, with a reason and the `[call N]` references of the tool calls it rests on. `report_blocked` abstains: the reason shows on the approval and people decide. There is no `submit_result`.
+- **Recorded as the agent.** The decision is recorded with the runner as principal, the agent's name, the model it used and the lease as its session. It never counts toward a human quorum and never leads to a destructive step.
+- **Limits apply.** `agent.model`, `agent.max_cost_usd` and `agent.max_tokens` on the approval narrow the agent's own limits, and the decision run counts toward the same concurrency, cost and ledger as a step.
+
+The approval card on the run page shows "agent `release-reviewer` is reviewing" while the lease is held, then the decision with its model, reason, evidence and a link to the transcript, or the abstention. The agent's **Activity** tab lists its recent decisions and abstentions.
+
+Run data and tool results can try to talk the agent into an option. The decision is limited to the listed options, tool and credential access is limited by the read labels you configure, and people can still decide first or review the decision afterwards.
+
+## Follow runs and changes
+
+On a run, the step card shows the target agent, wait reason, and reported cost when those are available. Open **Transcript** to read the entries retained by the runner. The agent's **Tools** tab shows its tool allow-list and recorded calls. **Credentials** shows destinations and delivery modes. The **Versions** tab shows how the saved configuration changed.
+
+A widening request from an agent credential becomes a proposal. A project admin can open **Proposals** on the Agents page, review the diff, and approve or reject it. Organization catalog and credential proposals appear in the Runner settings. Each saved change creates an immutable version, and each runner claim records the version it used.
+
+## How the agent works a step
+
+The runner gives the model the step instructions, checklist, output schema, and the tools allowed for the step. The harness streams supported models and meters each call against the step budget. The model can read files, run commands in its sandbox, or call configured integrations. The runner returns each tool result to the model and repeats until the model submits schema-valid outputs with evidence or reports a blocker. Turn, time, token, and cost limits constrain the work.
+
+Watch the step log for tool starts and short progress notes on supported models. The transcript holds retained model summaries, tool results, and evidence references. Supported Claude models cache the stable instructions and recent tool results between calls. When old results are cleared to make room, the agent can reopen saved results in the sandbox with `view`.
+
+### Claude profile settings
+
+| Profile | Default effort | Thinking |
+| --- | --- | --- |
+| `cheap` | Low | Adaptive where supported |
+| `default` | Medium | Adaptive where supported |
+| `deep` | High | Adaptive where supported |
+
+A profile can override the effort with `options.effort`. The selected model determines which settings apply. On supported Claude versions, a task budget helps the model pace its work. The runner enforces its configured limits independently and reserves room for a final response. A provider that cannot clear context ends the step with `context_full` if the conversation reaches its limit.

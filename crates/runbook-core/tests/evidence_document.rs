@@ -9,6 +9,9 @@ use std::num::NonZeroU32;
 
 fn header(state: &ExecutionState) -> ExecutionView {
     ExecutionView {
+        overdue_steps: vec![],
+        url: String::new(),
+        web_url: String::new(),
         schema_revision: NonZeroU32::MIN,
         id: state.id.clone(),
         runbook_id: None,
@@ -41,6 +44,7 @@ fn header(state: &ExecutionState) -> ExecutionView {
         superseded_by: None,
         parent: None,
         progress: None,
+        cost: None,
     }
 }
 
@@ -67,6 +71,7 @@ fn documents_list_uploads_by_evd_id_with_their_type() {
         summary: None,
         evidence: vec![png.id.to_string(), "https://example.test/ticket".into()],
         logs: vec![],
+        cost: None,
     };
     let node = trace.state.node(&step.step_id).unwrap().clone();
     let accepted = validate_report_with_files(&node, &request, &step, vec![png.clone()]).unwrap();

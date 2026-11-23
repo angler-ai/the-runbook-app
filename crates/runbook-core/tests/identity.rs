@@ -40,3 +40,14 @@ fn token_grants_only_narrow_roles() {
         }
     }
 }
+
+#[test]
+fn browser_runner_admin_requires_an_agent_editing_role() {
+    use runbook_core::credentials::Scope;
+    for role in [ProjectRole::Viewer, ProjectRole::Operator] {
+        assert!(!Scope::browser_runner_admin(role));
+    }
+    for role in [ProjectRole::Editor, ProjectRole::Admin] {
+        assert!(Scope::browser_runner_admin(role));
+    }
+}

@@ -36,3 +36,6 @@ conformance/
 README.md
 **/.env
 **/.env.*
+# Runner build output and its wasm (rebuilt in the image).
+runner/packages/*/dist/
+runner/packages/shared/wasm/*.wasm

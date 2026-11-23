@@ -224,6 +224,25 @@ pub(crate) async fn apply(
         }
         match mutation {
             DirectoryMutation::CreateOrganization { .. } => unreachable!(),
+            DirectoryMutation::SetOrgSecurity {
+                policy,
+                actor,
+                occurred_at_ms,
+            } => {
+                policy.validate()?;
+                let encoded = serde_json::to_string(&policy)
+                    .map_err(|_| DirectoryError::Backend("postgres.invalid_security_policy"))?;
+                c.execute(
+                    "UPDATE runbook.organization SET security = $2 WHERE org_id = $1",
+                    &[&org, &encoded],
+                )
+                .await
+                .map_err(db)?;
+                c.execute(
+                    "INSERT INTO runbook.org_security_audit (org_id, actor, policy, occurred_at_ms) VALUES ($1, $2, $3, $4)",
+                    &[&org, &actor.as_str(), &encoded, &occurred_at_ms],
+                ).await.map_err(db)?;
+            }
             DirectoryMutation::CreateUser(u) => {
                 if u.name.trim().is_empty() {
                     return Err(DirectoryError::Invalid("user name"));
@@ -504,15 +523,17 @@ pub(crate) async fn snapshot_in(
     org_id: &OrganizationId,
 ) -> Result<DirectorySnapshot, DirectoryError> {
     let org = org_id.as_str();
-    let title: String = c
+    let organization = c
         .query_opt(
-            "SELECT title FROM runbook.organization WHERE org_id = $1",
+            "SELECT title, security FROM runbook.organization WHERE org_id = $1",
             &[&org],
         )
         .await
         .map_err(db)?
-        .ok_or(DirectoryError::NotFound)?
-        .get(0);
+        .ok_or(DirectoryError::NotFound)?;
+    let title = organization.get(0);
+    let security = serde_json::from_str(organization.get(1))
+        .map_err(|_| DirectoryError::Backend("postgres.invalid_security_policy"))?;
     let revision = uint(
         c.query_one(
             "SELECT revision FROM runbook.directory_revision WHERE org_id = $1",
@@ -606,6 +627,7 @@ pub(crate) async fn snapshot_in(
     Ok(DirectorySnapshot {
         org_id: org_id.clone(),
         revision,
+        security,
         organization: OrganizationRecord {
             id: org_id.clone(),
             title,

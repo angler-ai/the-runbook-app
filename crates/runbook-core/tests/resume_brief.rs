@@ -46,6 +46,7 @@ fn agent() -> ActorPrincipal {
             session_id: "s1".into(),
             name: "bot".into(),
             model: None,
+            service_attribution: None,
         },
         credential_ref: "svc-1".into(),
     }
@@ -235,6 +236,7 @@ fn fresh_session_brief_is_sufficient() {
             summary: Some("error rate is low".into()),
             evidence: vec![],
             logs: vec![],
+            cost: None,
         },
         None,
     ))
@@ -422,6 +424,7 @@ fn handed_off_agent_task_is_human_work() {
             summary: Some("cannot reach the host".into()),
             evidence: vec![],
             logs: vec![],
+            cost: None,
         },
         None,
     ))

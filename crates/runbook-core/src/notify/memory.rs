@@ -20,7 +20,7 @@ struct LeasedEmail {
 struct Db {
     preferences: BTreeMap<UserId, (EmailPreference, Option<String>)>,
     emails: BTreeMap<String, LeasedEmail>,
-    slack: BTreeMap<(String, String), String>,
+    slack: BTreeMap<(String, String), ProjectSlackSettings>,
 }
 
 #[derive(Clone, Default)]
@@ -222,10 +222,10 @@ impl NotifyStore for MemoryNotify {
             Ok(leases)
         })
     }
-    async fn slack_url(
+    async fn slack_settings(
         &self,
         scope: &crate::catalog::TenantScope,
-    ) -> Result<Option<String>, StoreError> {
+    ) -> Result<Option<ProjectSlackSettings>, StoreError> {
         Ok(self
             .db
             .borrow()
@@ -233,21 +233,36 @@ impl NotifyStore for MemoryNotify {
             .get(&(scope.org_id.to_string(), scope.project_id.to_string()))
             .cloned())
     }
-    async fn set_slack_url(
+    async fn save_slack_settings(
         &self,
         scope: &crate::catalog::TenantScope,
-        url: Option<String>,
-    ) -> Result<(), StoreError> {
+        target: Option<String>,
+        notify_run_started: Option<bool>,
+    ) -> Result<Option<ProjectSlackSettings>, StoreError> {
         self.transaction(|db| {
             let key = (scope.org_id.to_string(), scope.project_id.to_string());
-            match url {
-                Some(url) => {
-                    db.slack.insert(key, url);
-                }
-                None => {
-                    db.slack.remove(&key);
-                }
-            }
+            let previous = db.slack.get(&key);
+            let Some(target) = target.or_else(|| previous.map(|settings| settings.target.clone()))
+            else {
+                return Ok(None);
+            };
+            let settings = ProjectSlackSettings {
+                target,
+                notify_run_started: notify_run_started.unwrap_or_else(|| {
+                    previous.is_some_and(|settings| settings.notify_run_started)
+                }),
+            };
+            db.slack.insert(key, settings.clone());
+            Ok(Some(settings))
+        })
+    }
+    async fn remove_slack_settings(
+        &self,
+        scope: &crate::catalog::TenantScope,
+    ) -> Result<(), StoreError> {
+        self.transaction(|db| {
+            db.slack
+                .remove(&(scope.org_id.to_string(), scope.project_id.to_string()));
             Ok(())
         })
     }

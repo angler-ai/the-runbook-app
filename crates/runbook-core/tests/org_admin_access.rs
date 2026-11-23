@@ -23,6 +23,7 @@ fn snapshot() -> DirectorySnapshot {
     let mut s = DirectorySnapshot {
         org_id: org(1),
         revision: 1,
+        security: Default::default(),
         organization: OrganizationRecord {
             id: org(1),
             title: "Org".into(),

@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError, type Schemas } from '../../api/client';
 import { isCookieSession } from '../auth/session';
+import { authRequest, mfaErrorMessage, AuthApiError } from '../mfa/authApi';
+import { securityCodeMessage } from '../mfa/messages';
 
 export type TokenView = Schemas['TokenView'];
 export type TokenSecretView = Schemas['TokenSecretView'];
@@ -8,7 +10,8 @@ export type ConnectedAppView = Schemas['ConnectedAppView'];
 
 export interface SessionItem {
   id: string;
-  token: string;
+  /** No longer returned by the auth service; sessions are revoked by `id`. */
+  token?: string;
   createdAt: string | number;
   expiresAt: string | number;
   ipAddress?: string | null;
@@ -16,8 +19,9 @@ export interface SessionItem {
 }
 
 export function friendlySettingsError(error: unknown): string {
+  if (error instanceof AuthApiError) return mfaErrorMessage(error);
   if (error instanceof ApiError) {
-    return `The server refused that action (${error.code}).`;
+    return securityCodeMessage(error.code) ?? `The server refused that action (${error.code}).`;
   }
   return error instanceof Error ? error.message : 'Action failed.';
 }
@@ -26,35 +30,19 @@ export function useSessions() {
   return useQuery({
     queryKey: ['auth', 'sessions'],
     enabled: isCookieSession(),
-    queryFn: async () => {
-      const res = await fetch('/api/auth/list-sessions', {
-        headers: { 'x-runbook-csrf': '1' },
-      });
-      if (!res.ok) {
-        throw new Error('Failed to load active sessions.');
-      }
-      return (await res.json()) as SessionItem[];
-    },
+    // An enrolled account must have verified a factor to list sessions
+    // (`auth.mfa_required`); the pages offer the check instead of a prompt
+    // on load (see SessionsLocked).
+    queryFn: () => authRequest<SessionItem[]>('/list-sessions', { stepUp: false }),
+    retry: false,
   });
 }
 
 export function useRevokeSession() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (token: string) => {
-      const res = await fetch('/api/auth/revoke-session', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          origin: globalThis.location?.origin ?? '',
-          'x-runbook-csrf': '1',
-        },
-        body: JSON.stringify({ token }),
-      });
-      if (!res.ok) {
-        throw new Error('Failed to revoke session.');
-      }
-    },
+    mutationFn: (sessionId: string) =>
+      authRequest('/revoke-session', { body: { session_id: sessionId } }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['auth', 'sessions'] });
     },
@@ -64,20 +52,7 @@ export function useRevokeSession() {
 export function useRevokeOtherSessions() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async () => {
-      const res = await fetch('/api/auth/revoke-other-sessions', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          origin: globalThis.location?.origin ?? '',
-          'x-runbook-csrf': '1',
-        },
-        body: JSON.stringify({}),
-      });
-      if (!res.ok) {
-        throw new Error('Failed to revoke other sessions.');
-      }
-    },
+    mutationFn: () => authRequest('/revoke-other-sessions', { body: {} }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['auth', 'sessions'] });
     },

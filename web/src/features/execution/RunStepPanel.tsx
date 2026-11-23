@@ -14,7 +14,7 @@ import { LogBlock, isUserId, stepHeadingId } from '../../ui/execution';
 import { ActorBadge, StatusPill, StepLabels, WaitBadge } from '../../ui/status';
 import { isEligibleToDecide, type Capabilities } from './gating';
 import { useLogView } from './logs';
-import type { RunRecord } from './overlay';
+import { stepActor, type RunRecord } from './overlay';
 import { StepActions } from './StepActions';
 import { strictAssigneeLabel, takenOverText } from './takeOver';
 import type { DirectoryNames } from '../context/names';
@@ -133,6 +133,7 @@ function RunDetails({
   const logs = useLogView(section, documentAt);
   const checklist = step?.checklist ?? [];
   const approval = section.approval;
+  const actor = stepActor(record);
   const claimant = step?.claim && section.status === 'claimed' ? section.actor : null;
   const taken = takenOverText(section, names.nameOf);
   const strict = section.assignee?.strict ? section.assignee : null;
@@ -172,13 +173,11 @@ function RunDetails({
             <WaitBadge kind={run.badge.kind} label={run.badge.label} />
           </Fact>
         ) : null}
-        {section.actor && section.actor.kind !== 'system' ? (
+        {actor && actor.kind !== 'system' ? (
           <Fact label={claimant ? 'Claimed by' : 'Done by'}>
             <ActorBadge
-              actor={section.actor}
-              {...(section.actor.kind === 'human'
-                ? { name: names.nameOf(section.actor.user_id) }
-                : {})}
+              actor={actor}
+              {...(actor.kind === 'human' ? { name: names.nameOf(actor.user_id) } : {})}
             />
           </Fact>
         ) : null}

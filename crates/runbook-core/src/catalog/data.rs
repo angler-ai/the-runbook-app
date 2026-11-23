@@ -176,6 +176,7 @@ impl CatalogData {
             && latest.semantic_hash == prepared.semantic_hash
         {
             return Ok(runbook_model::PublishedVersionView {
+                warnings: prepared.warnings.clone(),
                 runbook_id: id.clone(),
                 runbook_version_id: latest.version_id.clone(),
                 runbook_version: latest.number.expect("published number"),
@@ -185,6 +186,7 @@ impl CatalogData {
         let number = std::num::NonZeroU32::new(next)
             .ok_or(StoreError::InvalidBatch("catalog.version_overflow"))?;
         let view = runbook_model::PublishedVersionView {
+            warnings: prepared.warnings.clone(),
             runbook_id: id.clone(),
             runbook_version_id: prepared.version_id.clone(),
             runbook_version: number,
@@ -221,6 +223,7 @@ impl CatalogData {
             && latest.semantic_hash == prepared.semantic_hash
         {
             return Ok(runbook_model::PublishedVersionView {
+                warnings: prepared.warnings.clone(),
                 runbook_id: id.clone(),
                 runbook_version_id: latest.version_id.clone(),
                 runbook_version: latest.number.expect("published number"),
@@ -230,6 +233,7 @@ impl CatalogData {
         let number = std::num::NonZeroU32::new(next)
             .ok_or(StoreError::InvalidBatch("catalog.version_overflow"))?;
         let view = runbook_model::PublishedVersionView {
+            warnings: prepared.warnings.clone(),
             runbook_id: id.clone(),
             runbook_version_id: prepared.version_id.clone(),
             runbook_version: number,
@@ -334,6 +338,7 @@ impl CatalogData {
             .iter()
             .filter_map(|v| {
                 v.number.map(|number| runbook_model::PublishedVersionView {
+                    warnings: Vec::new(),
                     runbook_id: id.clone(),
                     runbook_version_id: v.version_id.clone(),
                     runbook_version: number,
@@ -1203,6 +1208,7 @@ mod tests {
                 snapshot_size: 3,
                 source: source.into(),
                 snapshot: vec![1, 2, 3],
+                warnings: Vec::new(),
                 pins: crate::publish::SelectedPins {
                     skills: Default::default(),
                     users: Default::default(),

@@ -457,6 +457,10 @@ fn two_subscriptions_receive_exactly_their_events() {
     }
     assert_eq!(body["version"], 1);
     assert_eq!(body["execution"]["id"], exe().as_str());
+    assert_eq!(
+        body["execution"]["web_url"],
+        format!("https://runbook.example/x/{}", exe())
+    );
     assert_eq!(body["execution"]["runbook_version"], 1);
     assert!(body["id"].as_str().unwrap().starts_with("evt_"));
 }

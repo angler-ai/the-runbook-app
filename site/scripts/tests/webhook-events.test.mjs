@@ -25,8 +25,11 @@ for (const e of entries) {
     if (body.execution === null) {
       assert.equal(body.sequence, 0, 'project events have sequence 0');
     } else {
-      assert.deepEqual(Object.keys(body.execution), ['id', 'title', 'runbook', 'runbook_version_id', 'runbook_version', 'url']);
+      assert.deepEqual(Object.keys(body.execution), ['id', 'title', 'runbook', 'runbook_version_id', 'runbook_version', 'url', 'web_url']);
       assert.match(body.execution.id, /^exe_/);
+      const api = new URL(body.execution.url);
+      assert.equal(api.pathname, `/v1/executions/${body.execution.id}`);
+      assert.equal(body.execution.web_url, new URL(`/x/${body.execution.id}`, api).href);
     }
     assert.equal(typeof body.data, 'object');
   });

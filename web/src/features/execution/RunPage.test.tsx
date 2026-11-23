@@ -203,6 +203,7 @@ function renderRunWith(
     return (
       <ExecutionDocumentPage
         executionId={exe}
+        deepLinkedStep={search.step}
         view={search.view ?? 'graph'}
         onViewChange={(view) =>
           void navigate({ to: '.', search: view === 'graph' ? {} : { view }, replace: true })
@@ -294,6 +295,24 @@ describe('the live execution graph', () => {
     expect(await screen.findByText('Older version · latest is v2')).toBeInTheDocument();
     expect(screen.getByRole('progressbar', { name: '1 of 7 steps done' })).toBeInTheDocument();
     expect(await screen.findByText('Started by Riley Chen')).toBeInTheDocument();
+  });
+
+  it('shows the runner agent in the graph and step panel', async () => {
+    renderRun(`/x/${RUN_ID}`, () => {
+      const doc = waitingOnApproval();
+      const section = doc.sections.find((s) => s.path === 'changelog')!;
+      const step = doc.header.steps.find((s) => s.id === section.step_run_id)!;
+      if (section.actor?.kind !== 'agent') throw new Error('Expected an agent actor');
+      section.actor = { ...section.actor, name: 'rn_1', principal_id: 'runner:rn_1', model: null };
+      step.runner = { agent_id: 'agt_1', agent_name: 'release-reviewer', model: 'sonnet' };
+      return doc;
+    });
+    const changelog = await card('changelog');
+    expect(within(changelog).getByText('release-reviewer · sonnet')).toBeInTheDocument();
+    fireEvent.click(within(changelog).getByRole('button', { name: /changelog/i }));
+    const panel = await screen.findByRole('complementary', { name: 'Step details' });
+    expect(within(panel).getByText('release-reviewer · sonnet')).toBeInTheDocument();
+    expect(within(panel).queryByText('rn_1')).not.toBeInTheDocument();
   });
 
   it('opens the selected step run in the side panel, with its log and the definition folded', async () => {
@@ -850,6 +869,16 @@ describe('the Document view', () => {
     expect(step('rollout[0].settle#2.region_health')).toHaveAttribute('data-icon', 'pass');
     // No verdict: the status decides.
     expect(step('rollout[0].deploy_region')).toHaveAttribute('data-icon', 'succeeded');
+  });
+
+  it('selects the addressed step when opening a budget link', async () => {
+    const doc = waitingOnApproval();
+    const step = doc.sections[0]!;
+    renderRun(`/x/${RUN_ID}?view=steps&step=${encodeURIComponent(step.step_run_id)}`, () => doc);
+    await waitFor(() =>
+      expect(document.querySelector('[aria-current="step"]')).toHaveTextContent(step.title),
+    );
+    expect(document.activeElement).toHaveTextContent(step.title);
   });
 
   it('switches views through the tabs and keeps the choice in the URL', async () => {

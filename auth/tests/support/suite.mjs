@@ -185,7 +185,7 @@ export function behaviourSuite(h) {
     const session = await internalSession(h, cookieHeader(accepted));
     assert.equal(session.status, 200);
     // Google's name (and photo, when the token has one) ride along for the account.
-    assert.deepEqual({ ...(await session.json()), auth_user_id: undefined, session_id: undefined, expires_at: undefined }, { auth_user_id: undefined, email, email_verified: true, name: 'Test Person', session_id: undefined, expires_at: undefined });
+    assert.deepEqual({ ...(await session.json()), auth_user_id: undefined, session_id: undefined, expires_at: undefined }, { auth_user_id: undefined, email, email_verified: true, mfa_verified_at: null, mfa_method: null, mfa_enrolled: false, name: 'Test Person', session_id: undefined, expires_at: undefined });
   });
 
   test('a Google ID token not signed by Google is refused', async () => {
@@ -288,7 +288,7 @@ export function behaviourSuite(h) {
     const ok = await internalSession(h, cookie);
     assert.equal(ok.status, 200);
     const body = await ok.json();
-    assert.deepEqual(Object.keys(body).sort(), ['auth_user_id', 'email', 'email_verified', 'expires_at', 'session_id']);
+    assert.deepEqual(Object.keys(body).sort(), ['auth_user_id', 'email', 'email_verified', 'expires_at', 'mfa_enrolled', 'mfa_method', 'mfa_verified_at', 'session_id']);
     // UPD1 review #8: every recorded version of this answer (api/internal/)
     // is still met, field by field and type by type: the api Worker of the
     // previous release reads it during an update.
@@ -296,6 +296,9 @@ export function behaviourSuite(h) {
       const recorded = JSON.parse(readFileSync(join(CONTRACT, name), 'utf8'));
       for (const [key, value] of Object.entries(recorded)) assert.equal(typeof body[key], typeof value, `${name}: ${key}`);
     }
+    assert.equal(body.mfa_enrolled, false);
+    assert.equal(body.mfa_method, null);
+    assert.equal(body.mfa_verified_at, null);
     assert.equal(body.email, email);
     assert.equal(body.email_verified, true);
     assert.equal(typeof body.expires_at, 'number');

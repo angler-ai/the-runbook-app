@@ -103,6 +103,9 @@ fn token(user: u8, scope: &str) -> ResolvedSession {
         picture_url: None,
         session_id: format!("oauth:token-{scope}"),
         expires_at_ms: i64::MAX,
+        mfa_verified_at: None,
+        mfa_method: None,
+        mfa_enrolled: Some(false),
         principal: None,
         scopes: Some(scope.to_owned()),
     }
@@ -219,7 +222,7 @@ fn an_oauth_grant_never_approves_device_logins_or_mints_execution_credentials() 
     );
     assert_eq!(
         (refused.status, refused.body["code"].as_str()),
-        (403, Some("auth.forbidden")),
+        (403, Some("auth.mfa_step_up")),
         "{}",
         refused.body
     );
@@ -475,4 +478,541 @@ fn mcp_answers_oauth_tokens_and_challenges_with_the_metadata() {
     let plain = router(false);
     let r2 = mcp(&plain, Some(&active), &[]);
     assert_eq!(r2.header_value("www-authenticate"), Some("Bearer"));
+}
+
+#[test]
+fn browser_runner_scopes_follow_project_roles() {
+    let r = seeded();
+    let mut browser = token(2, "");
+    browser.scopes = None;
+    let viewer = run(grant(&r.backends, browser.clone())).unwrap();
+    assert!(viewer.scopes.contains(&Scope::RunnerRead));
+    assert!(!viewer.scopes.contains(&Scope::RunnerAdmin));
+    run(r.backends.directory.commit(DirectoryCommit {
+        org_id: id("org", 1),
+        expected_revision: run(r.backends.directory.snapshot(&id("org", 1)))
+            .unwrap()
+            .revision,
+        mutations: vec![DirectoryMutation::GrantProjectRole {
+            project_id: id("prj", 1),
+            user_id: id("usr", 2),
+            role: ProjectRole::Editor,
+        }],
+    }))
+    .unwrap();
+    let editor = run(grant(&r.backends, browser)).unwrap();
+    assert!(editor.scopes.contains(&Scope::RunnerAdmin));
+    let oauth = run(grant(&r.backends, token(2, "runner:read runner:admin"))).unwrap();
+    assert_eq!(oauth.scopes, BTreeSet::from([Scope::RunnerRead]));
+}
+
+#[test]
+fn mfa_blocks_every_sensitive_route_when_stale_and_with_oauth() {
+    use runbook_api::{
+        backends::Backends,
+        routes::{MANIFEST, Mfa},
+        runner_proxy,
+    };
+    use runbook_core::directory_operations::DirectoryOperations;
+    let r = seeded();
+    let now = run(r.backends.directory().current_time_ms()).unwrap();
+    let mut session = token(1, "runbooks:read");
+    session.mfa_enrolled = Some(true);
+    session.mfa_method = Some(runbook_api::session::MfaMethod::Passkey);
+    session.mfa_verified_at = Some(now - 600_001);
+    let mut sensitive = Vec::new();
+    for route in MANIFEST {
+        let reason = match route.mfa {
+            Mfa::Sensitive(reason) => {
+                sensitive.push((route.method, route.path.to_owned()));
+                reason
+            }
+            Mfa::Standard(reason) | Mfa::DestructiveDecision(reason) => reason,
+        };
+        assert!(!reason.trim().is_empty(), "{} {}", route.method, route.path);
+    }
+    for route in &runner_proxy::routes().routes {
+        assert!(
+            !route.mfa_reason.trim().is_empty(),
+            "{} {}",
+            route.method,
+            route.path
+        );
+        if route.sensitive {
+            sensitive.push((
+                route.method.as_str(),
+                format!("/v1/runners/sample/proxy{}", route.path),
+            ));
+        }
+    }
+    for (method, path) in sensitive {
+        let path = path
+            .split('/')
+            .map(|segment| {
+                if segment.starts_with('{') {
+                    "sample"
+                } else {
+                    segment
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("/");
+        for oauth in [false, true] {
+            let mut session = session.clone();
+            if oauth {
+                session.mfa_verified_at = Some(now);
+            } else {
+                session.scopes = None;
+            }
+            let mut req = request(method, &path, None, Value::Null);
+            req.credential = Some(Credential::Session(session));
+            let answer = run(r.handle(req));
+            assert_eq!(
+                answer.status, 403,
+                "{method} {path} oauth={oauth}: {answer:?}"
+            );
+            assert_eq!(answer.body["code"], "auth.mfa_step_up");
+            assert_eq!(answer.body["fresh_minutes"], 10);
+        }
+    }
+}
+
+#[test]
+fn enrolled_and_legacy_sessions_follow_the_organization_policy() {
+    use runbook_api::session::{MfaMethod, parse_session};
+    use runbook_core::directory::{MfaRequirement, OrgSecurity};
+    let legacy = parse_session(&json!({
+        "auth_user_id": "ba_1", "email": "owner@example.test", "email_verified": true,
+        "session_id": "legacy", "expires_at": i64::MAX,
+    }))
+    .unwrap();
+    assert_eq!(legacy.mfa_enrolled, None);
+    assert!(legacy.mfa_verified_at.is_none());
+    let now = 1_000_000;
+    for require_mfa in [
+        MfaRequirement::Off,
+        MfaRequirement::Admins,
+        MfaRequirement::Everyone,
+    ] {
+        for role in [OrgRole::Owner, OrgRole::Admin, OrgRole::Member] {
+            for enrolled in [false, true] {
+                for age in [None, Some(0), Some(600_001)] {
+                    let session = ResolvedSession {
+                        mfa_enrolled: Some(enrolled),
+                        mfa_method: age.map(|_| MfaMethod::Totp),
+                        mfa_verified_at: age.map(|age| now - age),
+                        ..legacy.clone()
+                    };
+                    let required = require_mfa == MfaRequirement::Everyone
+                        || (require_mfa == MfaRequirement::Admins && role != OrgRole::Member);
+                    let policy = OrgSecurity {
+                        require_mfa,
+                        ..OrgSecurity::default()
+                    };
+                    assert_eq!(
+                        runbook_api::mfa::partial(&session, policy, role, now),
+                        required && !(enrolled && age.is_some())
+                    );
+                    let policy = OrgSecurity {
+                        allow_authenticator: false,
+                        ..policy
+                    };
+                    assert_eq!(
+                        runbook_api::mfa::partial(&session, policy, role, now),
+                        required
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn enabling_security_policy_requires_an_allowed_fresh_factor_and_limits_partial_sessions() {
+    use runbook_api::session::MfaMethod;
+    let r = seeded();
+    r.backends.directory.set_time_ms(1_000_000);
+    let mut owner = token(1, "");
+    owner.scopes = None;
+    let mut viewer = token(2, "");
+    viewer.scopes = None;
+    let org: OrganizationId = id("org", 1);
+    let settings = format!("/v1/orgs/{org}/security");
+    let policy = json!({
+        "require_mfa": "everyone", "allow_passkeys": true,
+        "allow_authenticator": false, "fresh_minutes": 5,
+    });
+    let call = |session: &ResolvedSession, method, path: &str, body| {
+        let mut req = request(method, path, None, body);
+        req.credential = Some(Credential::Session(session.clone()));
+        run(r.handle(req))
+    };
+    let forbidden = call(&viewer, "PUT", &settings, policy.clone());
+    assert_eq!(forbidden.body["code"], "auth.forbidden");
+    let needs_enrollment = call(&owner, "PUT", &settings, policy.clone());
+    assert_eq!(needs_enrollment.body["code"], "auth.mfa_step_up");
+
+    owner.mfa_enrolled = Some(true);
+    owner.mfa_method = Some(MfaMethod::Totp);
+    owner.mfa_verified_at = Some(1_000_000);
+    let wrong_factor = call(&owner, "PUT", &settings, policy.clone());
+    assert_eq!(wrong_factor.body["code"], "auth.mfa_step_up");
+    owner.mfa_method = Some(MfaMethod::Passkey);
+    let enabled = call(&owner, "PUT", &settings, policy.clone());
+    assert_eq!(enabled.status, 200, "{enabled:?}");
+    assert_eq!(enabled.body, policy);
+
+    let denied = call(&viewer, "GET", "/v1/orgs", Value::Null);
+    assert_eq!(denied.body["code"], "auth.mfa_required");
+    let minimal = call(&viewer, "GET", "/v1/me", Value::Null);
+    assert_eq!(minimal.status, 200);
+    assert_eq!(minimal.body["user"]["id"], json!(id::<UserId>("usr", 2)));
+    assert!(minimal.body.get("credential").is_none());
+    let security = call(&viewer, "GET", "/v1/me/security", Value::Null);
+    assert_eq!(security.body["mfa_partial"], true);
+    assert_eq!(security.body["allow_authenticator"], false);
+    assert_eq!(security.body["fresh_minutes"], 5);
+
+    let member: UserId = id("usr", 2);
+    let reset = format!("/v1/orgs/{org}/users/{member}/mfa/reset");
+    // `/v1/me/security` asked the sign-in service for the viewer's factors.
+    r.backends.apps.borrow_mut().0.clear();
+    r.backends.apps.borrow_mut().1 = Some(json!({"reset": true}));
+    let answer = call(&owner, "POST", &reset, Value::Null);
+    assert_eq!(answer.status, 200, "{answer:?}");
+    {
+        let calls = &r.backends.apps.borrow().0;
+        assert_eq!(calls[0].0, "mfa/reset");
+        assert_eq!(calls[0].1["actor"], json!(id::<UserId>("usr", 1)));
+        assert_eq!(calls[0].1["auth_user_ids"], json!(["ba_2"]));
+    }
+    run(r.backends.directory.commit(DirectoryCommit {
+        org_id: id("org", 2),
+        expected_revision: 0,
+        mutations: vec![
+            DirectoryMutation::CreateOrganization {
+                title: "Other organization".into(),
+            },
+            DirectoryMutation::CreateUser(UserRecord {
+                id: member,
+                name: "Viewer".into(),
+                active: false,
+                role: OrgRole::Member,
+            }),
+        ],
+    }))
+    .unwrap();
+    let answer = call(&owner, "POST", &reset, Value::Null);
+    assert_eq!(answer.body["code"], "auth.mfa_operator_reset_required");
+    assert_eq!(r.backends.apps.borrow().0.len(), 1);
+}
+
+#[test]
+fn execution_token_mint_and_mcp_configuration_require_fresh_mfa() {
+    use runbook_api::mfa::sensitive;
+    for path in [
+        "/v1/executions/sample/tokens",
+        "/v1/runners/sample/proxy/runner/v1/mcp-servers/sample/pin",
+        "/v1/runners/sample/proxy/runner/v1/mcp-servers/sample/discover",
+    ] {
+        assert!(sensitive("POST", path), "{path}");
+    }
+}
+
+#[test]
+fn bearer_mint_fails_closed_when_the_credential_lookup_is_unavailable() {
+    let r = seeded();
+    let bearer = runbook_core::credentials::encode_secret(
+        runbook_core::credentials::TokenKind::Personal,
+        [1; 32],
+    );
+    let mint = || {
+        let mut req = request("POST", "/v1/tokens", Some(&bearer), json!(17));
+        req.idempotency_key = Some("unavailable-credential-store".into());
+        run(r.handle(req))
+    };
+    r.backends.apps.borrow_mut().1 = Some(json!({"enrolled": true}));
+    r.backends.credentials.fail_next_lookup();
+    let unavailable = mint();
+    assert_eq!(unavailable.status, 503);
+    assert_eq!(unavailable.body["code"], "storage.unavailable");
+    assert_ne!(mint().body["code"], "storage.unavailable");
+}
+
+#[test]
+fn optional_policy_refuses_sensitive_operations_with_unknown_enrollment() {
+    use runbook_api::session::parse_session;
+    let r = seeded();
+    for mfa_enrolled in [Value::Null, json!("true")] {
+        let legacy = parse_session(&json!({
+            "auth_user_id": "ba_1", "email": "owner@example.test", "email_verified": true,
+            "session_id": "legacy", "expires_at": i64::MAX, "mfa_enrolled": mfa_enrolled,
+        }))
+        .unwrap();
+        let mut req = request("POST", "/v1/tokens", None, Value::Null);
+        req.credential = Some(Credential::Session(legacy));
+        let response = run(r.handle(req));
+        assert_eq!(response.status, 503);
+        assert_eq!(response.body["code"], "auth.unavailable");
+    }
+}
+
+#[test]
+fn mfa_required_org_limits_legacy_tokens_to_ordinary_routes() {
+    use runbook_core::directory::{MfaRequirement, OrgSecurity};
+    let r = seeded();
+    let bearer = runbook_core::credentials::encode_secret(
+        runbook_core::credentials::TokenKind::Personal,
+        [1; 32],
+    );
+    let org: OrganizationId = id("org", 1);
+    let snapshot = run(r.backends.directory.snapshot(&org)).unwrap();
+    run(r.backends.directory.commit(DirectoryCommit {
+        org_id: org.clone(),
+        expected_revision: snapshot.revision,
+        mutations: vec![DirectoryMutation::SetOrgSecurity {
+            policy: OrgSecurity {
+                require_mfa: MfaRequirement::Everyone,
+                ..OrgSecurity::default()
+            },
+            actor: id("usr", 1),
+            occurred_at_ms: 1,
+        }],
+    }))
+    .unwrap();
+    let ordinary = run(r.handle(request("GET", "/v1/me", Some(&bearer), Value::Null)));
+    assert_eq!(ordinary.status, 200, "{ordinary:?}");
+    let sensitive = run(r.handle(request(
+        "POST",
+        &format!("/v1/orgs/{org}/invitations"),
+        Some(&bearer),
+        Value::Null,
+    )));
+    assert_eq!(
+        sensitive.body["code"],
+        "auth.mfa_token_replacement_required"
+    );
+
+    use runbook_core::directory_operations::DirectoryOperations;
+    let mut owner = token(1, "");
+    owner.scopes = None;
+    owner.mfa_enrolled = Some(true);
+    owner.mfa_method = Some(runbook_api::session::MfaMethod::Passkey);
+    owner.mfa_verified_at = Some(run(r.backends.directory.current_time_ms()).unwrap());
+    let mut create = request(
+        "POST",
+        "/v1/tokens",
+        None,
+        json!({"name": "Replacement", "scopes": ["project:admin"]}),
+    );
+    create.idempotency_key = Some("fresh-replacement".into());
+    create.credential = Some(Credential::Session(owner.clone()));
+    let created = run(r.handle(create));
+    assert_eq!(created.status, 201, "{created:?}");
+    assert_eq!(created.body["token"]["fresh_mfa_at_issue"], true);
+    let secret = created.body["secret"].as_str().unwrap();
+    let sensitive = run(r.handle(request(
+        "POST",
+        &format!("/v1/orgs/{org}/invitations"),
+        Some(secret),
+        Value::Null,
+    )));
+    assert_ne!(
+        sensitive.body["code"],
+        "auth.mfa_token_replacement_required"
+    );
+    let mut list = request("GET", "/v1/tokens", None, Value::Null);
+    list.credential = Some(Credential::Session(owner));
+    let listed = run(r.handle(list));
+    assert_eq!(listed.body["items"][0]["fresh_mfa_at_issue"], true);
+}
+
+#[test]
+fn my_security_reports_the_sessions_own_factors() {
+    let r = seeded();
+    let mut viewer = token(2, "");
+    viewer.scopes = None;
+    let read = || {
+        let mut req = request("GET", "/v1/me/security", None, Value::Null);
+        req.credential = Some(Credential::Session(viewer.clone()));
+        run(r.handle(req))
+    };
+    r.backends.apps.borrow_mut().1 = Some(json!({"factors": [{
+        "auth_user_id": "ba_2", "email": "viewer@example.test",
+        "passkeys": 2, "authenticator": true,
+    }]}));
+    let answer = read();
+    assert_eq!(answer.status, 200, "{answer:?}");
+    assert_eq!(answer.body["authenticator_enrolled"], true);
+    assert_eq!(answer.body["passkey_count"], 2);
+    {
+        let calls = &r.backends.apps.borrow().0;
+        assert_eq!(calls.last().unwrap().0, "mfa/factors");
+        assert_eq!(calls.last().unwrap().1["auth_user_ids"], json!(["ba_2"]));
+    }
+    r.backends.apps.borrow_mut().1 = Some(json!({"factors": []}));
+    let none = read();
+    assert_eq!(none.body["authenticator_enrolled"], false);
+    assert_eq!(none.body["passkey_count"], 0);
+    // The sign-in service could not answer: both are unknown, not zero.
+    r.backends.apps.borrow_mut().1 = None;
+    let unknown = read();
+    assert_eq!(unknown.status, 200);
+    assert_eq!(unknown.body["authenticator_enrolled"], Value::Null);
+    assert_eq!(unknown.body["passkey_count"], Value::Null);
+}
+
+#[test]
+fn policy_dry_run_requires_fresh_browser_owner() {
+    use runbook_core::credentials::{
+        CredentialRecord, CredentialStore, TokenKind, encode_secret, secret_hash,
+    };
+    let r = seeded();
+    r.backends.directory.set_time_ms(1_000_000);
+    let org: OrganizationId = id("org", 1);
+    let settings = format!("/v1/orgs/{org}/security");
+    let secret = encode_secret(TokenKind::Personal, [2; 32]);
+    run(r.backends.credentials.insert(CredentialRecord {
+        id: id("tok", 2),
+        kind: TokenKind::Personal,
+        hash: secret_hash(&secret),
+        principal: CredentialPrincipal::User {
+            user_id: id("usr", 1),
+            actor: ActorKind::Human,
+        },
+        org_id: org,
+        scopes: [Scope::SkillsRead].into(),
+        projects: None,
+        expires_at: Some(i64::MAX),
+        revoked_at: None,
+        last_used_at: None,
+    }))
+    .unwrap();
+    let mut owner = token(1, "");
+    owner.scopes = None;
+    owner.mfa_enrolled = Some(true);
+    owner.mfa_method = Some(runbook_api::session::MfaMethod::Passkey);
+    owner.mfa_verified_at = Some(1);
+    for credential in [Credential::Bearer(secret), Credential::Session(owner)] {
+        let mut req = request(
+            "PUT",
+            &settings,
+            None,
+            json!({
+                "require_mfa": "off", "allow_passkeys": true, "allow_authenticator": true, "fresh_minutes": 10,
+            }),
+        );
+        req.query.insert("dry_run".into(), "true".into());
+        req.credential = Some(credential);
+        assert_eq!(run(r.handle(req)).body["code"], "auth.mfa_step_up");
+    }
+    assert!(r.backends.apps.borrow().0.is_empty());
+}
+
+#[test]
+fn a_policy_dry_run_lists_members_it_would_lock_out_and_changes_nothing() {
+    let r = seeded();
+    let mut owner = token(1, "");
+    owner.scopes = None;
+    r.backends.directory.set_time_ms(1_000_000);
+    owner.mfa_enrolled = Some(true);
+    owner.mfa_method = Some(runbook_api::session::MfaMethod::Passkey);
+    owner.mfa_verified_at = Some(1_000_000);
+    let org: OrganizationId = id("org", 1);
+    let foreign_org = id("org", 2);
+    run(r.backends.directory.commit(DirectoryCommit {
+        org_id: foreign_org,
+        expected_revision: 0,
+        mutations: vec![
+            DirectoryMutation::CreateOrganization {
+                title: "Other organization".into(),
+            },
+            DirectoryMutation::CreateUser(UserRecord {
+                id: id("usr", 2),
+                name: "Viewer".into(),
+                active: true,
+                role: OrgRole::Owner,
+            }),
+            DirectoryMutation::BindVerifiedEmail {
+                user_id: id("usr", 2),
+                email: "zz-foreign@example.test".into(),
+            },
+        ],
+    }))
+    .unwrap();
+    run(r.backends.directory.link_identity(
+        &id("org", 2),
+        LinkRequest {
+            auth_user_id: "ba_foreign".into(),
+            verified_email: "zz-foreign@example.test".into(),
+            user_id: id("usr", 2),
+            name: "Viewer".into(),
+            invitation: None,
+            now_ms: 1,
+        },
+    ))
+    .unwrap();
+    let settings = format!("/v1/orgs/{org}/security");
+    let preview = |body: Value| {
+        let mut req = request("PUT", &settings, None, body);
+        req.query.insert("dry_run".into(), "true".into());
+        req.credential = Some(Credential::Session(owner.clone()));
+        run(r.handle(req))
+    };
+    let policy = |require: &str, passkeys: bool, authenticator: bool| {
+        json!({"require_mfa": require, "allow_passkeys": passkeys,
+               "allow_authenticator": authenticator, "fresh_minutes": 10})
+    };
+    // The owner has a passkey; the viewer only an authenticator app.
+    r.backends.apps.borrow_mut().1 = Some(json!({"factors": [
+        {"auth_user_id": "ba_1", "email": "owner@example.test", "passkeys": 1, "authenticator": false},
+        {"auth_user_id": "ba_2", "email": "viewer@example.test", "passkeys": 0, "authenticator": true},
+        {"auth_user_id": "ba_foreign", "email": "foreign@example.test", "passkeys": 1, "authenticator": false},
+    ]}));
+    let passkeys_only = preview(policy("everyone", true, false));
+    assert_eq!(passkeys_only.status, 200, "{passkeys_only:?}");
+    assert_eq!(passkeys_only.body["dry_run"], true);
+    assert_eq!(
+        passkeys_only.body["affected"],
+        json!([{"user_id": id::<UserId>("usr", 2), "name": "Viewer",
+                "email": "viewer@example.test",
+                "reason": "factor_not_allowed"}])
+    );
+    assert!(passkeys_only.body.get("must_enroll").is_none());
+    {
+        let calls = &r.backends.apps.borrow().0;
+        assert_eq!(calls.last().unwrap().0, "mfa/factors");
+        assert_eq!(
+            calls.last().unwrap().1["auth_user_ids"],
+            json!(["ba_1", "ba_2"])
+        );
+    }
+    // Admins only: the member is not covered.
+    let admins = preview(policy("admins", true, false));
+    assert_eq!(admins.body["affected"], json!([]));
+    // Nobody has a factor yet.
+    r.backends.apps.borrow_mut().1 = Some(json!({"factors": []}));
+    let bootstrap = preview(policy("everyone", true, true));
+    assert_eq!(bootstrap.body["affected"], json!([]));
+    // The sign-in service could not answer.
+    r.backends.apps.borrow_mut().1 = None;
+    assert_eq!(
+        preview(policy("everyone", true, false)).body["code"],
+        "auth.unavailable"
+    );
+    // Invalid proposals are refused as on save, and nothing was saved.
+    assert_eq!(
+        preview(policy("everyone", false, false)).body["code"],
+        "request.invalid"
+    );
+    let mut read = request("GET", &settings, None, Value::Null);
+    read.credential = Some(Credential::Session(owner.clone()));
+    assert_eq!(run(r.handle(read)).body["require_mfa"], "off");
+    // Only owners may preview.
+    let mut viewer = token(2, "");
+    viewer.scopes = None;
+    let mut req = request("PUT", &settings, None, policy("everyone", true, true));
+    req.query.insert("dry_run".into(), "true".into());
+    req.credential = Some(Credential::Session(viewer));
+    assert_eq!(run(r.handle(req)).body["code"], "auth.forbidden");
 }

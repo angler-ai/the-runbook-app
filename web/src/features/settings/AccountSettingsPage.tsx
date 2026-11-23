@@ -1,10 +1,16 @@
+import { Link } from '@tanstack/react-router';
+import { ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
 import { EmailPreferencesSection } from './EmailPreferencesSection';
 import { ProfileSection } from '../profile/ProfileSection';
 import { Button } from '../../ui/primitives/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../ui/primitives/tabs';
 import { isCookieSession, isPatSession } from '../auth/session';
-import { CreatePersonalTokenDialog } from './CreatePersonalTokenDialog';
+import { CreatePersonalTokenDialog, type TokenTemplate } from './CreatePersonalTokenDialog';
+import { TokenReplacementBadge } from './TokenReplacementBadge';
+import { useMySecurity } from '../mfa/hooks';
+import { SessionsLocked, sessionsLocked } from '../mfa/SessionsLocked';
+import { mfaErrorMessage } from '../mfa/authApi';
 import {
   friendlySettingsError,
   useConnectedApps,
@@ -19,6 +25,7 @@ import {
 export function AccountSettingsPage() {
   const [tab, setTab] = useState<'sessions' | 'tokens' | 'apps'>('sessions');
   const [createTokenOpen, setCreateTokenOpen] = useState(false);
+  const [template, setTemplate] = useState<TokenTemplate | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const isPat = isPatSession();
@@ -26,6 +33,8 @@ export function AccountSettingsPage() {
 
   const sessionsQuery = useSessions();
   const tokensQuery = usePersonalTokens();
+  // Personal tokens follow the policy for the person's current role.
+  const mfaRequired = useMySecurity().data?.mfa_required === true;
   const appsQuery = useConnectedApps();
 
   const revokeSessionMutation = useRevokeSession();
@@ -33,12 +42,12 @@ export function AccountSettingsPage() {
   const revokeTokenMutation = useRevokeToken();
   const revokeAppMutation = useRevokeConnectedApp();
 
-  const handleRevokeSession = async (token: string) => {
+  const handleRevokeSession = async (sessionId: string) => {
     setActionError(null);
     try {
-      await revokeSessionMutation.mutateAsync(token);
+      await revokeSessionMutation.mutateAsync(sessionId);
     } catch (err) {
-      setActionError(friendlySettingsError(err));
+      setActionError(mfaErrorMessage(err));
     }
   };
 
@@ -47,7 +56,7 @@ export function AccountSettingsPage() {
     try {
       await revokeOtherSessionsMutation.mutateAsync();
     } catch (err) {
-      setActionError(friendlySettingsError(err));
+      setActionError(mfaErrorMessage(err));
     }
   };
 
@@ -95,6 +104,24 @@ export function AccountSettingsPage() {
         <EmailPreferencesSection />
       </div>
 
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-surface p-4">
+        <div className="flex gap-3">
+          <ShieldCheck className="mt-0.5 size-5 text-fg-muted" aria-hidden="true" />
+          <div className="grid gap-1">
+            <h2 className="text-base font-semibold text-fg">Security</h2>
+            <p className="text-sm text-fg-muted">
+              Passkeys, authenticator app and backup codes for signing in.
+            </p>
+          </div>
+        </div>
+        <Link
+          to="/settings/security"
+          className="text-sm font-medium text-accent underline-offset-4 hover:underline"
+        >
+          Manage security
+        </Link>
+      </div>
+
       <Tabs value={tab} onValueChange={(val) => setTab(val as typeof tab)}>
         <TabsList className="mb-6">
           <TabsTrigger value="sessions">Sessions</TabsTrigger>
@@ -126,6 +153,8 @@ export function AccountSettingsPage() {
 
           {sessionsQuery.isLoading ? (
             <p className="text-sm text-fg-muted">Loading sessions…</p>
+          ) : sessionsLocked(sessionsQuery.error) ? (
+            <SessionsLocked onVerified={() => void sessionsQuery.refetch()} />
           ) : sessionsQuery.isError ? (
             <p role="alert" className="text-sm text-fg">
               Failed to load active sessions.
@@ -155,7 +184,7 @@ export function AccountSettingsPage() {
                     variant="secondary"
                     size="sm"
                     disabled={revokeSessionMutation.isPending}
-                    onClick={() => void handleRevokeSession(sess.token)}
+                    onClick={() => void handleRevokeSession(sess.id)}
                   >
                     Revoke
                   </Button>
@@ -209,10 +238,27 @@ export function AccountSettingsPage() {
                   className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-surface p-4"
                 >
                   <div className="grid gap-1">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className="font-semibold text-sm text-fg">{tok.name}</span>
                       <span className="font-mono text-xs text-fg-muted">{tok.id}</span>
                     </div>
+                    {mfaRequired && tok.fresh_mfa_at_issue !== true ? (
+                      <TokenReplacementBadge
+                        guidance="Create a replacement with the same scopes (you will confirm it is you), switch your scripts to it, then revoke this one. For the CLI, run runbook login again."
+                        onReplace={
+                          isCookie
+                            ? () => {
+                                setTemplate({
+                                  name: `${tok.name} (replacement)`,
+                                  scopes: tok.scopes,
+                                  projects: tok.projects ?? [],
+                                });
+                                setCreateTokenOpen(true);
+                              }
+                            : undefined
+                        }
+                      />
+                    ) : null}
                     <div className="flex flex-wrap gap-1 pt-1">
                       {tok.scopes.map((scope) => (
                         <span
@@ -251,7 +297,15 @@ export function AccountSettingsPage() {
             </div>
           )}
 
-          <CreatePersonalTokenDialog open={createTokenOpen} onOpenChange={setCreateTokenOpen} />
+          <CreatePersonalTokenDialog
+            key={template ? `replace-${template.name}` : 'new'}
+            open={createTokenOpen}
+            template={template}
+            onOpenChange={(open) => {
+              setCreateTokenOpen(open);
+              if (!open) setTemplate(null);
+            }}
+          />
         </TabsContent>
 
         {/* Connected Apps Tab */}

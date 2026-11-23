@@ -1,4 +1,5 @@
 import { useId, useState, type ReactNode } from 'react';
+import { Bot } from 'lucide-react';
 import type { components } from '../../api/schema';
 import { Button } from '../primitives/button';
 import { Input } from '../primitives/input';
@@ -6,12 +7,50 @@ import { Label } from '../primitives/label';
 import { cn } from '../primitives/cn';
 import { ActorBadge } from '../status/ActorBadge';
 import { shortId, type NameOf } from '../execution/names';
+import { formatRelativeTime } from '../../lib/format';
 import { ConfirmDialog } from './ConfirmDialog';
 
 export type ApprovalView = components['schemas']['ApprovalView'];
 export type ApprovalOption = components['schemas']['ApprovalOption'];
 export type DecisionRecord = components['schemas']['DecisionRecord'];
 export type RecipientRef = components['schemas']['RecipientRef'];
+export type DecisionLeaseView = components['schemas']['DecisionLeaseView'];
+export type ApprovalAgentNote = components['schemas']['ApprovalAgentNote'];
+
+/**
+ * R1-D2: the runner agent an `allow_agents` approval names (`agent:`),
+ * and when its decision work becomes ready (`agent.after` past opening).
+ */
+export interface ApprovalAgent {
+  name: string;
+  /** Epoch ms; absent until the approval is requested. */
+  readyAtMs?: number | null;
+}
+
+/**
+ * What a runner agent is doing on an open approval, in words: reviewing
+ * (a decision lease is held), abstained, or when it may decide. Null when
+ * the approval names no runner agent, or once it is closed.
+ */
+export function agentReviewText(
+  approval: Pick<ApprovalView, 'status' | 'decision_lease' | 'agent_notes'>,
+  agent: ApprovalAgent | undefined,
+  now: number,
+): string | null {
+  if (!isApprovalOpen(approval)) return null;
+  const lease = approval.decision_lease;
+  if (lease) return `Agent ${lease.agent_name} is reviewing`;
+  const notes = approval.agent_notes ?? [];
+  const last = notes[notes.length - 1];
+  if (last) return `Agent ${last.agent_name} abstained`;
+  if (!agent) return null;
+  if (agent.readyAtMs != null && agent.readyAtMs > now) {
+    return `Agent ${agent.name} may decide ${formatRelativeTime(agent.readyAtMs, now)} if no one has`;
+  }
+  return agent.readyAtMs != null
+    ? `Agent ${agent.name} may decide now`
+    : `Agent ${agent.name} may decide`;
+}
 
 export interface ExtendedApprovalOption extends ApprovalOption {
   destructive?: boolean;
@@ -35,6 +74,15 @@ export interface ApprovalPanelProps {
   outcome?: { option: string; by?: string } | null;
   /** Why this person cannot vote (not eligible, already voted): shown in the panel. */
   notice?: ReactNode;
+  /** R1-D2: the runner agent this approval lets decide (`agent:`), if any. */
+  agent?: ApprovalAgent;
+  /**
+   * R1-D2: the runner transcript of this approval's decision runs (keyed
+   * by the approval's step run). Linked from agent decisions.
+   */
+  transcriptHref?: string;
+  /** Clock for "may decide in 15m" (epoch ms); defaults to mount time. */
+  now?: number;
   className?: string;
 }
 
@@ -58,7 +106,7 @@ const sameTeam = (reference: string) => reference;
 
 function decisionAuthor(decision: DecisionRecord, nameOf: NameOf): string {
   if (decision.by === 'human') return nameOf(decision.user_id);
-  if (decision.by === 'agent') return decision.agent_name;
+  if (decision.by === 'agent') return `agent ${decision.agent_name}`;
   return 'System policy';
 }
 
@@ -102,9 +150,14 @@ export function ApprovalPanel({
   teamName = sameTeam,
   outcome,
   notice,
+  agent,
+  transcriptHref,
+  now: nowProp,
   className,
 }: ApprovalPanelProps) {
   const [comment, setComment] = useState('');
+  const [mountedAt] = useState(() => Date.now());
+  const now = nowProp ?? mountedAt;
   // Every vote is confirmed: a recorded vote cannot be changed (U16).
   const [pendingOption, setPendingOption] = useState<ExtendedApprovalOption | null>(null);
   const commentId = useId();
@@ -161,6 +214,8 @@ export function ApprovalPanel({
           </>
         )}
       </div>
+
+      <AgentReview approval={approval} agent={agent} now={now} open={open} />
 
       {open ? (
         <>
@@ -243,21 +298,7 @@ export function ApprovalPanel({
 
               if (decision.by === 'agent') {
                 return (
-                  <div key={idx} className="flex flex-wrap items-center gap-2 text-xs">
-                    <ActorBadge
-                      actor={{
-                        kind: 'agent',
-                        name: decision.agent_name,
-                        model: decision.model,
-                        principal_id: decision.agent_name,
-                        session_id: decision.session_id,
-                      }}
-                    />
-                    <span className="font-semibold text-fg">chose {decision.option}</span>
-                    {decision.comment && (
-                      <span className="text-fg-muted italic">"{decision.comment}"</span>
-                    )}
-                  </div>
+                  <AgentDecision key={idx} decision={decision} transcriptHref={transcriptHref} />
                 );
               }
 
@@ -273,6 +314,111 @@ export function ApprovalPanel({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+type AgentDecisionRecord = Extract<DecisionRecord, { by: 'agent' }>;
+
+/**
+ * R1-D2: an agent's decision with its provenance: who (agent and model),
+ * the option, its reason, the `[call N]` evidence it cited, and the
+ * transcript that holds those calls. Never a human signature.
+ */
+function AgentDecision({
+  decision,
+  transcriptHref,
+}: {
+  decision: AgentDecisionRecord;
+  transcriptHref?: string;
+}) {
+  const evidence = decision.evidence ?? [];
+  // Runner decisions carry the runner's principal; their transcript is the
+  // runner's. External agents' decisions have no runner transcript.
+  const fromRunner = Boolean(decision.principal?.startsWith('runner:'));
+  const leaseHref = fromRunner && transcriptHref && decision.session_id
+    ? `${transcriptHref}?claim_id=${encodeURIComponent(decision.session_id)}`
+    : undefined;
+  return (
+    <div data-slot="agent-decision" className="flex flex-col gap-1 text-xs">
+      <div className="flex flex-wrap items-center gap-2">
+        <Bot className="size-3.5 shrink-0 text-fg-muted" aria-hidden="true" />
+        <span className="text-fg">
+          Decided by agent <span className="font-mono">{decision.agent_name}</span>
+          {decision.model ? <> ({decision.model})</> : null}
+        </span>
+        <span className="font-semibold text-fg">chose {decision.option}</span>
+      </div>
+      {decision.comment && <span className="text-fg-muted italic">"{decision.comment}"</span>}
+      {evidence.length > 0 || leaseHref ? (
+        <div className="flex flex-wrap items-center gap-2 text-2xs text-fg-muted">
+          {evidence.length > 0 ? (
+            <span>
+              {fromRunner ? 'Runner-reported evidence: ' : 'Evidence: '}<span className="font-mono">{evidence.join(', ')}</span>
+            </span>
+          ) : null}
+          {leaseHref ? (
+            <a className="text-accent underline" href={leaseHref}>
+              Runner transcript
+            </a>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * R1-D2: what the runner agent is doing on this approval: reviewing now
+ * (people can still decide; the first decision wins), its abstentions,
+ * or when it may decide.
+ */
+function AgentReview({
+  approval,
+  agent,
+  now,
+  open,
+}: {
+  approval: Pick<ApprovalView, 'status' | 'decision_lease' | 'agent_notes'>;
+  agent?: ApprovalAgent;
+  now: number;
+  open: boolean;
+}) {
+  const notes = approval.agent_notes ?? [];
+  const lease = open ? approval.decision_lease : null;
+  if (!lease && notes.length === 0 && !(open && agent)) return null;
+  const waiting =
+    open && !lease && notes.length === 0 ? agentReviewText(approval, agent, now) : null;
+  return (
+    <div data-slot="agent-review" className="flex flex-col gap-1.5 text-xs">
+      {lease ? (
+        <p role="status" className="flex flex-wrap items-center gap-1.5 text-fg">
+          <Bot className="size-3.5 shrink-0 text-fg-muted" aria-hidden="true" />
+          <span>
+            Agent <span className="font-mono">{lease.agent_name}</span> is reviewing.
+          </span>
+          <span className="text-fg-muted">You can still decide; the first decision wins.</span>
+        </p>
+      ) : null}
+      {notes.map((note) => (
+        <p key={`${note.lease_id}-${note.at_ms}`} className="flex flex-wrap items-center gap-1.5">
+          <Bot className="size-3.5 shrink-0 text-fg-muted" aria-hidden="true" />
+          <span className="text-fg">
+            Agent <span className="font-mono">{note.agent_name}</span>
+            {note.model ? <> ({note.model})</> : null} abstained:{' '}
+            <span className="text-fg-muted italic">{note.reason}</span>
+          </span>
+        </p>
+      ))}
+      {open && notes.length > 0 && !lease ? (
+        <p className="text-fg-muted">People decide this approval.</p>
+      ) : null}
+      {waiting ? (
+        <p className="flex flex-wrap items-center gap-1.5 text-fg-muted">
+          <Bot className="size-3.5 shrink-0" aria-hidden="true" />
+          <span>{waiting}. People can decide first.</span>
+        </p>
+      ) : null}
     </div>
   );
 }
