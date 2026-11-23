@@ -327,12 +327,6 @@ carry a payload.
 
 **Fix:** remove `outputs`, or wait for a `signal`.
 
-### `spec.independent_review_required`
-
-An approval with `exclude_completers_of` cannot choose an option automatically
-on timeout. Remove the automatic timeout decision to let the gate escalate or
-expire.
-
 ### `spec.invalid_excluded_completer`
 
 > Name a distinct human-capable task that precedes this approval on every path.
@@ -642,6 +636,16 @@ An approval names no approvers. Reported when you publish.
 `allow_agents: true` is set on an approval whose `min` isn't 1.
 
 **Fix:** set `min: 1`, or don't let agents decide.
+
+### `spec.independent_review_required`
+
+An approval with `exclude_completers_of` also sets
+`on_timeout: { decide: … }`. An independent review must be decided by a
+person who didn't work the named steps, so it can't decide itself when it
+times out. Reported when you publish.
+
+**Fix:** remove `on_timeout`, or set it to `escalate` so the review goes to
+other people instead.
 
 ### `spec.agent_approval_destructive`
 

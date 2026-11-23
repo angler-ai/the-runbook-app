@@ -445,6 +445,15 @@ Fix: add `approvers: { users: [...] }` or `approvers: { teams: [...] }`.
 
 Fix: set `min: 1`, or don't let agents decide.
 
+## spec.independent_review_required
+An approval with `exclude_completers_of` also sets
+`on_timeout: { decide: … }`. An independent review must be decided by a
+person who didn't work the named steps, so it can't decide itself when it
+times out. Reported when you publish.
+
+Fix: remove `on_timeout`, or set it to `escalate` so the review goes to
+other people instead.
+
 ## spec.agent_approval_destructive
 An approval that agents may decide (`allow_agents`) can lead to a
 destructive task. Only people may approve a destructive path. Reported

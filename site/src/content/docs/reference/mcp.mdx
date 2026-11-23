@@ -15,6 +15,7 @@ The same tools, resources and prompts are served locally over stdio
 | --- | --- |
 | [`append_log`](#append_log) | Stream progress or command output into the step's log; each line is one entry. Never log secrets. CLI: runbook step log &#60;sr&#62; (stdin). |
 | [`claim_step`](#claim_step) | Take the lease on a ready step before reading it (get_step) or working on it. Declare agent_name, model and a session_id. Returns the claim to pass to later calls. CLI: runbook step claim &#60;sr&#62; --session &#60;id&#62; --agent-name &#60;name&#62; --json. |
+| [`connect_runner_credential`](#connect_runner_credential) | OAuth connect requires a browser. This tool returns the available human handoff. |
 | [`create_runner_agent`](#create_runner_agent) | Create a runner agent. Requires runner:admin. Widening access returns proposal_id for human review. |
 | [`create_runner_credential`](#create_runner_credential) | Create credential metadata or propose it for approval. Requires runner:admin. Hand the returned URL and CLI command to a person for secret entry. |
 | [`create_runner_mcp_server`](#create_runner_mcp_server) | create upstream MCP server configuration. Requires runner:admin. |
@@ -31,6 +32,7 @@ The same tools, resources and prompts are served locally over stdio
 | [`get_runbook`](#get_runbook) | A runbook's catalog entry, the identity of its latest published version, that version's input schema (JSON Schema of start_execution inputs) and its step outline (IDs, titles and kinds only; no instructions). CLI: runbook get &#60;runbook&#62; --json. |
 | [`get_runbook_source`](#get_runbook_source) | The draft source YAML of a runbook and its revision, for editing. Needs runbooks:read; not available to execution credentials. CLI: runbook pull &#60;runbook&#62;. |
 | [`get_runner_agent`](#get_runner_agent) | Show a runner agent. Requires runner:read. |
+| [`get_runner_credential`](#get_runner_credential) | Read the configuration and OAuth connection status of a runner credential. OAuth connect requires a browser session. Requires runner:read. |
 | [`get_runner_group`](#get_runner_group) | get runner group configuration. Requires runner:read. |
 | [`get_runner_mcp_server`](#get_runner_mcp_server) | get upstream MCP server configuration. Requires runner:read. |
 | [`get_runner_policy`](#get_runner_policy) | Read runner policy and budgets. Requires runner:read. |
@@ -99,6 +101,17 @@ Take the lease on a ready step before reading it (get_step) or working on it. De
 | `session_id` | string | yes | Your agent session ID |
 | `step_run_id` | string | yes | Step run ID (sr_…) |
 
+### `connect_runner_credential`
+
+OAuth connect requires a browser. This tool returns the available human handoff.
+
+Hints: read-only.
+
+| Argument | Type | Required | Description |
+| --- | --- | --- | --- |
+| `credential_id` | string | yes | Credential ID |
+| `install_id` | string | yes | Runner install ID from runner_status |
+
 ### `create_runner_agent`
 
 Create a runner agent. Requires runner:admin. Widening access returns proposal_id for human review.
@@ -119,7 +132,7 @@ Create credential metadata or propose it for approval. Requires runner:admin. Ha
 | `install_id` | string | yes | Runner install ID from runner_status |
 | `label` | "read" \| "write" \| "destructive" |  |  |
 | `name` | string | yes | Credential name |
-| `type` | "api-key" \| "model-provider" \| "mcp-bearer" | yes |  |
+| `type` | "api-key" \| "model-provider" \| "mcp-bearer" \| "mcp-oauth" | yes |  |
 
 ### `create_runner_mcp_server`
 
@@ -267,6 +280,17 @@ Hints: read-only.
 | `agent_id` | string | yes | Agent ID |
 | `install_id` | string | yes | Runner install ID from runner_status |
 | `project_id` | string | yes | Project ID |
+
+### `get_runner_credential`
+
+Read the configuration and OAuth connection status of a runner credential. OAuth connect requires a browser session. Requires runner:read.
+
+Hints: read-only.
+
+| Argument | Type | Required | Description |
+| --- | --- | --- | --- |
+| `credential_id` | string | yes | Credential ID |
+| `install_id` | string | yes | Runner install ID from runner_status |
 
 ### `get_runner_group`
 

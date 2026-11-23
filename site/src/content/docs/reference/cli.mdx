@@ -1365,6 +1365,11 @@ runbook runner credential <COMMAND>
 - [`create`](#runbook-runner-credential-create): Create runner credential metadata from JSON
 - [`set`](#runbook-runner-credential-set): Seal a secret from stdin or a hidden prompt and store it in the vault
 - [`revoke`](#runbook-runner-credential-revoke): Revoke a runner credential
+- [`status`](#runbook-runner-credential-status): Show a credential, including OAuth connection status
+- [`discover`](#runbook-runner-credential-discover): Discover the issuer and endpoints for an OAuth credential
+- [`confirm`](#runbook-runner-credential-confirm): Confirm the displayed OAuth endpoints and register the client once
+- [`connect`](#runbook-runner-credential-connect): Connect or reconnect an OAuth credential in a browser
+- [`disconnect`](#runbook-runner-credential-disconnect): Disconnect an OAuth credential and revoke the provider grant
 - [`types`](#runbook-runner-credential-types): List credential types and their secret field names
 - [`test`](#runbook-runner-credential-test): Test a stored credential against its configured destination
 - [`label`](#runbook-runner-credential-label): Set the credential's access label
@@ -1407,6 +1412,75 @@ Revoke a runner credential
 
 ```text
 runbook runner credential revoke <CREDENTIAL>
+```
+
+**Arguments**
+
+- `CREDENTIAL`: Required.
+
+#### `runbook runner credential status`
+
+Show a credential, including OAuth connection status
+
+```text
+runbook runner credential status <CREDENTIAL>
+```
+
+**Arguments**
+
+- `CREDENTIAL`: Required.
+
+#### `runbook runner credential discover`
+
+Discover the issuer and endpoints for an OAuth credential
+
+```text
+runbook runner credential discover <CREDENTIAL>
+```
+
+**Arguments**
+
+- `CREDENTIAL`: Required.
+
+#### `runbook runner credential confirm`
+
+Confirm the displayed OAuth endpoints and register the client once
+
+```text
+runbook runner credential confirm <CREDENTIAL> [OPTIONS]
+```
+
+**Arguments**
+
+- `CREDENTIAL`: Required.
+
+**Options**
+
+- `--binding-pin <BINDING_PIN>`
+- `--reset-registration`: Retry an ambiguous client registration (the provider may retain the old registration)
+
+#### `runbook runner credential connect`
+
+Connect or reconnect an OAuth credential in a browser
+
+```text
+runbook runner credential connect <CREDENTIAL> [OPTIONS]
+```
+
+**Arguments**
+
+- `CREDENTIAL`: Required.
+
+**Options**
+
+- `--binding-pin <BINDING_PIN>`
+
+#### `runbook runner credential disconnect`
+
+Disconnect an OAuth credential and revoke the provider grant
+
+```text
+runbook runner credential disconnect <CREDENTIAL>
 ```
 
 **Arguments**

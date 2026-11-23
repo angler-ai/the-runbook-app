@@ -589,8 +589,10 @@ subscriptions of its type. `execution` is `null` and `data.install_id`
 names the runner install.
 
 ## runner.budget_threshold
-A cost budget crossed 50%, 80% or 100% at some level (org, group,
-project, agent or run).
+A cost budget crossed its alert threshold (by default 50%, 80% and 100%)
+at some level: org, runner group, environment, project, agent or run. It
+is sent once per budget, threshold and period. A project's budget goes only
+to that project's subscriptions.
 
 ```json
 {
@@ -689,6 +691,77 @@ A credential release was refused.
   "data": {
     "step_run_id": "sr_01JD0000000000000000000001",
     "credential_id": "cred_01JD0000000000000000000001",
+    "install_id": "ri_01JD0000000000000000000001"
+  }
+}
+```
+
+## credential.reconnect_required
+An OAuth MCP connection can no longer get access tokens. A runner
+admin must choose **Reconnect**. `data.reason` says why, for example
+`invalid_grant`, `refresh_failure_timeout` or `binding_changed`. Steps
+that need the connection are blocked until it is reconnected.
+
+```json
+{
+  "id": "evt_01JD2W0A2C4E6G8J012N4Q6S91",
+  "type": "credential.reconnect_required",
+  "version": 1,
+  "created_at": "2026-11-23T09:12:00.050Z",
+  "org": "org_01JC0000000000000000000001",
+  "project": "prj_01JC0000000000000000000001",
+  "execution": null,
+  "sequence": 0,
+  "data": {
+    "credential_id": "cred_01JD0000000000000000000001",
+    "reason": "invalid_grant",
+    "install_id": "ri_01JD0000000000000000000001"
+  }
+}
+```
+
+## credential.oauth_expiring
+An OAuth MCP connection's grant expires soon (sent 14 days ahead, for
+providers with a hard grant lifetime). Reconnect before
+`data.expires_at_ms`.
+
+```json
+{
+  "id": "evt_01JD2W0A2C4E6G8J012N4Q6S92",
+  "type": "credential.oauth_expiring",
+  "version": 1,
+  "created_at": "2026-11-23T09:12:00.050Z",
+  "org": "org_01JC0000000000000000000001",
+  "project": "prj_01JC0000000000000000000001",
+  "execution": null,
+  "sequence": 0,
+  "data": {
+    "credential_id": "cred_01JD0000000000000000000001",
+    "expires_at_ms": 1795900000000,
+    "install_id": "ri_01JD0000000000000000000001"
+  }
+}
+```
+
+## credential.oauth_refresh_failing
+Refreshing an OAuth MCP connection's access token has failed for an hour
+because of temporary provider errors. The vault keeps retrying with
+backoff. After 24 hours the connection needs reconnecting.
+`data.since_ms` is when the failures started.
+
+```json
+{
+  "id": "evt_01JD2W0A2C4E6G8J012N4Q6S93",
+  "type": "credential.oauth_refresh_failing",
+  "version": 1,
+  "created_at": "2026-11-23T09:12:00.050Z",
+  "org": "org_01JC0000000000000000000001",
+  "project": "prj_01JC0000000000000000000001",
+  "execution": null,
+  "sequence": 0,
+  "data": {
+    "credential_id": "cred_01JD0000000000000000000001",
+    "since_ms": 1795350000000,
     "install_id": "ri_01JD0000000000000000000001"
   }
 }
