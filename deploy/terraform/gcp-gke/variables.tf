@@ -116,7 +116,7 @@ variable "sql_maintenance_window_update_track" {
 
 variable "image" {
   type        = string
-  description = "Container image to deploy, pinned to an X.Y.Z tag and optionally its digest (e.g. ghcr.io/angler-ai/runbook:0.1.1)."
+  description = "Container image to deploy, pinned to an X.Y.Z tag and optionally its digest (e.g. ghcr.io/angler-ai/runbook:0.1.2)."
 
   validation {
     condition     = can(regex("(:(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(@sha256:[0-9a-f]{64})?|@sha256:[0-9a-f]{64})$", var.image))

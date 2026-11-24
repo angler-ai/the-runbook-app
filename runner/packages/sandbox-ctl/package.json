@@ -1,6 +1,6 @@
 {
   "name": "@runbook/runner-sandbox-ctl",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "license": "AGPL-3.0-only",
   "private": true,
   "type": "module",
@@ -15,7 +15,7 @@
     }
   },
   "dependencies": {
-    "@runbook/runner-shared": "0.1.1",
+    "@runbook/runner-shared": "0.1.2",
     "dockerode": "5.0.1",
     "ws": "8.23.0"
   },

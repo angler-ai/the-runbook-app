@@ -1,7 +1,7 @@
 {
   "name": "therunbook",
   "description": "The Runbook agent skill and CLI MCP server",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "author": {
     "name": "Angler AI"
   },

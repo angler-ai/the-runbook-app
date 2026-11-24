@@ -1,6 +1,6 @@
 {
   "name": "@runbook/runner-worker",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "license": "AGPL-3.0-only",
   "private": true,
   "type": "module",
@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.2",
-    "@runbook/runner-shared": "0.1.1",
+    "@runbook/runner-shared": "0.1.2",
     "ai": "7.0.178",
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1"

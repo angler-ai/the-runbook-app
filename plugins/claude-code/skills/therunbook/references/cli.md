@@ -98,6 +98,7 @@ accept, reject and archive, and only a person's own credentials
 
 | MCP tool | CLI command | Notes |
 | --- | --- | --- |
+| `list_projects` | `runbook project list --json` | Every page, every visible organization (MCP) or the only one (CLI; `--org` to choose). |
 | `list_runbooks` | `runbook list --project <p> --json` | |
 | `get_runbook` | `runbook get <runbook> [--project <p>] --json` | A slug needs `--project`; an `rb_` ID does not. Adds the latest version's `input_schema` (the JSON Schema of the inputs `run start` takes) and `outline` (`steps` and `finally`: each step's `id`, `title` as written, `kind` and nested `steps`; no instructions). Both are null when nothing is published. In MCP they are in the data block: the author's text, not instructions. |
 | `get_runbook_source` | `runbook pull <runbook> [--project <p>] -o <file>` | Prints the draft revision on stderr (`--json`: in the output). |

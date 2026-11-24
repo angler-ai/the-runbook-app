@@ -76,6 +76,7 @@ fn is_error(result: &Value) -> bool {
 }
 
 const PRD_TOOLS: &[&str] = &[
+    "list_projects",
     "list_runbooks",
     "get_runbook",
     "get_runbook_source",

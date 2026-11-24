@@ -547,13 +547,16 @@ function nativeByDefault(m: Record<string, unknown>): Record<string, unknown> {
   return native ? { ...m, application_type: 'native' } : m;
 }
 
-/** Client authentication a registration may choose (review fix 5). */
-const AUTH_METHODS = ['none', 'client_secret_basic'];
 /**
- * Review fix 5: what a registration may ask for. Only `none` and
- * `client_secret_basic`; no `jwks_uri`, `jwks` or `private_key_jwt`, so
- * this server never fetches an address a registrant chose. Then the
- * native-by-default rule.
+ * Client authentication a registration may choose (review fix 5). Claude
+ * registers with `client_secret_post`; it is the same secret as Basic, sent
+ * in the form body. The metadata advertises exactly this list.
+ */
+export const AUTH_METHODS = ['none', 'client_secret_basic', 'client_secret_post'];
+/**
+ * Review fix 5: what a registration may ask for. Only the methods above; no
+ * `jwks_uri`, `jwks` or `private_key_jwt`, so this server never fetches an
+ * address a registrant chose. Then the native-by-default rule.
  */
 function registration(body: string): { body: string } | { error: string } {
   let metadata: unknown;
@@ -671,7 +674,19 @@ export async function browserPage(deps: GatewayDeps, raw: Request, path: string)
 
 /** RFC 8414 metadata, at the root and at the issuer-path form. */
 export function authServerMetadata(auth: OAuthAuth): (request: Request) => Promise<Response> {
-  return oauthProviderAuthServerMetadata(auth as never);
+  const metadata = oauthProviderAuthServerMetadata(auth as never);
+  return async (request) => {
+    const response = await metadata(request);
+    const body = response.ok ? ((await response.clone().json().catch(() => null)) as Record<string, unknown> | null) : null;
+    if (!body) return response;
+    // Advertise only what registration accepts: a client picks from this list,
+    // and one that picks `private_key_jwt` would then be refused.
+    body.token_endpoint_auth_methods_supported = AUTH_METHODS;
+    delete body.token_endpoint_auth_signing_alg_values_supported;
+    const headers = new Headers(response.headers);
+    headers.delete('content-length');
+    return new Response(request.method === 'HEAD' ? null : JSON.stringify(body), { status: response.status, headers });
+  };
 }
 export const METADATA_PATHS = ['/.well-known/oauth-authorization-server', '/.well-known/oauth-authorization-server/api/auth'];
 

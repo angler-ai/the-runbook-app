@@ -23,13 +23,16 @@ use std::time::Duration;
 
 #[derive(Args, Debug)]
 pub struct LoginArgs {
-    #[arg(help = "Host URL to log in to")]
+    // Its own id: sharing the global `--host` id makes clap fill both, and a
+    // first `runbook login URL` then looked like a one-off `--host` and saved
+    // no context.
+    #[arg(id = "login_host", value_name = "HOST", help = "Host URL to log in to")]
     pub host: Option<String>,
     #[arg(long = "token-stdin", help = "Read a personal access token from stdin")]
     pub token_stdin: bool,
     #[arg(
         long = "migrate-to-keychain",
-        conflicts_with_all = ["host", "token_stdin", "no_browser", "scopes", "admin"],
+        conflicts_with_all = ["login_host", "token_stdin", "no_browser", "scopes", "admin"],
         help = "Move every login stored in the 0600 file into the OS keychain"
     )]
     pub migrate_to_keychain: bool,
@@ -312,7 +315,12 @@ pub fn handle_login(env: &Env, a: LoginArgs) -> i32 {
         let scopes = login_scopes(&a.scopes, a.admin).map_err(|name| {
             usage(format!(
                 "unknown scope {name:?}; scopes are {}",
-                Scope::ALL.map(scope_name).join(", ")
+                Scope::ALL
+                    .into_iter()
+                    .chain(Scope::RUNNER)
+                    .map(scope_name)
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ))
         })?;
         let client = ApiClient::new(env.host.clone(), String::new());

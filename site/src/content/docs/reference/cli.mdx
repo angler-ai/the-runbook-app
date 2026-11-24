@@ -807,6 +807,7 @@ runbook project <COMMAND>
 **Commands**
 
 - [`create`](#runbook-project-create): Create a project
+- [`list`](#runbook-project-list): List the projects you can see in the organization
 - [`member`](#runbook-project-member): Grant or revoke project roles
 
 ### `runbook project create`
@@ -823,6 +824,19 @@ runbook project create [OPTIONS]
 - `--title <TITLE>`: Title Required.
 - `--org <ORG>`: Organization ID (default: the only one visible)
 - `--idempotency-key <IDEMPOTENCY_KEY>`: Idempotency key
+- `--json`: Output response as JSON
+
+### `runbook project list`
+
+List the projects you can see in the organization
+
+```text
+runbook project list [OPTIONS]
+```
+
+**Options**
+
+- `--org <ORG>`: Organization ID (default: the only one visible)
 - `--json`: Output response as JSON
 
 ### `runbook project member`

@@ -341,6 +341,16 @@ fn device_login_positional_host_and_me_resolution() {
         header(&seen[2], "authorization"),
         Some(format!("Bearer {PAT_SECRET}").as_str())
     );
+    // A first login saves the server as the current context, so later
+    // commands such as `runbook whoami` need no --host.
+    assert!(
+        err(&o).contains("as context 'default' (now current)"),
+        "{}",
+        err(&o)
+    );
+    let config = std::fs::read_to_string(home.path().join("runbook").join("config.toml")).unwrap();
+    assert!(config.contains("current_context = \"default\""), "{config}");
+    assert!(config.contains(&host), "{config}");
 }
 
 #[test]
@@ -480,6 +490,11 @@ fn device_login_asks_for_narrow_scopes_unless_told_otherwise() {
         ask(&["--scope", "runbooks:read", "--scope", "executions:read"]),
         ["executions:read", "runbooks:read"]
     );
+    // The runner scopes are asked for by name; they are not in --admin.
+    assert_eq!(
+        ask(&["--scope", "runner:read", "--scope", "runner:admin"]),
+        ["runner:admin", "runner:read"]
+    );
     // An unknown scope name is refused before any request.
     let home = tempfile::tempdir().unwrap();
     let o = cli(
@@ -490,6 +505,8 @@ fn device_login_asks_for_narrow_scopes_unless_told_otherwise() {
         None,
     );
     assert_eq!(o.status.code(), Some(2), "{}", err(&o));
+    // The list of valid names includes the runner scopes.
+    assert!(err(&o).contains("runner:read, runner:admin"), "{}", err(&o));
 }
 
 #[test]
@@ -515,4 +532,12 @@ fn device_login_says_the_browser_may_ask_for_a_second_factor_and_waits() {
     assert!(stderr.contains("passkey or authenticator code"), "{stderr}");
     assert!(stderr.contains("this command waits"), "{stderr}");
     assert_eq!(server.join().unwrap().len(), 3);
+}
+
+#[test]
+fn a_command_without_a_server_says_so_once() {
+    let home = tempfile::tempdir().unwrap();
+    let o = cli_no_host(home.path(), &["whoami"], &[], None);
+    assert_eq!(o.status.code(), Some(1), "{}", err(&o));
+    assert_eq!(err(&o).matches("no server set").count(), 1, "{}", err(&o));
 }

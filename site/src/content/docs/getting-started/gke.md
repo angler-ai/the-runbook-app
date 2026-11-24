@@ -27,7 +27,7 @@ network and subnetwork.
 ```sh
 REGION="us-central1"
 PROJECT="my-gcp-project"
-IMAGE="$REGION-docker.pkg.dev/$PROJECT/runbook/server:0.1.1"
+IMAGE="$REGION-docker.pkg.dev/$PROJECT/runbook/server:0.1.2"
 gcloud artifacts repositories create runbook --repository-format=docker \
   --location="$REGION" --project="$PROJECT"
 gcloud auth configure-docker "$REGION-docker.pkg.dev"
@@ -49,7 +49,7 @@ network            = "default"
 subnetwork         = "default"
 create_cluster     = false
 cluster_name       = "my-existing-cluster"
-image              = "us-central1-docker.pkg.dev/my-gcp-project/runbook/server:0.1.1"
+image              = "us-central1-docker.pkg.dev/my-gcp-project/runbook/server:0.1.2"
 app_domain         = "runbooks.example.com"
 usercontent_domain = "files.example-usercontent.com" # "" if uploads are off
 auth_methods       = "email"

@@ -688,3 +688,77 @@ fn provider_configuration_rejects_a_plaintext_key_before_sending() {
     assert!(!err(&result).contains("must-stay-local"));
     assert!(server.join().unwrap().is_empty());
 }
+
+#[test]
+fn a_runner_only_token_finds_its_organization_through_me() {
+    // GET /v1/orgs needs a directory scope; a token with only the runner
+    // scopes reads its organization from /v1/me instead.
+    let home = tempfile::tempdir().unwrap();
+    let file = home.path().join("projects.json");
+    let project = "prj_00000000000000000000000001";
+    std::fs::write(&file, json!({"project_ids": [project]}).to_string()).unwrap();
+    let (host, server) = serve(vec![
+        Reply::json(
+            403,
+            json!({"code": "auth.forbidden", "detail": "auth.forbidden"}),
+        ),
+        Reply::json(200, json!({"org": {"id": ORG}, "user": {"id": "usr_1"}})),
+        Reply::empty(204),
+    ]);
+    let group = "rg_00000000000000000000000001";
+    let result = cli(
+        &host,
+        home.path(),
+        &[
+            "runner",
+            "group",
+            "projects",
+            group,
+            "--file",
+            file.to_str().unwrap(),
+        ],
+        &token(),
+        None,
+    );
+    assert!(result.status.success(), "{}", err(&result));
+    let requests = server.join().unwrap();
+    assert_eq!(line(&requests[0]), "GET /v1/orgs");
+    assert_eq!(line(&requests[1]), "GET /v1/me");
+    assert_eq!(
+        line(&requests[2]),
+        format!("PUT /v1/orgs/{ORG}/runner/groups/{group}/projects")
+    );
+}
+
+#[test]
+fn a_vertex_provider_with_its_project_passes_the_metadata_check() {
+    let home = tempfile::tempdir().unwrap();
+    let file = home.path().join("provider.json");
+    let body = json!({
+        "name": "Vertex", "type": "vertex", "auth": "attached",
+        "project_id": "my-model-project", "region": "global",
+        "models": [{"id": "m", "input_usd_per_million": 1, "output_usd_per_million": 2}],
+        "sharing": {"projects": "all"}
+    });
+    std::fs::write(&file, body.to_string()).unwrap();
+    let (host, server) = serve(vec![Reply::json(201, json!({"id": "p"}))]);
+    let result = cli(
+        &host,
+        home.path(),
+        &[
+            "runner",
+            "--install",
+            INSTALL,
+            "--json",
+            "provider",
+            "create",
+            "--file",
+            file.to_str().unwrap(),
+        ],
+        &token(),
+        None,
+    );
+    assert!(result.status.success(), "{}", err(&result));
+    let requests = server.join().unwrap();
+    assert_eq!(body_of(&requests[0]), body);
+}

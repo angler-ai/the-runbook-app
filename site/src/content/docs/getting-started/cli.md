@@ -24,14 +24,14 @@ Settings, as environment variables before `sh`:
 
 | Variable | Default | |
 |---|---|---|
-| `RUNBOOK_VERSION` | the latest release | a version such as `0.1.1`, to pin one |
+| `RUNBOOK_VERSION` | the latest release | a version such as `0.1.2`, to pin one |
 | `RUNBOOK_INSTALL_DIR` | `~/.local/bin` | where `runbook` goes |
 | `RUNBOOK_DOWNLOAD_BASE` | the GitHub Release | a mirror holding the release assets (needs `RUNBOOK_VERSION`) |
 
 For example, to pin a version in CI:
 
 ```sh
-curl -fsSL https://github.com/angler-ai/the-runbook-app/releases/latest/download/install.sh | RUNBOOK_VERSION=0.1.1 sh
+curl -fsSL https://github.com/angler-ai/the-runbook-app/releases/latest/download/install.sh | RUNBOOK_VERSION=0.1.2 sh
 ```
 
 To update, run the same line again. To uninstall, delete `~/.local/bin/runbook`
@@ -56,7 +56,7 @@ Every asset carries a build provenance attestation. With the
 [GitHub CLI](https://cli.github.com/) signed in:
 
 ```sh
-gh attestation verify runbook-cli-0.1.1-macos-aarch64.tar.gz --repo angler-ai/the-runbook-app
+gh attestation verify runbook-cli-0.1.2-macos-aarch64.tar.gz --repo angler-ai/the-runbook-app
 ```
 
 ## Other ways

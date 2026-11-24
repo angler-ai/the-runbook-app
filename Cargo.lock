@@ -2721,7 +2721,7 @@ dependencies = [
 
 [[package]]
 name = "runbook-api"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "base64 0.22.1",
  "jsonschema",
@@ -2744,7 +2744,7 @@ dependencies = [
 
 [[package]]
 name = "runbook-cli"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -2780,7 +2780,7 @@ dependencies = [
 
 [[package]]
 name = "runbook-contract"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "jsonschema",
  "runbook-model",
@@ -2791,7 +2791,7 @@ dependencies = [
 
 [[package]]
 name = "runbook-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "base64 0.22.1",
  "ed25519-dalek",
@@ -2810,7 +2810,7 @@ dependencies = [
 
 [[package]]
 name = "runbook-engine"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "runbook-expr",
  "runbook-model",
@@ -2822,7 +2822,7 @@ dependencies = [
 
 [[package]]
 name = "runbook-expr"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "cel-core",
  "serde",
@@ -2833,7 +2833,7 @@ dependencies = [
 
 [[package]]
 name = "runbook-mcp"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "jsonschema",
  "regex",
@@ -2844,7 +2844,7 @@ dependencies = [
 
 [[package]]
 name = "runbook-model"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "chrono",
  "schemars",
@@ -2854,7 +2854,7 @@ dependencies = [
 
 [[package]]
 name = "runbook-redact-wasm"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "runbook-core",
  "serde_json",
@@ -2862,7 +2862,7 @@ dependencies = [
 
 [[package]]
 name = "runbook-report-pdf"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "miniz_oxide 0.9.1",
  "pulldown-cmark",
@@ -2871,7 +2871,7 @@ dependencies = [
 
 [[package]]
 name = "runbook-server"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "async-trait",
  "axum",
@@ -2920,7 +2920,7 @@ dependencies = [
 
 [[package]]
 name = "runbook-spec"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -2936,7 +2936,7 @@ dependencies = [
 
 [[package]]
 name = "runbook-store-conformance"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "runbook-core",
  "runbook-engine",
@@ -2948,7 +2948,7 @@ dependencies = [
 
 [[package]]
 name = "runbook-store-d1"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "js-sys",
  "runbook-core",
@@ -2967,7 +2967,7 @@ dependencies = [
 
 [[package]]
 name = "runbook-store-do"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "js-sys",
  "runbook-core",
@@ -2982,7 +2982,7 @@ dependencies = [
 
 [[package]]
 name = "runbook-store-objects"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "bytes",
  "futures",
@@ -2999,7 +2999,7 @@ dependencies = [
 
 [[package]]
 name = "runbook-store-postgres"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "futures-util",
  "native-tls",
@@ -3020,7 +3020,7 @@ dependencies = [
 
 [[package]]
 name = "runbook-store-r2"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "runbook-core",
  "runbook-model",
@@ -3029,7 +3029,7 @@ dependencies = [
 
 [[package]]
 name = "runbook-web-wasm"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "runbook-api",
  "runbook-model",
@@ -3040,7 +3040,7 @@ dependencies = [
 
 [[package]]
 name = "runbook-worker"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "aes-gcm",
  "base64 0.22.1",
@@ -3070,7 +3070,7 @@ dependencies = [
 
 [[package]]
 name = "runbook-worker-conformance"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "runbook-core",
  "runbook-model",
