@@ -465,6 +465,9 @@ pub fn runner_segment(value: &str) -> Result<&str, BackendError> {
 /// Refuse secret-bearing fields before a catalog request leaves the client.
 pub fn check_runner_metadata(resource: &str, body: &Value) -> Result<(), BackendError> {
     let fields: &[&str] = match resource {
+        // The runner's own lists (runner/packages/api/src/resources/catalog.ts).
+        // Attached Vertex providers need `project_id`; a rebind needs
+        // `confirm_binding`.
         "providers" => &[
             "name",
             "type",
@@ -472,6 +475,8 @@ pub fn check_runner_metadata(resource: &str, body: &Value) -> Result<(), Backend
             "credential_id",
             "endpoint",
             "region",
+            "project_id",
+            "confirm_binding",
             "models",
             "sharing",
         ],
@@ -490,6 +495,7 @@ pub fn check_runner_metadata(resource: &str, body: &Value) -> Result<(), Backend
             "concurrency",
             "cost_per_day_usd",
             "cost_per_month_usd",
+            "alert_threshold_percent",
             "sandbox",
             "compute_rate",
         ],

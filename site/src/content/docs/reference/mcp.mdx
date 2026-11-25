@@ -43,6 +43,7 @@ The same tools, resources and prompts are served locally over stdio
 | [`heartbeat_step`](#heartbeat_step) | Extend the claim's lease during long work. CLI: runbook step heartbeat &#60;sr&#62; --json. |
 | [`label_runner_credential`](#label_runner_credential) | Set a credential label through the vault. Requires a human org admin with runner:admin. |
 | [`label_runner_mcp_tools`](#label_runner_mcp_tools) | Replace the tool labels for an MCP server. Requires runner:admin. |
+| [`list_projects`](#list_projects) | List the projects you can see (prj_ ID, slug, title, archived, org_id), across every page. Use a project's ID or slug wherever a tool takes `project`. CLI: runbook project list --json. |
 | [`list_runbooks`](#list_runbooks) | List the runbooks of a project (rb_ ID, slug, origin). CLI: runbook list --project &#60;p&#62; --json. |
 | [`list_runner_agents`](#list_runner_agents) | List a project's runner agents. Requires runner:read. |
 | [`list_runner_credential_types`](#list_runner_credential_types) | List credential types and their secret fields. Requires runner:read. |
@@ -397,6 +398,16 @@ Replace the tool labels for an MCP server. Requires runner:admin.
 | `id` | string | yes | MCP server ID |
 | `install_id` | string | yes | Runner install ID from runner_status |
 | `tool_labels` | object | yes | Map of tool names to read, write or destructive |
+
+### `list_projects`
+
+List the projects you can see (prj_ ID, slug, title, archived, org_id), across every page. Use a project's ID or slug wherever a tool takes `project`. CLI: runbook project list --json.
+
+Hints: read-only.
+
+| Argument | Type | Required | Description |
+| --- | --- | --- | --- |
+| `org_id` | string |  | Organization ID, defaults to every visible organization |
 
 ### `list_runbooks`
 

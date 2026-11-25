@@ -355,11 +355,11 @@ Before you register, check these:
   public host name, a tunnel that gives you a public https name works,
   for example a Cloudflare Tunnel to `http://127.0.0.1:8090`.
 - **`RUNNER_VERSION`** is the runner release you run, the `version` in
-  `runner/package.json` for a local build (for example `0.1.1`).
+  `runner/package.json` for a local build (for example `0.1.2`).
 
 ```sh
 export COMPOSE_PROJECT_NAME=runbook
-export RUNNER_VERSION=0.1.1
+export RUNNER_VERSION=0.1.2
 export RUNNER_IMAGE="runbook-runner:$RUNNER_VERSION"
 export RUNNER_SANDBOX_IMAGE="runbook-sandbox:$RUNNER_VERSION"
 docker build -f runner/Dockerfile -t "$RUNNER_IMAGE" .

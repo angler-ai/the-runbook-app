@@ -175,7 +175,7 @@ PROJECT=my-project
 REGION=us-central1
 APP_HOST=runbooks.example.com                 # RUNBOOK_ORIGIN's host
 FILES_HOST=files.example-usercontent.com      # the user-content host
-VERSION=0.1.1
+VERSION=0.1.2
 IMAGE=$REGION-docker.pkg.dev/$PROJECT/runbook/runbook:$VERSION
 SA=runbook-run@$PROJECT.iam.gserviceaccount.com
 INSTANCE=$PROJECT:$REGION:runbook-db
@@ -305,7 +305,7 @@ kill_signal = "SIGTERM"   # Fly's default SIGINT works too
 kill_timeout = 10
 
 [build]
-  image = "registry.example.com/runbook:0.1.1"
+  image = "registry.example.com/runbook:0.1.2"
 
 [env]
   RUNBOOK_ORIGIN = "https://runbooks.example.com"
@@ -374,7 +374,7 @@ spec:
       terminationGracePeriodSeconds: 20
       containers:
         - name: runbook
-          image: registry.example.com/runbook:0.1.1
+          image: registry.example.com/runbook:0.1.2
           ports: [{containerPort: 8080}]
           envFrom: [{secretRef: {name: runbook}}, {configMapRef: {name: runbook}}]
           readinessProbe: {httpGet: {path: /health/ready, port: 8080}, periodSeconds: 5}

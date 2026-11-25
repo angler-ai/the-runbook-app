@@ -1,6 +1,6 @@
 {
   "name": "@runbook/runner-api",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "license": "AGPL-3.0-only",
   "private": true,
   "type": "module",
@@ -16,8 +16,8 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1175.0",
-    "@runbook/runner-shared": "0.1.1",
-    "@runbook/runner-vault": "0.1.1",
+    "@runbook/runner-shared": "0.1.2",
+    "@runbook/runner-vault": "0.1.2",
     "google-auth-library": "11.3.4"
   }
 }

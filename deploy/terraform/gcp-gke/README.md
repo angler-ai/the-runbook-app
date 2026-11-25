@@ -259,7 +259,7 @@ subnetwork         = "default"
 create_cluster     = false
 cluster_name       = "my-existing-cluster"
 
-image              = "ghcr.io/angler-ai/runbook:0.1.1"
+image              = "ghcr.io/angler-ai/runbook:0.1.2"
 app_domain         = "runbooks.example.com"
 usercontent_domain = "files.example-usercontent.com" # Optional; leave empty "" if uploads are disabled
 
@@ -332,7 +332,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: bootstrap
-          image: ghcr.io/angler-ai/runbook:0.1.1
+          image: ghcr.io/angler-ai/runbook:0.1.2
           args: ["bootstrap", "--owner-email", "admin@example.com"]
           envFrom:
             - secretRef:
@@ -376,7 +376,7 @@ Build the container image using the root `Dockerfile` and push to Google Artifac
 REGION="us-central1"
 PROJECT="my-gcp-project"
 REPO="runbook"
-IMAGE="$REGION-docker.pkg.dev/$PROJECT/$REPO/server:0.1.1"
+IMAGE="$REGION-docker.pkg.dev/$PROJECT/$REPO/server:0.1.2"
 
 # Create Artifact Registry repository if not exists:
 gcloud artifacts repositories create "$REPO" \

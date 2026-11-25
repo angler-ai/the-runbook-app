@@ -2,6 +2,20 @@
 
 Changes an operator should read before upgrading, newest first.
 
+## 0.1.2
+
+### Fixes
+
+- **Claude can connect to remote MCP.** Client registration now accepts
+  `client_secret_post`, which Claude uses. The sign-in service's metadata
+  lists exactly the client authentication methods that registration
+  accepts (`none`, `client_secret_basic` and `client_secret_post`), and no
+  longer lists `private_key_jwt`.
+
+### Upgrade order
+
+No migrations. Upgrade the core in place.
+
 ## 0.1.1
 
 The optional runner executes agent steps on your infrastructure. Both

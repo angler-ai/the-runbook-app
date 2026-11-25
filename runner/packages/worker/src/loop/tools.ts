@@ -191,7 +191,7 @@ export async function mcpTools(gatewayUrl: string, token: string, ctx: Execution
     }
     throw new OAuthBlocked(blocked.kind);
   }
-  const client = new Client({ name: 'runbook-worker', version: '0.1.1' });
+  const client = new Client({ name: 'runbook-worker', version: '0.1.2' });
   const transport = new StreamableHTTPClientTransport(new URL(`/mcp/${encodeURIComponent(ctx.stepRunId)}`, gatewayUrl), {
     fetch: async (input, init) => {
       const headers = new Headers(init?.headers);

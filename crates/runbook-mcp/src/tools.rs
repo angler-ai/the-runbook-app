@@ -89,6 +89,13 @@ fn research_tool(
 pub fn definitions() -> Vec<Value> {
     let mut definitions = vec![
         tool(
+            "list_projects",
+            "List the projects you can see (prj_ ID, slug, title, archived, org_id), across every page. Use a project's ID or slug wherever a tool takes `project`. CLI: runbook project list --json.",
+            true,
+            json!({"org_id": s("Organization ID, defaults to every visible organization")}),
+            &[],
+        ),
+        tool(
             "list_runbooks",
             "List the runbooks of a project (rb_ ID, slug, origin). CLI: runbook list --project <p> --json.",
             true,
@@ -580,6 +587,7 @@ pub async fn call<B: AsyncBackend + ?Sized>(
         | "create_runner_credential"
         | "revoke_runner_credential" => runner_proxy(b, name, &a).await,
         "set_runner_group_projects" => runner_config::set_group_projects(b, &a).await,
+        "list_projects" => list_projects(b, &a).await,
         "list_runbooks" => list_runbooks(b, &a).await,
         "get_runbook" => get_runbook(b, &a).await,
         "get_runbook_source" => get_runbook_source(b, &a).await,
@@ -737,6 +745,31 @@ fn error_outcome(tool: &str, a: &Args<'_>, e: &BackendError, key: Option<String>
 }
 
 type Res<T> = std::result::Result<T, BackendError>;
+
+async fn list_projects<B: AsyncBackend + ?Sized>(b: &mut B, a: &Args<'_>) -> Res<Outcome> {
+    let orgs: Vec<String> = match a.opt("org_id") {
+        Some(org) => vec![ops::check_segment("org", org)?.to_owned()],
+        None => crate::catalog::walk(b, "/v1/orgs")
+            .await?
+            .iter()
+            .filter_map(|o| o["id"].as_str().map(str::to_owned))
+            .collect(),
+    };
+    let mut items = vec![];
+    for org in &orgs {
+        let org = ops::check_segment("org", org)?;
+        for p in crate::catalog::walk(b, &format!("/v1/orgs/{org}/projects")).await? {
+            items.push(json!({
+                "id": p["id"], "slug": p["slug"], "title": p["title"],
+                "archived": p["archived"], "org_id": org,
+            }));
+        }
+    }
+    Ok(Outcome::new(json!({"items": items})).next(
+        Value::Null,
+        "Use list_runbooks with a project's ID or slug to see its runbooks.",
+    ))
+}
 
 async fn list_runbooks<B: AsyncBackend + ?Sized>(b: &mut B, a: &Args<'_>) -> Res<Outcome> {
     let limit = a.u64("limit").map(|l| l as u32);
@@ -1691,7 +1724,16 @@ async fn runner_status<B: AsyncBackend + ?Sized>(b: &mut B, a: &Args<'_>) -> Res
     let org = match a.opt("org_id") {
         Some(org) => org,
         None => {
-            orgs = b.call(HttpCall::get("/v1/orgs")).await?.body;
+            orgs = match b.call(HttpCall::get("/v1/orgs")).await {
+                Ok(reply) => reply.body,
+                // A runner-only credential may not list organizations;
+                // `/v1/me` names the one it acts in.
+                Err(e) if e.status() == Some(403) => {
+                    let me = b.call(HttpCall::get("/v1/me")).await?.body;
+                    json!({"items": [{"id": me["org"]["id"]}]})
+                }
+                Err(e) => return Err(e),
+            };
             match orgs["items"].as_array().map(Vec::as_slice) {
                 Some([one]) => one["id"]
                     .as_str()

@@ -156,6 +156,7 @@ impl Commands {
             },
             Commands::Project(proj_cmd) => match proj_cmd {
                 admin::ProjectCommands::Create(args) => args.common.json,
+                admin::ProjectCommands::List(args) => args.json,
                 admin::ProjectCommands::Member(member_cmd) => match member_cmd {
                     admin::ProjectMemberCommands::Add(args) => args.common.json,
                     admin::ProjectMemberCommands::Remove(args) => args.json,
@@ -1399,13 +1400,14 @@ fn run() -> i32 {
             Commands::Login(args) => args.host.as_deref().or(host_flag.as_deref()),
             _ => host_flag.as_deref(),
         };
-        if let Some(env) = agent_env(
+        if let Some(env) = agent_env_reporting(
             effective_host_flag,
             context_flag.as_deref(),
             xdg.clone(),
             home.clone(),
             env_host.clone(),
             env_token.clone(),
+            false,
         )
         .ok()
         .filter(|env| !has_refused_file(&cli.command, env.store.as_ref()))
@@ -1924,6 +1926,35 @@ fn agent_env(
     env_host: Option<String>,
     env_token: Option<String>,
 ) -> Result<Env, i32> {
+    agent_env_reporting(
+        host_flag,
+        context_flag,
+        xdg,
+        home,
+        env_host,
+        env_token,
+        true,
+    )
+}
+
+/// [`agent_env`]; with `report` false it prints nothing, for the start-up
+/// version check, whose failure the command itself then reports (once).
+fn agent_env_reporting(
+    host_flag: Option<&str>,
+    context_flag: Option<&str>,
+    xdg: Option<String>,
+    home: Option<String>,
+    env_host: Option<String>,
+    env_token: Option<String>,
+    report: bool,
+) -> Result<Env, i32> {
+    macro_rules! eprintln {
+        ($($t:tt)*) => {
+            if report {
+                std::eprintln!($($t)*);
+            }
+        };
+    }
     let config = match config_path(xdg.as_deref(), home.as_deref()) {
         Some(p) => Config::load(&p).map_err(|e| {
             eprintln!("error: {e}");

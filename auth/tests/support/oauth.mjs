@@ -183,7 +183,9 @@ export function oauthSuite(h) {
       assert.deepEqual(m.code_challenge_methods_supported, ['S256']);
       assert.deepEqual(m.response_types_supported, ['code']);
       assert.deepEqual([...m.grant_types_supported].sort(), ['authorization_code', 'refresh_token']);
-      assert.ok(m.token_endpoint_auth_methods_supported.includes('none'));
+      // Exactly what registration accepts (a client picks one of these).
+      assert.deepEqual(m.token_endpoint_auth_methods_supported, ['none', 'client_secret_basic', 'client_secret_post']);
+      assert.equal(m.token_endpoint_auth_signing_alg_values_supported, undefined);
       assert.ok(m.scopes_supported.includes('runbooks:publish') && m.scopes_supported.includes('offline_access'));
       for (const s of ['tokens:manage', 'project:admin', 'webhooks:manage', 'openid']) assert.ok(!m.scopes_supported.includes(s), s);
     }
@@ -335,6 +337,24 @@ export function oauthSuite(h) {
     const none = await tokenRequest(h, { grant_type: 'authorization_code', client_id: client.client_id, code: flow.code, redirect_uri: REDIRECT });
     assert.ok([400, 401].includes(none.status), `no verifier: ${none.status}`);
     assert.equal((await none.json()).access_token, undefined);
+  });
+
+  test('OAuth: a client_secret_post client (how Claude registers) gets tokens only with its secret in the body', async () => {
+    const email = 'oauth-post@example.test';
+    h.canRegister.state.allowed.add(email);
+    const client = await register(h, { client_name: 'Claude', token_endpoint_auth_method: 'client_secret_post' });
+    assert.equal(client.token_endpoint_auth_method, 'client_secret_post');
+    assert.ok(client.client_secret);
+    const fields = (flow) => ({ grant_type: 'authorization_code', client_id: client.client_id, code: flow.code, code_verifier: flow.pk.verifier, redirect_uri: REDIRECT, resource: RESOURCE });
+    const missing = await consentFlow(h, { email, scope: 'runbooks:read', client });
+    const refused = await tokenRequest(h, fields(missing));
+    assert.ok([400, 401].includes(refused.status), `no secret: ${refused.status}`);
+    assert.equal((await refused.json()).access_token, undefined);
+    const flow = await consentFlow(h, { email, scope: 'runbooks:read', client, cookie: missing.cookie });
+    const r = await tokenRequest(h, { ...fields(flow), client_secret: client.client_secret });
+    const tokens = await r.json();
+    assert.equal(r.status, 200, JSON.stringify(tokens));
+    assert.equal((await introspect(h, tokens.access_token)).active, true);
   });
 
   test('OAuth: redirect URIs must be registered, exactly', async () => {
@@ -492,7 +512,7 @@ export function oauthSuite(h) {
     assert.equal((await introspect(h, shortTokens.access_token)).active, false);
   });
 
-  test('OAuth: registration takes only none and client_secret_basic, no keys to fetch, a daily cap per address, and idle clients are swept (review 5)', async () => {
+  test('OAuth: registration takes only none, client_secret_basic and client_secret_post, no keys to fetch, a daily cap per address, and idle clients are swept (review 5)', async () => {
     const post = (metadata, ip = freshIp()) =>
       req(h, '/api/auth/oauth2/register', {
         method: 'POST',
@@ -500,8 +520,8 @@ export function oauthSuite(h) {
         body: JSON.stringify({ client_name: 'r', redirect_uris: [REDIRECT], ...metadata }),
       });
     for (const bad of [
-      { token_endpoint_auth_method: 'client_secret_post' },
       { token_endpoint_auth_method: 'private_key_jwt' },
+      { token_endpoint_auth_method: 'client_secret_jwt' },
       { jwks_uri: 'https://keys.example.test/jwks.json' },
       { jwks: { keys: [] } },
     ]) {

@@ -1,6 +1,6 @@
 # Included by both native Compose editions. Enable with --profile runner.
 x-runner: &runner
-  image: ${RUNNER_IMAGE:-ghcr.io/angler-ai/runbook-runner:0.1.1}
+  image: ${RUNNER_IMAGE:-ghcr.io/angler-ai/runbook-runner:0.1.2}
   profiles: [runner]
   restart: unless-stopped
   read_only: true

@@ -1,5 +1,5 @@
 //! C2 pilot administration (PRD §10): `user create|deactivate`,
-//! `project create`, `project member add|remove`, `team create` and
+//! `project create|list`, `project member add|remove`, `team create` and
 //! `team member add|remove`, mapped onto the B4.2 directory routes.
 //!
 //! Directory routes are organization-scoped. `--org` selects one; without
@@ -30,6 +30,11 @@ pub enum UserCommands {
 pub enum ProjectCommands {
     #[command(about = "Create a project")]
     Create(SlugTitleArgs),
+    #[command(
+        name = "list",
+        about = "List the projects you can see in the organization"
+    )]
+    List(ProjectListArgs),
     #[command(subcommand, about = "Grant or revoke project roles")]
     Member(ProjectMemberCommands),
 }
@@ -64,6 +69,14 @@ pub enum TeamMemberCommands {
 
 #[derive(Args, Debug)]
 pub struct UserListArgs {
+    #[arg(long, help = "Organization ID (default: the only one visible)")]
+    pub org: Option<String>,
+    #[arg(long, help = "Output response as JSON")]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct ProjectListArgs {
     #[arg(long, help = "Organization ID (default: the only one visible)")]
     pub org: Option<String>,
     #[arg(long, help = "Output response as JSON")]
@@ -269,6 +282,28 @@ pub fn handle_project(env: &Env, command: ProjectCommands) -> i32 {
                     )
                 })
             }
+            ProjectCommands::List(a) => {
+                let client = client(env)?;
+                let org = resolve_org(&client, a.org.as_deref())?;
+                // Every page: an organization has few projects, and a
+                // listing that stops at the first page hides some.
+                let items = list_all(&client, &format!("/v1/orgs/{org}/projects"))?;
+                if a.json {
+                    print_json(&json!({ "items": items }));
+                    return Ok(OK);
+                }
+                for p in &items {
+                    let archived = p.get("archived").and_then(Value::as_bool) == Some(true);
+                    println!(
+                        "{}  {}  {}{}",
+                        text(p, "id"),
+                        text(p, "slug"),
+                        text(p, "title"),
+                        if archived { "  (archived)" } else { "" }
+                    );
+                }
+                Ok(OK)
+            }
             ProjectCommands::Member(ProjectMemberCommands::Add(a)) => {
                 let user_id = parse_id::<UserId>(&a.user, "user")?;
                 let client = client(env)?;
@@ -421,7 +456,20 @@ pub fn resolve_org(client: &ApiClient, given: Option<&str>) -> Exit<String> {
     if let Some(org) = given {
         return parse_id::<OrganizationId>(org, "organization");
     }
-    let page = client.get_json("/v1/orgs").map_err(api_failed)?;
+    let page = match client.get_json("/v1/orgs") {
+        Ok(page) => page,
+        // A credential without a directory scope (e.g. only runner:read and
+        // runner:admin) may not list organizations, but `/v1/me` names its
+        // own, which is the only one it can act in.
+        Err(crate::api::ApiError::Problem { status: 403, .. }) => {
+            let me = client.get_json("/v1/me").map_err(api_failed)?;
+            return me["org"]["id"]
+                .as_str()
+                .map(str::to_owned)
+                .ok_or_else(|| fail("no organization is visible to this credential"));
+        }
+        Err(e) => return Err(api_failed(e)),
+    };
     let ids: Vec<&str> = page
         .get("items")
         .and_then(Value::as_array)

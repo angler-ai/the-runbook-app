@@ -232,6 +232,57 @@ fn team_list_human_and_json() {
 }
 
 #[test]
+fn project_list_reads_every_page_human_and_json() {
+    let home = tempdir().unwrap();
+    let second = "prj_01J00000000000000000000002";
+    let pages = || {
+        vec![
+            orgs(),
+            Reply::json(
+                200,
+                json!({"items": [{"id": PRJ, "slug": "ops", "title": "Operations", "archived": false}], "next_cursor": "c1"}),
+            ),
+            Reply::json(
+                200,
+                json!({"items": [{"id": second, "slug": "old", "title": "Old", "archived": true}], "next_cursor": null}),
+            ),
+        ]
+    };
+    let (host, server) = serve(pages().into_iter().chain(pages()).collect());
+
+    let o_human = cli(&host, home.path(), &["project", "list"], &token(), None);
+    assert_eq!(o_human.status.code(), Some(0), "{}", err(&o_human));
+    let stdout = out(&o_human);
+    assert!(
+        stdout.contains(&format!("{PRJ}  ops  Operations\n")),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains(&format!("{second}  old  Old  (archived)")),
+        "{stdout}"
+    );
+
+    let o_json = cli(
+        &host,
+        home.path(),
+        &["project", "list", "--json"],
+        &token(),
+        None,
+    );
+    assert_eq!(o_json.status.code(), Some(0), "{}", err(&o_json));
+    let val: Value = serde_json::from_str(&out(&o_json)).unwrap();
+    assert_eq!(val["items"].as_array().unwrap().len(), 2);
+    assert_eq!(val["items"][1]["slug"], "old");
+
+    let seen = server.join().unwrap();
+    assert_eq!(line(&seen[1]), format!("GET /v1/orgs/{ORG}/projects"));
+    assert_eq!(
+        line(&seen[2]),
+        format!("GET /v1/orgs/{ORG}/projects?cursor=c1")
+    );
+}
+
+#[test]
 fn project_member_list_human_and_json() {
     let home = tempdir().unwrap();
     let (host, server) = serve(vec![
